@@ -17,4 +17,8 @@ export default defineSchema({
     keyCheckedAt: v.number(),
     models: v.array(v.object({ id: v.string(), displayName: v.string(), hidden: v.boolean() })),
   }).index("by_ownerId", ["ownerId"]),
+  settings: defineTable({
+    ownerId: v.id("users"),
+    allowlistedHosts: v.array(v.string()), // private hosts the URL guard lets through, e.g. "192.168.1.20:11434"
+  }).index("by_ownerId", ["ownerId"]),
 });

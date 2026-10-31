@@ -7,6 +7,9 @@ import { api } from "./_generated/api";
 import { decryptSecret } from "./lib/vault";
 import schema from "./schema";
 
+// Public DNS answer for every hostname; the guard itself is tested in lib/urlGuard.test.ts.
+vi.mock("node:dns/promises", () => ({ lookup: async () => [{ address: "160.79.104.10", family: 4 }] }));
+
 const modules = import.meta.glob("./**/*.ts");
 const MODELS_URL = "GET https://api.anthropic.com/v1/models?limit=1000";
 const KEY = "sk-ant-test-0123456789abcdef";
@@ -30,7 +33,7 @@ describe("adding an Anthropic provider", () => {
   test("tests the key, stores it encrypted, and pulls the model list", async () => {
     const { t, owner } = await setup();
     fake = fakeFetch({ [MODELS_URL]: modelsOk });
-    const id = await owner.action(api.providers.add, input);
+    const id = await owner.action(api.providerActions.add, input);
 
     expect(fake.requests[0].headers["x-api-key"]).toBe(KEY);
     const row = await t.run((ctx) => ctx.db.get("providers", id));
@@ -46,20 +49,29 @@ describe("adding an Anthropic provider", () => {
   test("a rejected key is reported and nothing is saved", async () => {
     const { owner } = await setup();
     fake = fakeFetch({ [MODELS_URL]: { status: 401, body: { error: { type: "authentication_error" } } } });
-    await expect(owner.action(api.providers.add, input)).rejects.toThrow("rejected this key");
+    await expect(owner.action(api.providerActions.add, input)).rejects.toThrow("rejected this key");
     expect(await owner.query(api.providers.list, {})).toEqual([]);
   });
 
-  test("non-https base URLs are refused before any request", async () => {
+  test("non-https and private base URLs are refused before any request", async () => {
     const { owner } = await setup();
     fake = fakeFetch({});
-    await expect(owner.action(api.providers.add, { ...input, baseUrl: "http://api.anthropic.com" })).rejects.toThrow("https");
+    await expect(owner.action(api.providerActions.add, { ...input, baseUrl: "http://api.anthropic.com" })).rejects.toThrow("https");
+    await expect(owner.action(api.providerActions.add, { ...input, baseUrl: "https://10.0.0.5" })).rejects.toThrow("private address");
     expect(fake.requests).toEqual([]);
+  });
+
+  test("an allowlisted private host is reachable, over http too", async () => {
+    const { owner } = await setup();
+    await owner.mutation(api.settings.addAllowedHost, { host: "192.168.1.20:8080" });
+    fake = fakeFetch({ "GET http://192.168.1.20:8080/v1/models?limit=1000": modelsOk });
+    await owner.action(api.providerActions.add, { ...input, baseUrl: "http://192.168.1.20:8080" });
+    expect(fake.requests).toHaveLength(1);
   });
 
   test("requires the owner to be logged in", async () => {
     const { t } = await setup();
-    await expect(t.action(api.providers.add, input)).rejects.toThrow("Not logged in");
+    await expect(t.action(api.providerActions.add, input)).rejects.toThrow("Not logged in");
     await expect(t.query(api.providers.list, {})).rejects.toThrow("Not logged in");
   });
 });
@@ -72,7 +84,7 @@ describe("key material never leaves the server", () => {
     for (const level of ["log", "info", "warn", "error", "debug"] as const) {
       vi.spyOn(console, level).mockImplementation((...a) => void logs.push(JSON.stringify(a)));
     }
-    const id = await owner.action(api.providers.add, input);
+    const id = await owner.action(api.providerActions.add, input);
     vi.restoreAllMocks();
 
     const stored = (await t.run((ctx) => ctx.db.get("providers", id)))!.apiKeyEncrypted;
@@ -88,7 +100,7 @@ describe("managing a provider", () => {
   test("owner can hide and rename models", async () => {
     const { owner } = await setup();
     fake = fakeFetch({ [MODELS_URL]: modelsOk });
-    const providerId = await owner.action(api.providers.add, input);
+    const providerId = await owner.action(api.providerActions.add, input);
     await owner.mutation(api.providers.updateModel, { providerId, modelId: "claude-haiku-5-5", hidden: true });
     await owner.mutation(api.providers.updateModel, { providerId, modelId: "claude-sonnet-5-5", displayName: "Sonnet" });
     const [view] = await owner.query(api.providers.list, {});
@@ -101,21 +113,21 @@ describe("managing a provider", () => {
   test("replacing a key tests and stores the new one; a bad replacement keeps the old", async () => {
     const { t, owner } = await setup();
     fake = fakeFetch({ [MODELS_URL]: modelsOk });
-    const providerId = await owner.action(api.providers.add, input);
-    await owner.action(api.providers.replaceKey, { providerId, apiKey: "sk-ant-new-key" });
+    const providerId = await owner.action(api.providerActions.add, input);
+    await owner.action(api.providerActions.replaceKey, { providerId, apiKey: "sk-ant-new-key" });
     const keyOf = async () => t.run(async (ctx) => decryptSecret((await ctx.db.get("providers", providerId))!.apiKeyEncrypted));
     expect(await keyOf()).toBe("sk-ant-new-key");
 
     fake.restore();
     fake = fakeFetch({ [MODELS_URL]: { status: 401, body: {} } });
-    await expect(owner.action(api.providers.replaceKey, { providerId, apiKey: "sk-ant-bad" })).rejects.toThrow("rejected");
+    await expect(owner.action(api.providerActions.replaceKey, { providerId, apiKey: "sk-ant-bad" })).rejects.toThrow("rejected");
     expect(await keyOf()).toBe("sk-ant-new-key");
   });
 
   test("owner can delete a provider", async () => {
     const { owner } = await setup();
     fake = fakeFetch({ [MODELS_URL]: modelsOk });
-    const providerId = await owner.action(api.providers.add, input);
+    const providerId = await owner.action(api.providerActions.add, input);
     await owner.mutation(api.providers.remove, { providerId });
     expect(await owner.query(api.providers.list, {})).toEqual([]);
   });

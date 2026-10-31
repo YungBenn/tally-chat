@@ -1,9 +1,6 @@
 import { ConvexError, v } from "convex/values";
-import { internal } from "./_generated/api";
-import type { Doc, Id } from "./_generated/dataModel";
-import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import { fetchAnthropicModels } from "./lib/anthropic";
-import { encryptSecret } from "./lib/vault";
+import type { Doc } from "./_generated/dataModel";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { requireOwner } from "./owner";
 
 const providerView = v.object({
@@ -21,18 +18,6 @@ const toView = ({ _id, name, apiStyle, baseUrl, detected, keyCheckedAt, models }
   _id, name, apiStyle, baseUrl, detected, keyCheckedAt, models,
 });
 
-// https only for now; the full SSRF guard arrives in ticket 04.
-function normalizeBaseUrl(input: string): string {
-  let url: URL;
-  try {
-    url = new URL(input.trim());
-  } catch {
-    throw new ConvexError("Base URL is not a valid URL");
-  }
-  if (url.protocol !== "https:") throw new ConvexError("Base URL must use https");
-  return url.href.replace(/\/+$/, "").replace(/\/v1$/, "");
-}
-
 export const list = query({
   args: {},
   returns: v.array(providerView),
@@ -40,37 +25,6 @@ export const list = query({
     const ownerId = await requireOwner(ctx);
     const rows = await ctx.db.query("providers").withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId)).take(100);
     return rows.map(toView);
-  },
-});
-
-export const add = action({
-  args: { name: v.string(), apiStyle: v.literal("anthropic"), baseUrl: v.string(), apiKey: v.string() },
-  returns: v.id("providers"),
-  handler: async (ctx, args): Promise<Id<"providers">> => {
-    const ownerId = await requireOwner(ctx);
-    const name = args.name.trim();
-    if (!name) throw new ConvexError("Name is required");
-    const baseUrl = normalizeBaseUrl(args.baseUrl);
-    const { detected, models } = await fetchAnthropicModels(baseUrl, args.apiKey.trim());
-    return ctx.runMutation(internal.providers.insert, {
-      ownerId, name, apiStyle: args.apiStyle, baseUrl, detected, models,
-      apiKeyEncrypted: await encryptSecret(args.apiKey.trim()),
-      keyCheckedAt: Date.now(),
-    });
-  },
-});
-
-export const replaceKey = action({
-  args: { providerId: v.id("providers"), apiKey: v.string() },
-  returns: v.null(),
-  handler: async (ctx, { providerId, apiKey }) => {
-    const ownerId = await requireOwner(ctx);
-    const provider = await ctx.runQuery(internal.providers.getOwned, { ownerId, providerId });
-    const { detected } = await fetchAnthropicModels(provider.baseUrl, apiKey.trim());
-    await ctx.runMutation(internal.providers.patchKey, {
-      providerId, detected, apiKeyEncrypted: await encryptSecret(apiKey.trim()), keyCheckedAt: Date.now(),
-    });
-    return null;
   },
 });
 

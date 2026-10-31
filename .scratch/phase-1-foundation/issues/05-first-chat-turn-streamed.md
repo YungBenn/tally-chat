@@ -18,3 +18,4 @@
 - [ ] Each message stores `ancestorIds`; the active branch is built in one read
 - [ ] Message content never changes after its final status is written (test asserts this)
 - [ ] The system prompt is sent at the thread's `systemPromptVersion`
+- [ ] Chat requests go through the outbound URL guard (`guardedFetch` with the owner's allowlist), like key tests and model listing

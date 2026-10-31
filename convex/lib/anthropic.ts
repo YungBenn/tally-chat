@@ -1,15 +1,19 @@
 import { ConvexError } from "convex/values";
+import { guardedFetch, type GuardOptions } from "./urlGuard";
 
 export type ProviderModel = { id: string; displayName: string; hidden: boolean };
 
 // GET /v1/models is free, so it doubles as the key test and the model list.
-export async function fetchAnthropicModels(baseUrl: string, apiKey: string) {
+export async function fetchAnthropicModels(baseUrl: string, apiKey: string, guard: GuardOptions) {
   let res: Response;
   try {
-    res = await fetch(`${baseUrl}/v1/models?limit=1000`, {
-      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
-    });
-  } catch {
+    res = await guardedFetch(
+      `${baseUrl}/v1/models?limit=1000`,
+      { headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" } },
+      guard,
+    );
+  } catch (err) {
+    if (err instanceof ConvexError) throw err;
     throw new ConvexError("Could not reach the provider");
   }
   if (res.status === 401 || res.status === 403) throw new ConvexError("The provider rejected this key");

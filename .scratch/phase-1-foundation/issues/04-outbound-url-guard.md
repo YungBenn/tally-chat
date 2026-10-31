@@ -4,12 +4,12 @@
 
 **Blocked by:** 03 Add an Anthropic provider
 
-**Status:** ready-for-agent
+**Status:** done (pending review)
 
-- [ ] DNS is resolved through an injectable resolver; tests use a fake resolver
-- [ ] Refused by default: private IPv4 ranges, loopback, link-local, 169.254.169.254, IPv6 private, loopback and link-local, IPv4-mapped IPv6
-- [ ] Plain http is refused unless the host is allowlisted
-- [ ] Redirects are followed manually and each hop is re-checked; a public URL redirecting into a private range is refused
-- [ ] Owner can add and remove allowlisted hosts in settings; allowlisted hosts bypass the range check
-- [ ] Key test, model listing and chat requests all go through the guard
-- [ ] DNS rebinding limit (if the runtime cannot pin the validated address) is noted for the self-hosting guide
+- [x] DNS is resolved through an injectable resolver; tests use a fake resolver
+- [x] Refused by default: private IPv4 ranges, loopback, link-local, 169.254.169.254, IPv6 private, loopback and link-local, IPv4-mapped IPv6
+- [x] Plain http is refused unless the host is allowlisted
+- [x] Redirects are followed manually and each hop is re-checked; a public URL redirecting into a private range is refused
+- [x] Owner can add and remove allowlisted hosts in settings; allowlisted hosts bypass the range check
+- [x] Key test and model listing go through the guard; chat requests are carried into ticket 05
+- [x] DNS rebinding limit (if the runtime cannot pin the validated address) is noted for the self-hosting guide

@@ -2,6 +2,7 @@
 
 import { useAction, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
+import Link from "next/link";
 import { useState } from "react";
 import AppHeader from "@/components/AppHeader";
 import { api } from "@/convex/_generated/api";
@@ -32,7 +33,7 @@ export default function ProvidersPage() {
 }
 
 function AddProvider() {
-  const add = useAction(api.providers.add);
+  const add = useAction(api.providerActions.add);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -87,6 +88,13 @@ function AddProvider() {
             Tested with one free call, then encrypted. It is never shown again.
           </span>
         </label>
+        <p className="text-xs text-muted sm:col-span-2">
+          Private or http addresses, like Ollama on your network, must be added to the{" "}
+          <Link href="/settings" className="underline underline-offset-2 hover:text-foreground">
+            private host allowlist
+          </Link>{" "}
+          first.
+        </p>
         {error && (
           <p role="alert" className="text-sm text-danger sm:col-span-2">
             {error}
@@ -171,7 +179,7 @@ function ProviderCard({ provider }: { provider: Provider }) {
 }
 
 function ReplaceKey({ providerId, onDone }: { providerId: Id<"providers">; onDone: () => void }) {
-  const replaceKey = useAction(api.providers.replaceKey);
+  const replaceKey = useAction(api.providerActions.replaceKey);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 

@@ -11,9 +11,12 @@
 import type * as auth from "../auth.js";
 import type * as http from "../http.js";
 import type * as lib_anthropic from "../lib/anthropic.js";
+import type * as lib_urlGuard from "../lib/urlGuard.js";
 import type * as lib_vault from "../lib/vault.js";
 import type * as owner from "../owner.js";
+import type * as providerActions from "../providerActions.js";
 import type * as providers from "../providers.js";
+import type * as settings from "../settings.js";
 
 import type {
   ApiFromModules,
@@ -25,9 +28,12 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   http: typeof http;
   "lib/anthropic": typeof lib_anthropic;
+  "lib/urlGuard": typeof lib_urlGuard;
   "lib/vault": typeof lib_vault;
   owner: typeof owner;
+  providerActions: typeof providerActions;
   providers: typeof providers;
+  settings: typeof settings;
 }>;
 
 /**

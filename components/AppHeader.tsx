@@ -23,6 +23,9 @@ export default function AppHeader() {
         <Link href="/providers" className={`${navLink} ${path === "/providers" ? "text-foreground" : ""}`}>
           Providers
         </Link>
+        <Link href="/settings" className={`${navLink} ${path === "/settings" ? "text-foreground" : ""}`}>
+          Settings
+        </Link>
         <button className={`${navLink} cursor-pointer`} onClick={() => void signOut().then(() => router.push("/signin"))}>
           Log out
         </button>
