@@ -4,10 +4,10 @@
 
 **Blocked by:** 06 Metering and cost
 
-**Status:** ready-for-agent
+**Status:** done (pending review)
 
-- [ ] Settings hold a side-job model; if unset, it defaults to the cheapest model of the thread's provider
-- [ ] After the first assistant reply, a title is generated on the side-job model and saved on the thread
-- [ ] The title call's usage and cost are recorded and flagged `isSideJob`
-- [ ] Side-job spend appears in the rollups
-- [ ] A failed title call leaves a fallback title and does not affect the chat
+- [x] Settings hold a side-job model; if unset, it defaults to the cheapest model of the thread's provider
+- [x] After the first assistant reply, a title is generated on the side-job model and saved on the thread
+- [x] The title call's usage and cost are recorded as a side job (`sideJobs` table)
+- [x] Side-job spend appears in the rollups
+- [x] A failed title call leaves a fallback title and does not affect the chat

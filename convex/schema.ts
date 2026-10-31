@@ -28,6 +28,7 @@ export default defineSchema({
     modelId: v.string(),
     systemPromptVersion: v.number(),
     activeLeafId: v.optional(v.id("messages")),
+    titleRequested: v.optional(v.boolean()), // the side-job title runs once per thread
   }).index("by_ownerId", ["ownerId"]),
   // Append-only tree (ADR 0001). The only update a message ever gets is
   // streaming -> final status (plus the stop flag before that).
@@ -57,6 +58,16 @@ export default defineSchema({
     summary: v.string(),
     tokens: v.number(),
   }).index("by_threadId", ["threadId"]),
+  // Metered model calls that are not part of the conversation (design doc S6 side jobs).
+  sideJobs: defineTable({
+    ownerId: v.id("users"),
+    threadId: v.id("threads"),
+    kind: v.literal("title"),
+    providerId: v.id("providers"),
+    model: v.string(),
+    usage: usageValidator,
+    costMicroUsd: v.optional(v.number()),
+  }).index("by_threadId", ["threadId"]),
   // Per owner, UTC day and dimension: sums kept in the mutation that finalizes a reply
   // (design doc S10, 8.2). Survives thread deletes so daily spend stays accurate.
   dailyUsage: defineTable({
@@ -72,5 +83,8 @@ export default defineSchema({
   settings: defineTable({
     ownerId: v.id("users"),
     allowlistedHosts: v.array(v.string()), // private hosts the URL guard lets through, e.g. "192.168.1.20:11434"
+    // Model for work the user didn't ask for directly (titles now, condensing later).
+    // Unset: the cheapest priced model of the thread's own provider.
+    sideJobModel: v.optional(v.object({ providerId: v.id("providers"), modelId: v.string() })),
   }).index("by_ownerId", ["ownerId"]),
 });

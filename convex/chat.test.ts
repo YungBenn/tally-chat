@@ -219,7 +219,10 @@ describe("metering", () => {
     expect(rows.map((r) => [r.dimension, r.key]).sort()).toEqual(
       [["model", "claude-sonnet-5-5"], ["provider", providerId], ["thread", threadId]].sort(),
     );
-    for (const row of rows) expect(row).toMatchObject({ ...usage, calls: 1, unpricedCalls: 0, costMicroUsd: 11950 });
+    // The first reply also triggers a side-job title on the same (cheapest) model; the fake
+    // provider bills it identically, so every rollup holds the reply plus the title.
+    const doubled = Object.fromEntries(Object.entries(usage).map(([k, v]) => [k, v * 2]));
+    for (const row of rows) expect(row).toMatchObject({ ...doubled, calls: 2, unpricedCalls: 0, costMicroUsd: 23900 });
   });
 
   test("rollup totals equal the sum of their messages across threads and models", async () => {
@@ -232,7 +235,8 @@ describe("metering", () => {
     }
 
     const messages = await t.run((ctx) => ctx.db.query("messages").collect());
-    const replies = messages.filter((m) => m.usage);
+    const sideJobs = await t.run((ctx) => ctx.db.query("sideJobs").collect());
+    const replies = [...messages.filter((m) => m.usage), ...sideJobs];
     for (const row of await rollups(t)) {
       const mine = replies.filter((m) => (row.dimension === "model" ? m.model : row.dimension === "provider" ? m.providerId : m.threadId) === row.key);
       expect(row.calls).toBe(mine.length);
@@ -241,7 +245,8 @@ describe("metering", () => {
       expect(row.unpricedCalls).toBe(mine.filter((m) => m.costMicroUsd === undefined).length);
     }
     const byModel = Object.fromEntries((await rollups(t)).filter((r) => r.dimension === "model").map((r) => [r.key, r]));
-    expect(byModel["claude-sonnet-5-5"]).toMatchObject({ calls: 2, costMicroUsd: 23900 });
+    // 2 replies plus 2 titles (both threads' side jobs default to the cheapest priced model).
+    expect(byModel["claude-sonnet-5-5"]).toMatchObject({ calls: 4, costMicroUsd: 47800 });
     expect(byModel["local-mystery"]).toMatchObject({ calls: 1, unpricedCalls: 1, costMicroUsd: 0 });
   });
 

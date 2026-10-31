@@ -6,7 +6,7 @@ import { CURRENT_SYSTEM_PROMPT_VERSION } from "./lib/systemPrompts";
 import { assembleHistory } from "./lib/context";
 import { recordDailyUsage } from "./lib/rollups";
 import { appendChunk, createStream, deleteStream, streamText } from "./lib/textStream";
-import { costMicroUsd, priceFor, usageValidator } from "./lib/usage";
+import { costMicroUsd, priceFor, usageValidator, type Usage } from "./lib/usage";
 import { requireOwner } from "./owner";
 
 async function ownedThread(ctx: QueryCtx, ownerId: Id<"users">, threadId: Id<"threads">) {
@@ -274,8 +274,13 @@ export const purgeThread = internalMutation({
       .withIndex("by_threadId", (q) => q.eq("threadId", threadId))
       .take(PURGE_BATCH);
     for (const c of checkpoints) await ctx.db.delete("checkpoints", c._id);
+    const sideJobs = await ctx.db
+      .query("sideJobs")
+      .withIndex("by_threadId", (q) => q.eq("threadId", threadId))
+      .take(PURGE_BATCH);
+    for (const j of sideJobs) await ctx.db.delete("sideJobs", j._id);
 
-    const more = messages.length === PURGE_BATCH || checkpoints.length === PURGE_BATCH;
+    const more = [messages, checkpoints, sideJobs].some((rows) => rows.length === PURGE_BATCH);
     if (more || waiting) await ctx.scheduler.runAfter(waiting && !more ? 1000 : 0, internal.chat.purgeThread, { threadId });
     return null;
   },
@@ -363,26 +368,147 @@ export const finalize = internalMutation({
       return null;
     }
 
-    const model = message.model ?? "";
-    const provider = message.providerId && (await ctx.db.get("providers", message.providerId));
-    // Free providers (local models) cost nothing; a provider-reported cost beats the table.
-    const cost = provider && provider.free ? 0 : (reportedCostMicroUsd ?? costMicroUsd(usage, priceFor(model)));
-    await ctx.db.patch("messages", messageId, { status, content, error, usage, costMicroUsd: cost ?? undefined });
-    await recordDailyUsage(ctx, {
+    const cost = await meterCall(ctx, {
       ownerId: message.ownerId,
-      at: Date.now(),
-      model,
-      providerId: message.providerId ?? "",
       threadId: message.threadId,
-      usage,
-      costMicroUsd: cost,
+      providerId: message.providerId,
+      model: message.model ?? "",
+      normalized: { usage, reports, reportedCostMicroUsd },
     });
-    if (provider && reports) {
-      const known = provider.capabilities ?? { caching: false, reasoning: false };
-      const capabilities = { caching: known.caching || reports.caching, reasoning: known.reasoning || reports.reasoning };
-      if (capabilities.caching !== known.caching || capabilities.reasoning !== known.reasoning || !provider.capabilities) {
-        await ctx.db.patch("providers", provider._id, { capabilities });
-      }
+    await ctx.db.patch("messages", messageId, { status, content, error, usage, costMicroUsd: cost ?? undefined });
+
+    // The first finished reply in a thread gets a side-job title, once.
+    const thread = await ctx.db.get("threads", message.threadId);
+    if (status === "done" && message.ancestorIds.length === 1 && thread && !thread.titleRequested) {
+      await ctx.db.patch("threads", thread._id, { titleRequested: true });
+      await ctx.scheduler.runAfter(0, internal.chatActions.generateTitle, { threadId: thread._id, replyId: messageId });
+    }
+    return null;
+  },
+});
+
+// Prices one provider call, adds it to the daily rollups and learns the provider's
+// capabilities from what it reported. Returns the cost, or null when it has no price.
+async function meterCall(
+  ctx: MutationCtx,
+  call: {
+    ownerId: Id<"users">;
+    threadId: Id<"threads">;
+    providerId: Id<"providers"> | undefined;
+    model: string;
+    normalized: { usage: Usage; reports?: { caching: boolean; reasoning: boolean }; reportedCostMicroUsd?: number };
+  },
+) {
+  const { usage, reports, reportedCostMicroUsd } = call.normalized;
+  const provider = call.providerId && (await ctx.db.get("providers", call.providerId));
+  // Free providers (local models) cost nothing; a provider-reported cost beats the table.
+  const cost = provider && provider.free ? 0 : (reportedCostMicroUsd ?? costMicroUsd(usage, priceFor(call.model)));
+  await recordDailyUsage(ctx, {
+    ownerId: call.ownerId,
+    at: Date.now(),
+    model: call.model,
+    providerId: call.providerId ?? "",
+    threadId: call.threadId,
+    usage,
+    costMicroUsd: cost,
+  });
+  if (provider && reports) {
+    const known = provider.capabilities ?? { caching: false, reasoning: false };
+    const capabilities = { caching: known.caching || reports.caching, reasoning: known.reasoning || reports.reasoning };
+    if (capabilities.caching !== known.caching || capabilities.reasoning !== known.reasoning || !provider.capabilities) {
+      await ctx.db.patch("providers", provider._id, { capabilities });
+    }
+  }
+  return cost;
+}
+
+// The side-job model for a thread: the owner's choice if it still exists and is visible,
+// otherwise the cheapest priced visible model of the thread's provider, else the thread's model.
+async function sideJobModelFor(ctx: QueryCtx, thread: Doc<"threads">) {
+  const settings = await ctx.db
+    .query("settings")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", thread.ownerId))
+    .unique();
+  const chosen = settings?.sideJobModel;
+  if (chosen) {
+    const provider = await ctx.db.get("providers", chosen.providerId);
+    if (provider && provider.models.some((m) => m.id === chosen.modelId && !m.hidden)) {
+      return { provider, model: chosen.modelId };
+    }
+  }
+  const provider = await ctx.db.get("providers", thread.providerId);
+  if (!provider) return null;
+  const priced = provider.models
+    .filter((m) => !m.hidden)
+    .map((m) => ({ id: m.id, price: priceFor(m.id) }))
+    .filter((m) => m.price?.input !== undefined && m.price.output !== undefined)
+    .sort((a, b) => a.price!.input! + a.price!.output! - (b.price!.input! + b.price!.output!));
+  return { provider, model: priced[0]?.id ?? thread.modelId };
+}
+
+export const titleJobInput = internalQuery({
+  args: { threadId: v.id("threads"), replyId: v.id("messages") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      question: v.string(),
+      answer: v.string(),
+      providerId: v.id("providers"),
+      provider: v.object({
+        apiStyle: v.union(v.literal("anthropic"), v.literal("openai-compatible")),
+        baseUrl: v.string(),
+        apiKeyEncrypted: v.string(),
+      }),
+      model: v.string(),
+      allowlist: v.array(v.string()),
+    }),
+  ),
+  handler: async (ctx, { threadId, replyId }) => {
+    const thread = await ctx.db.get("threads", threadId);
+    const reply = await ctx.db.get("messages", replyId);
+    const question = reply?.parentId && (await ctx.db.get("messages", reply.parentId));
+    if (!thread || !reply || !question) return null;
+    const sideJob = await sideJobModelFor(ctx, thread);
+    if (!sideJob) return null;
+    const settings = await ctx.db
+      .query("settings")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", thread.ownerId))
+      .unique();
+    const { apiStyle, baseUrl, apiKeyEncrypted } = sideJob.provider;
+    return {
+      question: question.content,
+      answer: reply.content,
+      providerId: sideJob.provider._id,
+      provider: { apiStyle, baseUrl, apiKeyEncrypted },
+      model: sideJob.model,
+      allowlist: settings?.allowlistedHosts ?? [],
+    };
+  },
+});
+
+// Saves a side-job title (if one came back) and meters the call (if usage came back).
+export const saveTitle = internalMutation({
+  args: {
+    threadId: v.id("threads"),
+    providerId: v.id("providers"),
+    model: v.string(),
+    title: v.optional(v.string()),
+    usage: v.optional(usageValidator),
+    reports: v.optional(v.object({ caching: v.boolean(), reasoning: v.boolean() })),
+    reportedCostMicroUsd: v.optional(v.number()),
+  },
+  returns: v.null(),
+  handler: async (ctx, { threadId, providerId, model, title, usage, reports, reportedCostMicroUsd }) => {
+    const thread = await ctx.db.get("threads", threadId);
+    if (!thread) return null; // deleted meanwhile: nothing left to title or bill against
+    if (title) await ctx.db.patch("threads", threadId, { title });
+    if (usage) {
+      const cost = await meterCall(ctx, {
+        ownerId: thread.ownerId, threadId, providerId, model, normalized: { usage, reports, reportedCostMicroUsd },
+      });
+      await ctx.db.insert("sideJobs", {
+        ownerId: thread.ownerId, threadId, kind: "title", providerId, model, usage, costMicroUsd: cost ?? undefined,
+      });
     }
     return null;
   },

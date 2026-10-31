@@ -18,9 +18,9 @@ describe("private host allowlist", () => {
     await owner.mutation(api.settings.addAllowedHost, { host: " 192.168.1.20:11434 " });
     await owner.mutation(api.settings.addAllowedHost, { host: "Ollama.LAN" });
     await owner.mutation(api.settings.addAllowedHost, { host: "ollama.lan" });
-    expect(await owner.query(api.settings.get, {})).toEqual({ allowlistedHosts: ["192.168.1.20:11434", "ollama.lan"] });
+    expect((await owner.query(api.settings.get, {})).allowlistedHosts).toEqual(["192.168.1.20:11434", "ollama.lan"]);
     await owner.mutation(api.settings.removeAllowedHost, { host: "ollama.lan" });
-    expect(await owner.query(api.settings.get, {})).toEqual({ allowlistedHosts: ["192.168.1.20:11434"] });
+    expect((await owner.query(api.settings.get, {})).allowlistedHosts).toEqual(["192.168.1.20:11434"]);
   });
 
   test("rejects entries with a scheme, path or credentials", async () => {

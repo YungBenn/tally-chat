@@ -5,9 +5,52 @@ import { ConvexError } from "convex/values";
 import { useState } from "react";
 import AppHeader from "@/components/AppHeader";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 
 const input =
   "w-full rounded-lg border border-line bg-card px-3 py-2 font-mono text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/20";
+
+function SideJobModel() {
+  const settings = useQuery(api.settings.get);
+  const providers = useQuery(api.providers.list);
+  const setSideJobModel = useMutation(api.settings.setSideJobModel);
+  if (!settings || !providers) return null;
+  const current = settings.sideJobModel ? `${settings.sideJobModel.providerId}|${settings.sideJobModel.modelId}` : "";
+
+  return (
+    <section className="flex flex-col gap-4 rounded-xl border border-line bg-card p-5">
+      <div>
+        <h2 className="font-medium">Side-job model</h2>
+        <p className="mt-1 text-sm text-muted">
+          Runs work you didn&apos;t ask for directly, like thread titles. Pick something cheap: it is metered like
+          any other call.
+        </p>
+      </div>
+      <select
+        aria-label="Side-job model"
+        className={input.replace("font-mono ", "")}
+        value={current}
+        onChange={(e) => {
+          const [providerId, modelId] = e.target.value.split("|");
+          void setSideJobModel({
+            sideJobModel: e.target.value ? { providerId: providerId as Id<"providers">, modelId } : null,
+          });
+        }}
+      >
+        <option value="">Default: the cheapest priced model of each thread&apos;s provider</option>
+        {providers.flatMap((p) =>
+          p.models
+            .filter((m) => !m.hidden)
+            .map((m) => (
+              <option key={`${p._id}|${m.id}`} value={`${p._id}|${m.id}`}>
+                {p.name} · {m.displayName}
+              </option>
+            )),
+        )}
+      </select>
+    </section>
+  );
+}
 
 export default function SettingsPage() {
   const settings = useQuery(api.settings.get);
@@ -32,6 +75,7 @@ export default function SettingsPage() {
       <AppHeader />
       <main className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 py-8">
         <h1 className="font-serif text-2xl">Settings</h1>
+        <SideJobModel />
         <section className="flex flex-col gap-4 rounded-xl border border-line bg-card p-5">
           <div>
             <h2 className="font-medium">Private host allowlist</h2>

@@ -21,12 +21,33 @@ function normalizeHost(input: string): string {
   return url.host;
 }
 
+const sideJobModelValidator = v.object({ providerId: v.id("providers"), modelId: v.string() });
+
 export const get = query({
   args: {},
-  returns: v.object({ allowlistedHosts: v.array(v.string()) }),
+  returns: v.object({ allowlistedHosts: v.array(v.string()), sideJobModel: v.union(v.null(), sideJobModelValidator) }),
   handler: async (ctx) => {
     const settings = await settingsFor(ctx, await requireOwner(ctx));
-    return { allowlistedHosts: settings?.allowlistedHosts ?? [] };
+    return { allowlistedHosts: settings?.allowlistedHosts ?? [], sideJobModel: settings?.sideJobModel ?? null };
+  },
+});
+
+// null resets to the default: the cheapest priced model of each thread's provider.
+export const setSideJobModel = mutation({
+  args: { sideJobModel: v.union(v.null(), sideJobModelValidator) },
+  returns: v.null(),
+  handler: async (ctx, { sideJobModel }) => {
+    const ownerId = await requireOwner(ctx);
+    if (sideJobModel) {
+      const provider = await ctx.db.get("providers", sideJobModel.providerId);
+      if (!provider || provider.ownerId !== ownerId || !provider.models.some((m) => m.id === sideJobModel.modelId && !m.hidden)) {
+        throw new ConvexError("Model not available");
+      }
+    }
+    const settings = await settingsFor(ctx, ownerId);
+    if (settings) await ctx.db.patch("settings", settings._id, { sideJobModel: sideJobModel ?? undefined });
+    else await ctx.db.insert("settings", { ownerId, allowlistedHosts: [], sideJobModel: sideJobModel ?? undefined });
+    return null;
   },
 });
 

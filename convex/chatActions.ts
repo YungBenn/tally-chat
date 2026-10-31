@@ -78,3 +78,50 @@ export const generate = internalAction({
     return null;
   },
 });
+
+const TITLE_SYSTEM = "Write a title of at most six words for this conversation. Reply with the title only, no quotes.";
+const TITLE_EXCERPT = 2000; // characters of each message sent to the title model
+
+// Side job: titles a thread from its first exchange. Any failure leaves the fallback title
+// (the first message) in place and never touches the chat itself.
+export const generateTitle = internalAction({
+  args: { threadId: v.id("threads"), replyId: v.id("messages") },
+  returns: v.null(),
+  handler: async (ctx, { threadId, replyId }) => {
+    const input = await ctx.runQuery(internal.chat.titleJobInput, { threadId, replyId });
+    if (!input) return null;
+    let text = "";
+    let usage: NormalizedUsage | undefined;
+    try {
+      const stream = input.provider.apiStyle === "anthropic" ? streamAnthropicMessage : streamOpenAICompatible;
+      const events = stream(
+        {
+          baseUrl: input.provider.baseUrl,
+          apiKey: await decryptSecret(input.provider.apiKeyEncrypted),
+          model: input.model,
+          system: TITLE_SYSTEM,
+          messages: [
+            {
+              role: "user",
+              content: `User: ${input.question.slice(0, TITLE_EXCERPT)}\n\nAssistant: ${input.answer.slice(0, TITLE_EXCERPT)}`,
+            },
+          ],
+          maxTokens: 30,
+        },
+        { allowlist: input.allowlist, resolve: systemResolve },
+        new AbortController().signal,
+      );
+      for await (const event of events) {
+        if (event.type === "text") text += event.text;
+        else usage = { usage: event.usage, reports: event.reports, reportedCostMicroUsd: event.reportedCostMicroUsd };
+      }
+    } catch {
+      text = ""; // keep the fallback title; still bill whatever usage arrived
+    }
+    const title = text.trim().replace(/^["'\s]+|["'.\s]+$/g, "").slice(0, 60);
+    await ctx.runMutation(internal.chat.saveTitle, {
+      threadId, providerId: input.providerId, model: input.model, title: title || undefined, ...usage,
+    });
+    return null;
+  },
+});

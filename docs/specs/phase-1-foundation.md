@@ -104,7 +104,9 @@ threads:      ownerId, title, activeLeafId, modelId, providerId,
 messages:     ownerId, threadId, parentId, ancestorIds,
               role (user | assistant | system), pinned, content,
               status (streaming | done | stopped | error),
-              model, providerId, usage?, costMicroUsd?, isSideJob, createdAt
+              model, providerId, usage?, costMicroUsd?, createdAt
+sideJobs:     ownerId, threadId, kind ("title"), providerId, model,
+              usage, costMicroUsd?   // metered calls outside the conversation tree
 checkpoints:  ownerId, threadId, coversUpToId, summary, tokens, createdAt
 providers:    ownerId, name, apiStyle (anthropic | openai-compatible),
               baseUrl, apiKeyEncrypted, models[], capabilities, createdAt
@@ -129,7 +131,7 @@ usage (normalized): inputTokens (uncached), cacheReadTokens,
 - Retry: a new assistant message with the same parent user message. Edit: a new user message with the same parent as the edited one. Both set the active leaf.
 - Stop: marks the stream as cancelled; the action aborts the provider call and records any usage it received.
 - Capabilities are set from observed usage fields (for example, the first response that reports cache read tokens sets caching to confirmed).
-- Title generation runs as a side job on the side-job model after the first assistant reply, metered with `isSideJob`.
+- Title generation runs as a side job on the side-job model after the first assistant reply, metered into the rollups and recorded in `sideJobs` (not as a message, so the tree stays the conversation only).
 
 ## Testing Decisions
 
