@@ -4,12 +4,12 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (pending review)
 
-- [ ] First visit to a fresh instance shows password setup; submitting it creates the single owner account
-- [ ] After setup, the setup path is closed: a second attempt is refused server-side, not just hidden in the UI
-- [ ] Owner can log in, stays logged in across reloads, and can log out
-- [ ] Every Convex function except setup and login rejects unauthenticated calls
-- [ ] Schema convention established: every owned table carries `ownerId`
-- [ ] Test harness in place: `convex-test` plus a fake fetch that replays recorded provider responses and captures outgoing request bodies, with one passing example test
-- [ ] MIT LICENSE file present
+- [x] First visit to a fresh instance shows password setup; submitting it creates the single owner account
+- [x] After setup, the setup path is closed: a second attempt is refused server-side, not just hidden in the UI
+- [x] Owner can log in, stays logged in across reloads, and can log out
+- [x] Every Convex function except setup and login rejects unauthenticated calls
+- [x] Schema convention established: every owned table carries `ownerId`
+- [x] Test harness in place: `convex-test` plus a fake fetch that replays recorded provider responses and captures outgoing request bodies, with one passing example test
+- [x] MIT LICENSE file present
