@@ -1,6 +1,9 @@
 "use client";
 
 import { useAuthActions } from "@convex-dev/auth/react";
+import { useMutation, useQuery } from "convex/react";
+import { useEffect } from "react";
+import { api } from "@/convex/_generated/api";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
@@ -10,6 +13,15 @@ export default function AppHeader() {
   const { signOut } = useAuthActions();
   const router = useRouter();
   const path = usePathname();
+  const settings = useQuery(api.settings.get);
+  const setTimeZone = useMutation(api.settings.setTimeZone);
+
+  // Daily spend uses the owner's day; record the browser's time zone the first time.
+  useEffect(() => {
+    if (settings && settings.timeZone === null) {
+      void setTimeZone({ timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+    }
+  }, [settings, setTimeZone]);
 
   return (
     <header className="flex h-13 items-center justify-between px-4">

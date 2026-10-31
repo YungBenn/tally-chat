@@ -289,6 +289,18 @@ describe("metering", () => {
     expect(await rollups(t)).toEqual([]);
   });
 
+  test("rollup days follow the owner's time zone", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-01T20:00:00Z")); // already Nov 2 in Auckland (UTC+13)
+    const { t, owner, threadId } = await setup();
+    await owner.mutation(api.settings.setTimeZone, { timeZone: "Pacific/Auckland" });
+    fake = fakeFetch({ [MESSAGES_URL]: metered("Hi") });
+    await owner.mutation(api.chat.send, { threadId, content: "Hi" });
+    await t.finishAllScheduledFunctions(() => {});
+    expect(new Set((await rollups(t)).map((r) => r.day))).toEqual(new Set(["2026-11-02"]));
+    await expect(owner.mutation(api.settings.setTimeZone, { timeZone: "Mars/Olympus" })).rejects.toThrow("Unknown time zone");
+  });
+
   test("provider capabilities come from the usage fields it reports", async () => {
     const { t, owner, threadId, providerId } = await setup();
     fake = fakeFetch({ [MESSAGES_URL]: metered("Hi") });

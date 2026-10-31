@@ -52,6 +52,36 @@ function SideJobModel() {
   );
 }
 
+function TimeZone() {
+  const settings = useQuery(api.settings.get);
+  const setTimeZone = useMutation(api.settings.setTimeZone);
+  if (!settings) return null;
+  const zones = Intl.supportedValuesOf("timeZone");
+
+  return (
+    <section className="flex flex-col gap-4 rounded-xl border border-line bg-card p-5">
+      <div>
+        <h2 className="font-medium">Time zone</h2>
+        <p className="mt-1 text-sm text-muted">
+          Where your day starts and ends for daily spend. Changing it applies to new calls; past days keep their dates.
+        </p>
+      </div>
+      <select
+        aria-label="Time zone"
+        className={input.replace("font-mono ", "")}
+        value={settings.timeZone ?? "UTC"}
+        onChange={(e) => void setTimeZone({ timeZone: e.target.value })}
+      >
+        {(zones.includes("UTC") ? zones : ["UTC", ...zones]).map((zone) => (
+          <option key={zone} value={zone}>
+            {zone.replaceAll("_", " ")}
+          </option>
+        ))}
+      </select>
+    </section>
+  );
+}
+
 export default function SettingsPage() {
   const settings = useQuery(api.settings.get);
   const addHost = useMutation(api.settings.addAllowedHost);
@@ -76,6 +106,7 @@ export default function SettingsPage() {
       <main className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 py-8">
         <h1 className="font-serif text-2xl">Settings</h1>
         <SideJobModel />
+        <TimeZone />
         <section className="flex flex-col gap-4 rounded-xl border border-line bg-card p-5">
           <div>
             <h2 className="font-medium">Private host allowlist</h2>

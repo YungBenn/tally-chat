@@ -2,13 +2,27 @@ import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { USAGE_FIELDS, type Usage } from "./usage";
 
+// YYYY-MM-DD for `at` in `timeZone` (UTC when unset). en-CA formats dates as YYYY-MM-DD.
+export function dayIn(at: number, timeZone = "UTC") {
+  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
+}
+
 // Upserts the three daily rollups for one metered call. Call it in the same mutation
 // that writes the usage onto the message, so totals never drift from their messages.
 export async function recordDailyUsage(
   ctx: MutationCtx,
-  call: { ownerId: Id<"users">; at: number; model: string; providerId: string; threadId: string; usage: Usage; costMicroUsd: number | null },
+  call: {
+    ownerId: Id<"users">;
+    at: number;
+    timeZone: string | undefined;
+    model: string;
+    providerId: string;
+    threadId: string;
+    usage: Usage;
+    costMicroUsd: number | null;
+  },
 ) {
-  const day = new Date(call.at).toISOString().slice(0, 10);
+  const day = dayIn(call.at, call.timeZone);
   const keys = { model: call.model, provider: call.providerId, thread: call.threadId } as const;
   for (const dimension of ["model", "provider", "thread"] as const) {
     const key = keys[dimension];

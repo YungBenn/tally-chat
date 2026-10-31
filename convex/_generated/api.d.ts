@@ -11,6 +11,7 @@
 import type * as auth from "../auth.js";
 import type * as chat from "../chat.js";
 import type * as chatActions from "../chatActions.js";
+import type * as crons from "../crons.js";
 import type * as http from "../http.js";
 import type * as lib_anthropic from "../lib/anthropic.js";
 import type * as lib_context from "../lib/context.js";
@@ -36,6 +37,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   chat: typeof chat;
   chatActions: typeof chatActions;
+  crons: typeof crons;
   http: typeof http;
   "lib/anthropic": typeof lib_anthropic;
   "lib/context": typeof lib_context;

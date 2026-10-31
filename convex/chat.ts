@@ -245,9 +245,6 @@ export const deleteThread = mutation({
 });
 
 const PURGE_BATCH = 100;
-// ponytail: a reply whose action crashed stays "streaming" forever; after this long the
-// purge stops waiting for it. A sweeper for stuck replies would fix the root cause.
-const STUCK_STREAM_MS = 15 * 60 * 1000;
 
 export const purgeThread = internalMutation({
   args: { threadId: v.id("threads") },
@@ -261,7 +258,7 @@ export const purgeThread = internalMutation({
     for (const m of messages) {
       // A reply still streaming is stopped first and left until it finalizes, so the
       // tokens the provider already billed still reach the rollups.
-      if (m.status === "streaming" && Date.now() - m._creationTime < STUCK_STREAM_MS) {
+      if (m.status === "streaming") {
         if (!m.stopRequested) await ctx.db.patch("messages", m._id, { stopRequested: true });
         waiting = true;
         continue;
@@ -281,8 +278,34 @@ export const purgeThread = internalMutation({
     for (const j of sideJobs) await ctx.db.delete("sideJobs", j._id);
 
     const more = [messages, checkpoints, sideJobs].some((rows) => rows.length === PURGE_BATCH);
-    if (more || waiting) await ctx.scheduler.runAfter(waiting && !more ? 1000 : 0, internal.chat.purgeThread, { threadId });
+    // A reply that never finishes is closed by sweepStuckReplies, so waiting always ends.
+    if (more || waiting) await ctx.scheduler.runAfter(waiting && !more ? 2000 : 0, internal.chat.purgeThread, { threadId });
     return null;
+  },
+});
+
+// Convex actions time out after 10 minutes, so a reply still "streaming" after this long
+// lost its action (crash, restart, timeout) and will never finish on its own.
+export const STUCK_REPLY_MS = 15 * 60 * 1000;
+
+// Cron: closes stuck replies as errors, keeping whatever text arrived, so the thread can be
+// used again and a thread delete waiting on them can finish. Usage was never reported for
+// them, so nothing is metered.
+export const sweepStuckReplies = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    const stuck = await ctx.db
+      .query("messages")
+      .withIndex("by_status", (q) => q.eq("status", "streaming").lt("_creationTime", Date.now() - STUCK_REPLY_MS))
+      .take(100);
+    for (const m of stuck) {
+      const content = m.streamId ? await streamText(ctx, m.streamId) : "";
+      await ctx.runMutation(internal.chat.finalize, {
+        messageId: m._id, status: "error", content, pending: "", error: "The reply was interrupted",
+      });
+    }
+    return stuck.length;
   },
 });
 
@@ -403,9 +426,14 @@ async function meterCall(
   const provider = call.providerId && (await ctx.db.get("providers", call.providerId));
   // Free providers (local models) cost nothing; a provider-reported cost beats the table.
   const cost = provider && provider.free ? 0 : (reportedCostMicroUsd ?? costMicroUsd(usage, priceFor(call.model)));
+  const settings = await ctx.db
+    .query("settings")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", call.ownerId))
+    .unique();
   await recordDailyUsage(ctx, {
     ownerId: call.ownerId,
     at: Date.now(),
+    timeZone: settings?.timeZone,
     model: call.model,
     providerId: call.providerId ?? "",
     threadId: call.threadId,

@@ -25,10 +25,36 @@ const sideJobModelValidator = v.object({ providerId: v.id("providers"), modelId:
 
 export const get = query({
   args: {},
-  returns: v.object({ allowlistedHosts: v.array(v.string()), sideJobModel: v.union(v.null(), sideJobModelValidator) }),
+  returns: v.object({
+    allowlistedHosts: v.array(v.string()),
+    sideJobModel: v.union(v.null(), sideJobModelValidator),
+    timeZone: v.union(v.null(), v.string()),
+  }),
   handler: async (ctx) => {
     const settings = await settingsFor(ctx, await requireOwner(ctx));
-    return { allowlistedHosts: settings?.allowlistedHosts ?? [], sideJobModel: settings?.sideJobModel ?? null };
+    return {
+      allowlistedHosts: settings?.allowlistedHosts ?? [],
+      sideJobModel: settings?.sideJobModel ?? null,
+      timeZone: settings?.timeZone ?? null,
+    };
+  },
+});
+
+// The day boundary for daily spend. Changing it affects calls from now on, not past days.
+export const setTimeZone = mutation({
+  args: { timeZone: v.string() },
+  returns: v.null(),
+  handler: async (ctx, { timeZone }) => {
+    const ownerId = await requireOwner(ctx);
+    try {
+      new Intl.DateTimeFormat("en-CA", { timeZone });
+    } catch {
+      throw new ConvexError("Unknown time zone");
+    }
+    const settings = await settingsFor(ctx, ownerId);
+    if (settings) await ctx.db.patch("settings", settings._id, { timeZone });
+    else await ctx.db.insert("settings", { ownerId, allowlistedHosts: [], timeZone });
+    return null;
   },
 });
 

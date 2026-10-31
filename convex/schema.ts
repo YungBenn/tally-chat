@@ -48,7 +48,9 @@ export default defineSchema({
     providerId: v.optional(v.id("providers")),
     usage: v.optional(usageValidator), // as reported by the provider
     costMicroUsd: v.optional(v.number()), // absent with usage present = model has no price
-  }).index("by_thread_parent", ["threadId", "parentId"]),
+  })
+    .index("by_thread_parent", ["threadId", "parentId"])
+    .index("by_status", ["status"]),
   // A summary standing in for every message up to coversUpToId on any branch containing it
   // (ADR 0001). Stored outside the tree so condensing never rewrites messages.
   checkpoints: defineTable({
@@ -72,7 +74,7 @@ export default defineSchema({
   // (design doc S10, 8.2). Survives thread deletes so daily spend stays accurate.
   dailyUsage: defineTable({
     ownerId: v.id("users"),
-    day: v.string(), // YYYY-MM-DD, UTC
+    day: v.string(), // YYYY-MM-DD in the owner's time zone at the time of the call
     dimension: v.union(v.literal("model"), v.literal("provider"), v.literal("thread")),
     key: v.string(),
     calls: v.number(),
@@ -86,5 +88,6 @@ export default defineSchema({
     // Model for work the user didn't ask for directly (titles now, condensing later).
     // Unset: the cheapest priced model of the thread's own provider.
     sideJobModel: v.optional(v.object({ providerId: v.id("providers"), modelId: v.string() })),
+    timeZone: v.optional(v.string()), // IANA name; daily rollups use the owner's day, UTC until set
   }).index("by_ownerId", ["ownerId"]),
 });
