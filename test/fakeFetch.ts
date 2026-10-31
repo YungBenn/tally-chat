@@ -1,6 +1,8 @@
 // Fake provider at the HTTP boundary (spec seam 1): replays recorded
 // responses by "METHOD url" and captures every request body sent.
-export type Recorded = { status?: number; body: unknown; headers?: Record<string, string> };
+export type Recorded =
+  | { status?: number; body: unknown; headers?: Record<string, string> }
+  | { respond: (init: RequestInit | undefined) => Response };
 
 export function fakeFetch(fixtures: Record<string, Recorded>) {
   const requests: { method: string; url: string; headers: Record<string, string>; body: unknown }[] = [];
@@ -14,6 +16,7 @@ export function fakeFetch(fixtures: Record<string, Recorded>) {
     requests.push({ method, url, headers, body: typeof raw === "string" ? JSON.parse(raw) : raw });
     const fixture = fixtures[`${method} ${url}`];
     if (!fixture) throw new Error(`fakeFetch: no fixture for ${method} ${url}`);
+    if ("respond" in fixture) return fixture.respond(init);
     const body = typeof fixture.body === "string" ? fixture.body : JSON.stringify(fixture.body);
     return new Response(body, { status: fixture.status ?? 200, headers: fixture.headers });
   };

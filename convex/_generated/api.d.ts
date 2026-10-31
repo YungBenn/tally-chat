@@ -9,8 +9,12 @@
  */
 
 import type * as auth from "../auth.js";
+import type * as chat from "../chat.js";
+import type * as chatActions from "../chatActions.js";
 import type * as http from "../http.js";
 import type * as lib_anthropic from "../lib/anthropic.js";
+import type * as lib_systemPrompts from "../lib/systemPrompts.js";
+import type * as lib_textStream from "../lib/textStream.js";
 import type * as lib_urlGuard from "../lib/urlGuard.js";
 import type * as lib_vault from "../lib/vault.js";
 import type * as owner from "../owner.js";
@@ -26,8 +30,12 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
+  chat: typeof chat;
+  chatActions: typeof chatActions;
   http: typeof http;
   "lib/anthropic": typeof lib_anthropic;
+  "lib/systemPrompts": typeof lib_systemPrompts;
+  "lib/textStream": typeof lib_textStream;
   "lib/urlGuard": typeof lib_urlGuard;
   "lib/vault": typeof lib_vault;
   owner: typeof owner;
@@ -62,4 +70,6 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {};
+export declare const components: {
+  persistentTextStreaming: import("@convex-dev/persistent-text-streaming/_generated/component.js").ComponentApi<"persistentTextStreaming">;
+};
