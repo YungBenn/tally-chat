@@ -17,6 +17,7 @@ export default defineSchema({
     detected: v.string(), // which provider the key belongs to, e.g. "Anthropic · org 1a2b3c4d"
     keyCheckedAt: v.number(),
     models: v.array(v.object({ id: v.string(), displayName: v.string(), hidden: v.boolean() })),
+    free: v.optional(v.boolean()), // owner says it costs nothing (local models): cost is recorded as $0
     // Learned from usage fields the provider actually returns, never assumed.
     capabilities: v.optional(v.object({ caching: v.boolean(), reasoning: v.boolean() })),
   }).index("by_ownerId", ["ownerId"]),

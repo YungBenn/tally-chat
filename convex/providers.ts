@@ -10,12 +10,13 @@ const providerView = v.object({
   baseUrl: v.string(),
   detected: v.string(),
   keyCheckedAt: v.number(),
+  free: v.boolean(),
   models: v.array(v.object({ id: v.string(), displayName: v.string(), hidden: v.boolean() })),
 });
 
 // The only shape a provider leaves the server in: everything except the key.
-const toView = ({ _id, name, apiStyle, baseUrl, detected, keyCheckedAt, models }: Doc<"providers">) => ({
-  _id, name, apiStyle, baseUrl, detected, keyCheckedAt, models,
+const toView = ({ _id, name, apiStyle, baseUrl, detected, keyCheckedAt, free, models }: Doc<"providers">) => ({
+  _id, name, apiStyle, baseUrl, detected, keyCheckedAt, free: free ?? false, models,
 });
 
 export const list = query({
@@ -59,7 +60,8 @@ const modelValidator = v.object({ id: v.string(), displayName: v.string(), hidde
 
 export const insert = internalMutation({
   args: {
-    ownerId: v.id("users"), name: v.string(), apiStyle: v.literal("anthropic"), baseUrl: v.string(),
+    ownerId: v.id("users"), name: v.string(), apiStyle: v.union(v.literal("anthropic"), v.literal("openai-compatible")),
+    baseUrl: v.string(), free: v.boolean(),
     apiKeyEncrypted: v.string(), detected: v.string(), keyCheckedAt: v.number(), models: v.array(modelValidator),
   },
   returns: v.id("providers"),
@@ -68,11 +70,11 @@ export const insert = internalMutation({
 
 export const getOwned = internalQuery({
   args: { ownerId: v.id("users"), providerId: v.id("providers") },
-  returns: v.object({ baseUrl: v.string() }),
+  returns: v.object({ apiStyle: v.union(v.literal("anthropic"), v.literal("openai-compatible")), baseUrl: v.string() }),
   handler: async (ctx, { ownerId, providerId }) => {
     const provider = await ctx.db.get("providers", providerId);
     if (!provider || provider.ownerId !== ownerId) throw new ConvexError("Provider not found");
-    return { baseUrl: provider.baseUrl };
+    return { apiStyle: provider.apiStyle, baseUrl: provider.baseUrl };
   },
 });
 

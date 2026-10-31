@@ -159,7 +159,14 @@ export const generationInput = internalQuery({
       streamId: v.string(),
       model: v.string(),
       systemPromptVersion: v.number(),
-      provider: v.union(v.null(), v.object({ baseUrl: v.string(), apiKeyEncrypted: v.string() })),
+      provider: v.union(
+        v.null(),
+        v.object({
+          apiStyle: v.union(v.literal("anthropic"), v.literal("openai-compatible")),
+          baseUrl: v.string(),
+          apiKeyEncrypted: v.string(),
+        }),
+      ),
       allowlist: v.array(v.string()),
       history: v.array(v.object({ role: v.union(v.literal("user"), v.literal("assistant")), content: v.string() })),
     }),
@@ -178,7 +185,7 @@ export const generationInput = internalQuery({
       streamId: message.streamId,
       model: thread.modelId,
       systemPromptVersion: thread.systemPromptVersion,
-      provider: provider && { baseUrl: provider.baseUrl, apiKeyEncrypted: provider.apiKeyEncrypted },
+      provider: provider && { apiStyle: provider.apiStyle, baseUrl: provider.baseUrl, apiKeyEncrypted: provider.apiKeyEncrypted },
       allowlist: settings?.allowlistedHosts ?? [],
       history: ancestors
         .filter((m) => m !== null && m.content !== "")
@@ -203,9 +210,10 @@ export const finalize = internalMutation({
     error: v.optional(v.string()),
     usage: v.optional(usageValidator),
     reports: v.optional(v.object({ caching: v.boolean(), reasoning: v.boolean() })),
+    reportedCostMicroUsd: v.optional(v.number()),
   },
   returns: v.null(),
-  handler: async (ctx, { messageId, status, content, pending, error, usage, reports }) => {
+  handler: async (ctx, { messageId, status, content, pending, error, usage, reports, reportedCostMicroUsd }) => {
     const message = await ctx.db.get("messages", messageId);
     if (!message || message.status !== "streaming") return null;
     if (message.streamId) await appendChunk(ctx, message.streamId, pending, true);
@@ -215,7 +223,9 @@ export const finalize = internalMutation({
     }
 
     const model = message.model ?? "";
-    const cost = costMicroUsd(usage, priceFor(model));
+    const provider = message.providerId && (await ctx.db.get("providers", message.providerId));
+    // Free providers (local models) cost nothing; a provider-reported cost beats the table.
+    const cost = provider && provider.free ? 0 : (reportedCostMicroUsd ?? costMicroUsd(usage, priceFor(model)));
     await ctx.db.patch("messages", messageId, { status, content, error, usage, costMicroUsd: cost ?? undefined });
     await recordDailyUsage(ctx, {
       ownerId: message.ownerId,
@@ -226,7 +236,6 @@ export const finalize = internalMutation({
       usage,
       costMicroUsd: cost,
     });
-    const provider = message.providerId && (await ctx.db.get("providers", message.providerId));
     if (provider && reports) {
       const known = provider.capabilities ?? { caching: false, reasoning: false };
       const capabilities = { caching: known.caching || reports.caching, reasoning: known.reasoning || reports.reasoning };

@@ -30,3 +30,11 @@ export function gate(): Gate {
   const released = new Promise<void>((r) => (release = r));
   return { reached: false, released, release };
 }
+
+// OpenAI-compatible chat completion chunks (stream_options.include_usage puts usage in a final chunk).
+const chunk = (o: object) => `data: ${JSON.stringify(o)}\n\n`;
+export const oaiDelta = (content: string) => chunk({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: { content } }] });
+export const oaiFinish = (usage: object) =>
+  chunk({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }) +
+  chunk({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [], usage });
+export const oaiDone = "data: [DONE]\n\n";

@@ -32,8 +32,15 @@ export default function ProvidersPage() {
   );
 }
 
+const STYLES = {
+  anthropic: { label: "Anthropic", name: "My Anthropic", baseUrl: "https://api.anthropic.com" },
+  "openai-compatible": { label: "OpenAI-compatible", name: "My OpenAI", baseUrl: "https://api.openai.com/v1" },
+} as const;
+type Style = keyof typeof STYLES;
+
 function AddProvider() {
   const add = useAction(api.providerActions.add);
+  const [style, setStyle] = useState<Style>("anthropic");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -46,9 +53,10 @@ function AddProvider() {
     try {
       await add({
         name: String(form.get("name")),
-        apiStyle: "anthropic",
+        apiStyle: style,
         baseUrl: String(form.get("baseUrl")),
         apiKey: String(form.get("apiKey")),
+        free: form.get("free") === "on",
       });
       formEl.reset();
     } catch (err) {
@@ -69,24 +77,44 @@ function AddProvider() {
       <form className="grid gap-3 sm:grid-cols-2" onSubmit={onSubmit}>
         <label className="flex flex-col gap-1.5 text-sm font-medium">
           Name
-          <input className={input} name="name" defaultValue="My Anthropic" required />
+          <input key={style} className={input} name="name" defaultValue={STYLES[style].name} required />
         </label>
         <label className="flex flex-col gap-1.5 text-sm font-medium">
           API style
-          <select className={input} name="apiStyle" defaultValue="anthropic">
-            <option value="anthropic">Anthropic</option>
+          <select className={input} value={style} onChange={(e) => setStyle(e.target.value as Style)}>
+            {Object.entries(STYLES).map(([value, { label }]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
           </select>
         </label>
         <label className="flex flex-col gap-1.5 text-sm font-medium sm:col-span-2">
           Base URL
-          <input className={`${input} font-mono`} name="baseUrl" defaultValue="https://api.anthropic.com" required />
+          <input key={style} className={`${input} font-mono`} name="baseUrl" defaultValue={STYLES[style].baseUrl} required />
+          {style === "openai-compatible" && (
+            <span className="text-xs font-normal text-muted">
+              Include the version path, e.g. https://openrouter.ai/api/v1 or http://192.168.1.20:11434/v1 for Ollama.
+            </span>
+          )}
         </label>
         <label className="flex flex-col gap-1.5 text-sm font-medium sm:col-span-2">
           API key
-          <input className={`${input} font-mono`} name="apiKey" type="password" autoComplete="off" required />
+          <input
+            className={`${input} font-mono`}
+            name="apiKey"
+            type="password"
+            autoComplete="off"
+            required={style === "anthropic"}
+          />
           <span className="text-xs font-normal text-muted">
             Tested with one free call, then encrypted. It is never shown again.
+            {style === "openai-compatible" && " Leave empty for local servers that need none."}
           </span>
+        </label>
+        <label className="flex items-center gap-2 text-sm sm:col-span-2">
+          <input type="checkbox" name="free" className="size-4 accent-[var(--accent)]" />
+          Free provider (local models): record every reply as $0
         </label>
         <p className="text-xs text-muted sm:col-span-2">
           Private or http addresses, like Ollama on your network, must be added to the{" "}
@@ -125,6 +153,7 @@ function ProviderCard({ provider }: { provider: Provider }) {
           <h2 className="font-medium">{provider.name}</h2>
           <p className="mt-0.5 truncate font-mono text-xs text-muted">
             {provider.detected} · {provider.baseUrl}
+            {provider.free && " · free"}
           </p>
           <p className="mt-0.5 text-xs text-muted">
             Key checked {new Date(provider.keyCheckedAt).toLocaleString()}

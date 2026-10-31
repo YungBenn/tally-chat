@@ -1,6 +1,6 @@
 import { ConvexError } from "convex/values";
 import { guardedFetch, type GuardOptions } from "./urlGuard";
-import type { AnthropicUsage } from "./usage";
+import { normalizeAnthropicUsage, type AnthropicUsage, type NormalizedUsage } from "./usage";
 
 export type ProviderModel = { id: string; displayName: string; hidden: boolean };
 
@@ -29,7 +29,7 @@ export async function fetchAnthropicModels(baseUrl: string, apiKey: string, guar
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 
-export type StreamEvent = { type: "text"; text: string } | { type: "usage"; usage: AnthropicUsage };
+export type StreamEvent = { type: "text"; text: string } | ({ type: "usage" } & NormalizedUsage);
 
 // Streams a Messages API reply, yielding text deltas and the usage reported so far
 // (message_start carries the input side, message_delta the cumulative output).
@@ -84,7 +84,7 @@ export async function* streamAnthropicMessage(
       const reported = parsed.type === "message_start" ? parsed.message?.usage : parsed.type === "message_delta" ? parsed.usage : undefined;
       if (reported) {
         usage = { ...usage, ...reported };
-        yield { type: "usage", usage };
+        yield { type: "usage", ...normalizeAnthropicUsage(usage) };
       }
       if (parsed.type === "error") throw new ConvexError(`Provider error: ${parsed.error?.message ?? "unknown"}`);
     }

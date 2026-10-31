@@ -23,7 +23,13 @@ export type AnthropicUsage = {
   output_tokens_details?: { thinking_tokens?: number };
 };
 
-export function normalizeAnthropicUsage(raw: AnthropicUsage) {
+export type NormalizedUsage = {
+  usage: Usage;
+  reports: { caching: boolean; reasoning: boolean };
+  reportedCostMicroUsd?: number; // a provider-reported cost (OpenRouter) wins over the price table
+};
+
+export function normalizeAnthropicUsage(raw: AnthropicUsage): NormalizedUsage {
   const writes = raw.cache_creation_input_tokens ?? 0;
   const w1h = raw.cache_creation?.ephemeral_1h_input_tokens ?? 0;
   // Without the TTL breakdown every write is the default 5-minute lifetime.
@@ -42,6 +48,36 @@ export function normalizeAnthropicUsage(raw: AnthropicUsage) {
       caching: raw.cache_read_input_tokens !== undefined,
       reasoning: raw.output_tokens_details?.thinking_tokens !== undefined,
     },
+  };
+}
+
+// Raw usage from OpenAI-compatible APIs. Fields vary by provider: OpenAI, Groq and
+// OpenRouter nest cache counts in prompt_tokens_details; DeepSeek reports hit/miss.
+export type OpenAIUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
+  completion_tokens_details?: { reasoning_tokens?: number };
+  prompt_cache_hit_tokens?: number;
+  cost?: number; // OpenRouter, USD
+};
+
+export function normalizeOpenAIUsage(raw: OpenAIUsage): NormalizedUsage {
+  const cached = raw.prompt_tokens_details?.cached_tokens ?? raw.prompt_cache_hit_tokens;
+  const writes = raw.prompt_tokens_details?.cache_write_tokens ?? 0;
+  const reasoning = raw.completion_tokens_details?.reasoning_tokens;
+  return {
+    usage: {
+      // prompt_tokens counts cached and written tokens too; inputTokens is uncached only.
+      inputTokens: Math.max(0, (raw.prompt_tokens ?? 0) - (cached ?? 0) - writes),
+      cacheReadTokens: cached ?? 0,
+      cacheWriteTokens5m: writes, // short-lived writes; providers name their own TTLs
+      cacheWriteTokens1h: 0,
+      outputTokens: raw.completion_tokens ?? 0,
+      reasoningTokens: reasoning ?? 0,
+    },
+    reports: { caching: cached !== undefined, reasoning: reasoning !== undefined },
+    ...(typeof raw.cost === "number" ? { reportedCostMicroUsd: Math.round(raw.cost * 1e6) } : {}),
   };
 }
 

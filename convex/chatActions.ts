@@ -5,9 +5,10 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 import { streamAnthropicMessage } from "./lib/anthropic";
+import { streamOpenAICompatible } from "./lib/openaiCompatible";
 import { SYSTEM_PROMPTS } from "./lib/systemPrompts";
 import { appendChunk } from "./lib/textStream";
-import { normalizeAnthropicUsage, type AnthropicUsage } from "./lib/usage";
+import type { NormalizedUsage } from "./lib/usage";
 import { decryptSecret } from "./lib/vault";
 
 const FLUSH_MS = 100;
@@ -24,17 +25,18 @@ export const generate = internalAction({
     let pending = "";
     // ponytail: a stopped reply only has usage up to the last message_delta, so output
     // tokens generated after it are billed by the provider but not recorded here.
-    let usage: AnthropicUsage | undefined;
+    let usage: NormalizedUsage | undefined;
     const finish = (status: "done" | "stopped" | "error", error?: string) =>
       ctx.runMutation(internal.chat.finalize, {
         messageId, status, content: full, pending, error,
-        ...(usage ? normalizeAnthropicUsage(usage) : {}),
+        ...usage,
       });
 
     const abort = new AbortController();
     try {
       if (!input.provider) throw new ConvexError("This thread's provider was deleted");
-      const deltas = streamAnthropicMessage(
+      const stream = input.provider.apiStyle === "anthropic" ? streamAnthropicMessage : streamOpenAICompatible;
+      const deltas = stream(
         {
           baseUrl: input.provider.baseUrl,
           apiKey: await decryptSecret(input.provider.apiKeyEncrypted),
@@ -49,7 +51,7 @@ export const generate = internalAction({
       let lastFlush = Date.now();
       for await (const event of deltas) {
         if (event.type === "usage") {
-          usage = event.usage;
+          usage = { usage: event.usage, reports: event.reports, reportedCostMicroUsd: event.reportedCostMicroUsd };
           continue;
         }
         const text = event.text;
