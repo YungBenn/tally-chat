@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalMutation, internalQuery, mutation, query, type QueryCtx } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { CURRENT_SYSTEM_PROMPT_VERSION } from "./lib/systemPrompts";
 import { recordDailyUsage } from "./lib/rollups";
 import { appendChunk, createStream, streamText } from "./lib/textStream";
@@ -57,6 +57,7 @@ export const createThread = mutation({
 
 const messageView = v.object({
   _id: v.id("messages"),
+  siblingIds: v.array(v.id("messages")), // this message's versions (itself included), oldest first
   role: v.union(v.literal("user"), v.literal("assistant")),
   status: v.union(v.literal("streaming"), v.literal("done"), v.literal("stopped"), v.literal("error")),
   text: v.string(),
@@ -80,6 +81,12 @@ export const getThread = query({
     const messages = await Promise.all(
       branch.map(async (m) => ({
         _id: m._id,
+        siblingIds: (
+          await ctx.db
+            .query("messages")
+            .withIndex("by_thread_parent", (q) => q.eq("threadId", thread._id).eq("parentId", m.parentId))
+            .take(100)
+        ).map((s) => s._id),
         role: m.role,
         status: m.status,
         // A streaming reply reads its text from the stream, so a reload or a second
@@ -95,45 +102,121 @@ export const getThread = query({
   },
 });
 
+async function assertNotStreaming(ctx: QueryCtx, thread: Doc<"threads">) {
+  const leaf = thread.activeLeafId ? await ctx.db.get("messages", thread.activeLeafId) : null;
+  if (leaf?.status === "streaming") throw new ConvexError("Wait for the reply to finish, or stop it");
+}
+
+function cleanText(content: string) {
+  const text = content.trim();
+  if (!text) throw new ConvexError("Message is empty");
+  return text;
+}
+
+async function appendUserMessage(ctx: MutationCtx, thread: Doc<"threads">, parent: Doc<"messages"> | null, text: string) {
+  const id = await ctx.db.insert("messages", {
+    ownerId: thread.ownerId,
+    threadId: thread._id,
+    parentId: parent?._id,
+    ancestorIds: parent ? [...parent.ancestorIds, parent._id] : [],
+    role: "user",
+    pinned: false,
+    content: text,
+    status: "done",
+  });
+  return (await ctx.db.get("messages", id))!;
+}
+
+// A new streaming reply under `user`, made the active leaf, with generation scheduled.
+async function startReply(ctx: MutationCtx, thread: Doc<"threads">, user: Doc<"messages">) {
+  const assistantId = await ctx.db.insert("messages", {
+    ownerId: thread.ownerId,
+    threadId: thread._id,
+    parentId: user._id,
+    ancestorIds: [...user.ancestorIds, user._id],
+    role: "assistant",
+    pinned: false,
+    content: "",
+    status: "streaming",
+    streamId: await createStream(ctx),
+    model: thread.modelId,
+    providerId: thread.providerId,
+  });
+  // ponytail: first message as title until side-job titles land (ticket 11).
+  const title = thread.activeLeafId ? thread.title : user.content.slice(0, 60);
+  await ctx.db.patch("threads", thread._id, { activeLeafId: assistantId, title });
+  await ctx.scheduler.runAfter(0, internal.chatActions.generate, { messageId: assistantId });
+}
+
+async function ownedMessage(ctx: QueryCtx, ownerId: Id<"users">, messageId: Id<"messages">) {
+  const message = await ctx.db.get("messages", messageId);
+  if (!message || message.ownerId !== ownerId) throw new ConvexError("Message not found");
+  return message;
+}
+
 export const send = mutation({
   args: { threadId: v.id("threads"), content: v.string() },
   returns: v.null(),
   handler: async (ctx, { threadId, content }) => {
     const ownerId = await requireOwner(ctx);
     const thread = await ownedThread(ctx, ownerId, threadId);
-    const text = content.trim();
-    if (!text) throw new ConvexError("Message is empty");
-
+    const text = cleanText(content);
+    await assertNotStreaming(ctx, thread);
     const parent = thread.activeLeafId ? await ctx.db.get("messages", thread.activeLeafId) : null;
-    if (parent?.status === "streaming") throw new ConvexError("Wait for the reply to finish, or stop it");
-    const userId = await ctx.db.insert("messages", {
-      ownerId,
-      threadId,
-      parentId: parent?._id,
-      ancestorIds: parent ? [...parent.ancestorIds, parent._id] : [],
-      role: "user",
-      pinned: false,
-      content: text,
-      status: "done",
-    });
-    const user = (await ctx.db.get("messages", userId))!;
-    const assistantId = await ctx.db.insert("messages", {
-      ownerId,
-      threadId,
-      parentId: userId,
-      ancestorIds: [...user.ancestorIds, userId],
-      role: "assistant",
-      pinned: false,
-      content: "",
-      status: "streaming",
-      streamId: await createStream(ctx),
-      model: thread.modelId,
-      providerId: thread.providerId,
-    });
-    // ponytail: first message as title until side-job titles land (ticket 11).
-    const title = thread.activeLeafId ? thread.title : text.slice(0, 60);
-    await ctx.db.patch("threads", threadId, { activeLeafId: assistantId, title });
-    await ctx.scheduler.runAfter(0, internal.chatActions.generate, { messageId: assistantId });
+    await startReply(ctx, thread, await appendUserMessage(ctx, thread, parent, text));
+    return null;
+  },
+});
+
+// A new reply beside an existing one, under the same user message (ADR 0001: nothing is overwritten).
+export const retry = mutation({
+  args: { messageId: v.id("messages") },
+  returns: v.null(),
+  handler: async (ctx, { messageId }) => {
+    const ownerId = await requireOwner(ctx);
+    const reply = await ownedMessage(ctx, ownerId, messageId);
+    if (reply.role !== "assistant" || !reply.parentId) throw new ConvexError("Only replies can be retried");
+    const thread = await ownedThread(ctx, ownerId, reply.threadId);
+    await assertNotStreaming(ctx, thread);
+    await startReply(ctx, thread, (await ctx.db.get("messages", reply.parentId))!);
+    return null;
+  },
+});
+
+// Editing is a fork: a new user message beside the edited one, then a reply to it.
+export const edit = mutation({
+  args: { messageId: v.id("messages"), content: v.string() },
+  returns: v.null(),
+  handler: async (ctx, { messageId, content }) => {
+    const ownerId = await requireOwner(ctx);
+    const original = await ownedMessage(ctx, ownerId, messageId);
+    if (original.role !== "user") throw new ConvexError("Only your messages can be edited");
+    const thread = await ownedThread(ctx, ownerId, original.threadId);
+    const text = cleanText(content);
+    await assertNotStreaming(ctx, thread);
+    const parent = original.parentId ? await ctx.db.get("messages", original.parentId) : null;
+    await startReply(ctx, thread, await appendUserMessage(ctx, thread, parent, text));
+    return null;
+  },
+});
+
+// Makes `messageId`'s branch active, following its newest descendants down to a leaf.
+export const switchBranch = mutation({
+  args: { messageId: v.id("messages") },
+  returns: v.null(),
+  handler: async (ctx, { messageId }) => {
+    const ownerId = await requireOwner(ctx);
+    let leaf = await ownedMessage(ctx, ownerId, messageId);
+    for (;;) {
+      const child = await ctx.db
+        .query("messages")
+        .withIndex("by_thread_parent", (q) => q.eq("threadId", leaf.threadId).eq("parentId", leaf._id))
+        .order("desc")
+        .first();
+      if (!child) break;
+      leaf = child;
+    }
+    await ctx.db.patch("threads", leaf.threadId, { activeLeafId: leaf._id });
     return null;
   },
 });

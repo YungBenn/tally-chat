@@ -47,7 +47,7 @@ export default defineSchema({
     providerId: v.optional(v.id("providers")),
     usage: v.optional(usageValidator), // as reported by the provider
     costMicroUsd: v.optional(v.number()), // absent with usage present = model has no price
-  }).index("by_threadId", ["threadId"]),
+  }).index("by_thread_parent", ["threadId", "parentId"]),
   // Per owner, UTC day and dimension: sums kept in the mutation that finalizes a reply
   // (design doc S10, 8.2). Survives thread deletes so daily spend stays accurate.
   dailyUsage: defineTable({
