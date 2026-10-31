@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Course Glossary</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+<p class="kicker">tally.chat course · reference</p>
+<h1>Glossary</h1>
+<p class="subtitle">Every lesson uses these words exactly as defined here.</p>
+
+<table>
+  <tr><th>Term</th><th>Meaning</th><th>From</th></tr>
+  <tr><td><b>Token</b></td><td>The unit a model reads and writes, and the unit you are billed in. A word, part of a word, a character or a byte. ~3.5 English chars on older Claude models; Claude 4.7+ tokenizer yields ~30% more tokens for the same text.</td><td><a href="../lessons/0001-why-chat-cost-grows-quadratically.html">L1</a></td></tr>
+  <tr><td><b>MTok</b></td><td>One million tokens. Prices are quoted per MTok.</td><td>L1</td></tr>
+  <tr><td><b>Input tokens</b></td><td>Every token in the request: system prompt, full message history, new message.</td><td>L1</td></tr>
+  <tr><td><b>Output tokens</b></td><td>Every token the model generates. Several times the input price (5x on Sonnet 5.5).</td><td>L1</td></tr>
+  <tr><td><b>Turn</b></td><td>One user message plus the assistant reply to it. One API request.</td><td>L1</td></tr>
+  <tr><td><b>System prompt</b></td><td>Standing instructions sent at the top of every request (<code>system</code> field). Paid on every turn.</td><td>L1</td></tr>
+  <tr><td><b>Stateless</b></td><td>The API keeps no memory between requests. Your app resends the full history every turn.</td><td>L1</td></tr>
+  <tr><td><b>Context window</b></td><td>Everything the model sees in one request: its working memory. Has a maximum size per model.</td><td>L1</td></tr>
+  <tr><td><b>Usage block</b></td><td>The <code>usage</code> object in every response reporting token counts for that request.</td><td>L1</td></tr>
+  <tr><td><b>Conversation accumulation</b></td><td>The quadratic growth of total input tokens as history is resent each turn. Cost driver #1 in the design doc.</td><td>L1</td></tr>
+</table>
+
+<p class="cite">Sources: <a href="https://platform.claude.com/docs/en/about-claude/glossary">Anthropic glossary</a> ·
+<a href="https://platform.claude.com/docs/en/build-with-claude/working-with-messages">Messages API</a> ·
+<a href="https://platform.claude.com/docs/en/about-claude/pricing">Pricing</a></p>
+</main>
+</body>
+</html>

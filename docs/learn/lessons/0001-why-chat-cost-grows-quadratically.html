@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Why Chat Cost Explodes</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+
+<p class="kicker">tally.chat course · lesson 1 · ~25 min</p>
+<h1>Why a 10-turn chat costs 47 turns' worth</h1>
+<p class="subtitle">Tokens, statelessness, and the triangle hiding inside every chat bill.</p>
+
+<div class="goal">
+  <strong>The win.</strong> By the end you can compute the input tokens and cost of any turn in a thread by hand,
+  and explain the design doc's headline: <em>"what the user types is 1 to 2% of the bill"</em>
+  (<a href="../../tallychat-design-doc.md">design doc §2</a>).
+</div>
+
+<h2>1. A token is the billing unit</h2>
+
+<p>Models don't read characters or words. Text is split into <b>tokens</b>: chunks that can be a word, part of a word,
+a character, or a byte. On older Claude models a token is about <b>3.5 English characters</b>; Claude 4.7 and later use a newer
+tokenizer that produces about <b>30% more tokens</b> for the same text.
+<span class="cite">(<a href="https://platform.claude.com/docs/en/about-claude/glossary">Anthropic glossary: Tokens</a>)</span></p>
+
+<p>You pay per token, quoted per million tokens (<b>MTok</b>), and the two directions have different prices.
+For Claude Sonnet 5.5:
+<span class="cite">(<a href="https://platform.claude.com/docs/en/about-claude/pricing">Anthropic pricing</a>, checked Oct 2026)</span></p>
+
+<table>
+  <tr><th>Direction</th><th>What it is</th><th class="num">Price</th></tr>
+  <tr><td><b>Input tokens</b></td><td>Everything you send in the request</td><td class="num">$2 / MTok</td></tr>
+  <tr><td><b>Output tokens</b></td><td>Everything the model writes back</td><td class="num">$10 / MTok</td></tr>
+</table>
+
+<p>Output is 5x the price of input. That ratio will matter in section 5. You've already seen these counts: they're in the
+<code>usage</code> block of every response.</p>
+
+<pre><code>"usage": {
+  "input_tokens": 30,
+  "output_tokens": 309
+}</code></pre>
+
+<h2>2. The API remembers nothing</h2>
+
+<p>This is the one fact everything in the design doc rests on. In Anthropic's words:
+<em>"The Messages API is stateless, which means that you always send the full conversational history to the API."</em>
+<span class="cite">(<a href="https://platform.claude.com/docs/en/build-with-claude/working-with-messages">Messages API: multiple conversational turns</a>)</span></p>
+
+<p>So a chat isn't one long connection. It's a series of independent HTTP requests, and each one carries the whole thread so far.
+Watch the request body grow:</p>
+
+<pre><code><span class="dim">// turn 1</span>
+{ "system": "You are concise.",
+  "messages": [
+    { "role": "user", "content": "Plan a 3-day Tokyo trip" }
+  ] }
+
+<span class="dim">// turn 2: everything from turn 1, resent</span>
+{ "system": "You are concise.",
+  "messages": [
+    { "role": "user", "content": "Plan a 3-day Tokyo trip" },
+    { "role": "assistant", "content": "<span class="hl">Day 1: ... (400 tokens)</span>" },
+    { "role": "user", "content": "Swap day 2 for Kyoto" }
+  ] }
+
+<span class="dim">// turn 3: everything from turns 1 and 2, resent again</span>
+...</code></pre>
+
+<p>That full array is the <b>context window</b>: the model's working memory for this one request.
+<span class="cite">(<a href="https://platform.claude.com/docs/en/about-claude/glossary">Anthropic glossary: Context window</a>)</span>
+Every token in it is billed as input, <em>every time</em>.</p>
+
+<div class="callout">
+  <p>The 400-token answer from turn 1 is paid for once as <b>output</b> on turn 1, then again as <b>input</b> on turn 2,
+  turn 3, turn 4... for the life of the thread. A bad answer you never fix keeps charging rent. That's design doc S2's whole argument.</p>
+</div>
+
+<h2>3. The formula</h2>
+
+<p>Take a thread with a system prompt of <code>S</code> tokens, user messages of <code>u</code> tokens, and answers of
+<code>a</code> tokens. The input for turn <code>k</code> is:</p>
+
+<pre><code>input(k) = S  +  (k − 1)·(u + a)  +  u
+           │         │               └ the new message
+           │         └ every earlier user + assistant pair
+           └ system prompt, every single time</code></pre>
+
+<p>Our baseline thread for this lesson: <code>S = 500</code>, <code>u = 50</code>, <code>a = 400</code>, 10 turns.</p>
+
+<table>
+  <tr><th>Turn</th><th class="num">Input tokens</th><th class="num">of which you typed (this turn)</th></tr>
+  <tr><td>1</td><td class="num">550</td><td class="num">50</td></tr>
+  <tr><td>2</td><td class="num">1,000</td><td class="num">50</td></tr>
+  <tr><td>3</td><td class="num">1,450</td><td class="num">50</td></tr>
+  <tr><td class="dim">...</td><td class="num dim">+450 each turn</td><td class="num dim"></td></tr>
+  <tr><td>10</td><td class="num">4,600</td><td class="num">50</td></tr>
+  <tr><th>Total</th><th class="num">25,750</th><th class="num">500</th></tr>
+</table>
+
+<p>Ten turns, but <b>46.8x</b> the input of a single turn. And of 25,750 input tokens, the user typed 500: <b>1.9%</b>.
+That's the design doc's "30 to 50x" and "1 to 2%", derived from one line of arithmetic.</p>
+
+<h3>Why it's quadratic</h3>
+<p>Each turn's input grows <em>linearly</em> (+450 per turn). But the bill is the <em>sum</em> of all turns, and the sum of a
+linearly growing series is a triangle. Triangle area grows with N². Closed form:</p>
+<pre><code>total_input(N) = N·(S + u)  +  (u + a)·N·(N − 1) / 2
+                 └ linear        └ quadratic: wins as N grows</code></pre>
+
+<h2>4. Predict, then play</h2>
+
+<div class="quiz" data-answer="2">
+  <p class="q">Predict first. Same message sizes, but the thread goes 20 turns instead of 10. Total input tokens become roughly:</p>
+  <button class="opt">About two times more</button>
+  <button class="opt">About three times more</button>
+  <button class="opt">About four times more</button>
+  <p class="why">25,750 → 96,500, which is 3.75x. Double N, roughly quadruple the triangle. Set turns to 20 below and check.</p>
+</div>
+
+<div class="sim" id="sim">
+  <label><span>System prompt (S)</span><input type="range" id="S" min="0" max="5000" step="50" value="500"><output></output></label>
+  <label><span>User message (u)</span><input type="range" id="u" min="10" max="1000" step="10" value="50"><output></output></label>
+  <label><span>Answer length (a)</span><input type="range" id="a" min="50" max="3000" step="50" value="400"><output></output></label>
+  <label><span>Turns (N)</span><input type="range" id="N" min="1" max="50" step="1" value="10"><output></output></label>
+  <div class="bars" id="bars" aria-label="Input tokens per turn"></div>
+  <p class="cite" style="margin:0">Input tokens per turn. The highlighted bar is the latest turn. The bill is the area of all bars.</p>
+  <div class="stats" id="stats"></div>
+</div>
+
+<p>Things to try:</p>
+<ul>
+  <li>Set <code>S</code> to 5,000 (the "~5,000 tokens constant system overhead" measured in Claude sessions, <a href="../../tallychat-design-doc.md">doc §2</a>). Watch "you typed" collapse.</li>
+  <li>Push N to 50. Watch "vs one turn" climb past 100x.</li>
+  <li>Halve the answer length. Notice total cost drops by <em>more</em> than the output savings alone.</li>
+</ul>
+
+<h2>5. Practice</h2>
+<p>Do these from memory of the formula. No scrolling up. Baseline: <code>S = 500, u = 50, a = 400</code>, Sonnet 5.5 prices.</p>
+
+<div class="calc" data-answer="9100">
+  <p class="q"><b>a.</b> How many input tokens does turn 20 send?</p>
+  <details><summary>Hint</summary>S + (k − 1)·(u + a) + u, with k = 20.</details>
+</div>
+
+<div class="calc" data-answer="0.0222" data-tolerance="0.03" data-display="$0.0222">
+  <p class="q"><b>b.</b> What does turn 20 alone cost in dollars (input + output)?</p>
+  <details><summary>Hint</summary>9,100 × $2 / 1,000,000 + 400 × $10 / 1,000,000.</details>
+</div>
+
+<div class="quiz" data-answer="1">
+  <p class="q"><b>c.</b> In a 20-turn thread, which change saves more money?</p>
+  <button class="opt">Trim three hundred tokens from system prompt</button>
+  <button class="opt">Trim one hundred tokens from every answer</button>
+  <button class="opt">Both options save about the same money</button>
+  <p class="why">System prompt: 300 × 20 turns = 6,000 input tokens = $0.012.
+  Answers: 2,000 fewer output tokens ($0.020) <em>plus</em> each shorter answer is re-read by every later turn:
+  100 × (0 + 1 + ... + 19) = 19,000 fewer input tokens ($0.038). Total $0.058, almost 5x more.
+  This is design doc S11's "a shorter answer saves twice."</p>
+</div>
+
+<div class="quiz" data-answer="1">
+  <p class="q"><b>d.</b> Why does turn 10 cost more than turn 1, on the same model?</p>
+  <button class="opt">The model gets slower on long threads</button>
+  <button class="opt">Every request carries the full earlier history</button>
+  <button class="opt">Providers charge a fee per extra turn</button>
+  <p class="why">Statelessness. The API has no memory, so your app resends the entire thread on every request.</p>
+</div>
+
+<h2>6. Optional: see it in real numbers</h2>
+<p>If you have an Anthropic key, the
+<a href="https://platform.claude.com/docs/en/build-with-claude/token-counting">token counting endpoint</a>
+returns the input count for a request without generating a reply. Send the turn-1 body, then the turn-2 body, and compare
+<code>input_tokens</code>. Or paste text into the <a href="https://platform.openai.com/tokenizer">OpenAI tokenizer</a> to see
+how text splits into tokens (a different tokenizer from Claude's, but the same idea).</p>
+
+<hr>
+
+<h2>Where this lands in tally.chat</h2>
+<p>This lesson is cost driver #1 in <a href="../../tallychat-design-doc.md">doc §3</a>: <em>conversation accumulation, quadratic,
+dominant over everything else</em>. The doc attacks the triangle three ways:</p>
+<ul>
+  <li><b>Make it smaller:</b> S2 fork (drop bad turns), S3 condense (replace old turns with a summary), S11 shorter answers.</li>
+  <li><b>Make it cheaper:</b> S5 prompt caching. Same triangle, but most of it billed at a fraction of the input price.</li>
+  <li><b>Make it visible:</b> S9 inspector shows the user the bars you just played with.</li>
+</ul>
+<p>Next lesson is the big one: <b>prompt caching</b>, and why the doc calls it "where the 60x lives."</p>
+
+<div class="callout">
+  <p><b>Primary source to read:</b> Anthropic,
+  <a href="https://platform.claude.com/docs/en/build-with-claude/working-with-messages">Using the Messages API</a>, the
+  "Multiple conversational turns" section (5 min). Then skim the
+  <a href="https://platform.claude.com/docs/en/about-claude/pricing">pricing table</a> so the numbers feel concrete.</p>
+</div>
+
+<div class="ask">
+  <b>Stuck or curious?</b> Ask me in the terminal. Anything: "why are output tokens more expensive?", "how does this change
+  with a 5,000-token system prompt?", "walk me through §2 of the doc line by line." I'm your teacher for this.
+</div>
+
+<p>Reference: <a href="../reference/glossary.html">Glossary</a> · <a href="../reference/cost-math.html">Cost math cheat sheet</a></p>
+
+<nav class="lesson-nav"><span></span><span class="dim">Lesson 2: prompt caching (coming next)</span></nav>
+</main>
+
+<script src="../assets/quiz.js"></script>
+<script src="../assets/cost-model.js"></script>
+<script>
+  const ids = ["S", "u", "a", "N"];
+  const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
+  const fmt = (n) => Math.round(n).toLocaleString();
+  function render() {
+    const v = Object.fromEntries(ids.map((id) => [id, Number(el[id].value)]));
+    ids.forEach((id) => (el[id].nextElementSibling.textContent = fmt(v[id])));
+    const r = simulateThread({ system: v.S, user: v.u, answer: v.a, turns: v.N, priceIn: PRICES.sonnet55.in, priceOut: PRICES.sonnet55.out });
+    const max = r.perTurn[r.perTurn.length - 1].input;
+    document.getElementById("bars").innerHTML = r.perTurn.map((t) => `<div style="height:${(t.input / max) * 100}%" title="turn ${t.turn}: ${fmt(t.input)} tokens"></div>`).join("");
+    document.getElementById("stats").innerHTML = [
+      [fmt(r.totalIn), "total input tokens"],
+      [fmt(r.totalOut), "total output tokens"],
+      ["$" + r.cost.toFixed(4), "thread cost (Sonnet 5.5)"],
+      [r.vsSingleTurn.toFixed(1) + "x", "input vs one turn"],
+      [(r.typedShare * 100).toFixed(1) + "%", "of input you typed"],
+    ].map(([b, s]) => `<div><b>${b}</b><span>${s}</span></div>`).join("");
+  }
+  ids.forEach((id) => el[id].addEventListener("input", render));
+  render();
+</script>
+</body>
+</html>

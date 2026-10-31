@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cost Math Cheatsheet</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+<p class="kicker">tally.chat course · reference</p>
+<h1>Cost math</h1>
+<p class="subtitle">The formulas behind every number in the design doc.</p>
+
+<h3>Variables</h3>
+<p><code>S</code> system prompt tokens · <code>u</code> user message tokens · <code>a</code> answer tokens · <code>k</code> turn number · <code>N</code> total turns</p>
+
+<h3>No caching (lesson 1)</h3>
+<pre><code>input(k)        = S + (k − 1)·(u + a) + u
+total_input(N)  = N·(S + u) + (u + a)·N·(N − 1)/2     <span class="dim">← quadratic in N</span>
+total_output(N) = N·a
+cost            = (total_input·price_in + total_output·price_out) / 1,000,000
+typed share     = N·u / total_input</code></pre>
+
+<h3>Worked baseline</h3>
+<table>
+  <tr><th>S = 500, u = 50, a = 400</th><th class="num">N = 10</th><th class="num">N = 20</th></tr>
+  <tr><td>Total input tokens</td><td class="num">25,750</td><td class="num">96,500</td></tr>
+  <tr><td>vs one turn (550)</td><td class="num">46.8x</td><td class="num">175x</td></tr>
+  <tr><td>Share the user typed</td><td class="num">1.9%</td><td class="num">1.0%</td></tr>
+</table>
+
+<h3>Rules of thumb</h3>
+<ul>
+  <li>Double the turns, roughly quadruple total input.</li>
+  <li>An answer token is paid once as output, then again as input on every later turn. Shorter answers save twice.</li>
+  <li>The system prompt is paid every turn, but it grows linearly; history grows quadratically and dominates long threads.</li>
+</ul>
+
+<h3>Prices used (Sonnet 5.5, Oct 2026)</h3>
+<p>Input $2 / MTok · Output $10 / MTok. Always re-check the <a href="https://platform.claude.com/docs/en/about-claude/pricing">pricing page</a>.</p>
+</main>
+</body>
+</html>
