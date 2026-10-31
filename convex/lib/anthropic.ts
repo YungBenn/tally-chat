@@ -1,5 +1,6 @@
 import { ConvexError } from "convex/values";
 import { guardedFetch, type GuardOptions } from "./urlGuard";
+import type { AnthropicUsage } from "./usage";
 
 export type ProviderModel = { id: string; displayName: string; hidden: boolean };
 
@@ -28,13 +29,16 @@ export async function fetchAnthropicModels(baseUrl: string, apiKey: string, guar
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 
-// Streams a Messages API reply, yielding text deltas. Throws ConvexError with the
-// provider's message on an HTTP or in-stream error.
+export type StreamEvent = { type: "text"; text: string } | { type: "usage"; usage: AnthropicUsage };
+
+// Streams a Messages API reply, yielding text deltas and the usage reported so far
+// (message_start carries the input side, message_delta the cumulative output).
+// Throws ConvexError with the provider's message on an HTTP or in-stream error.
 export async function* streamAnthropicMessage(
   req: { baseUrl: string; apiKey: string; model: string; system: string; messages: ChatMessage[]; maxTokens: number },
   guard: GuardOptions,
   signal: AbortSignal,
-): AsyncGenerator<string> {
+): AsyncGenerator<StreamEvent> {
   const res = await guardedFetch(
     `${req.baseUrl}/v1/messages`,
     {
@@ -58,6 +62,7 @@ export async function* streamAnthropicMessage(
 
   const decoder = new TextDecoder();
   let buffer = "";
+  let usage: AnthropicUsage = {};
   for await (const bytes of res.body as unknown as AsyncIterable<Uint8Array>) {
     buffer += decoder.decode(bytes, { stream: true });
     let end: number;
@@ -69,9 +74,18 @@ export async function* streamAnthropicMessage(
       const parsed = JSON.parse(data) as {
         type: string;
         delta?: { type: string; text?: string };
+        message?: { usage?: AnthropicUsage };
+        usage?: AnthropicUsage;
         error?: { message?: string };
       };
-      if (parsed.type === "content_block_delta" && parsed.delta?.type === "text_delta") yield parsed.delta.text ?? "";
+      if (parsed.type === "content_block_delta" && parsed.delta?.type === "text_delta") {
+        yield { type: "text", text: parsed.delta.text ?? "" };
+      }
+      const reported = parsed.type === "message_start" ? parsed.message?.usage : parsed.type === "message_delta" ? parsed.usage : undefined;
+      if (reported) {
+        usage = { ...usage, ...reported };
+        yield { type: "usage", usage };
+      }
       if (parsed.type === "error") throw new ConvexError(`Provider error: ${parsed.error?.message ?? "unknown"}`);
     }
   }

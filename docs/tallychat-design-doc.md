@@ -289,7 +289,7 @@ This is pi.dev's "you control what enters the context window," translated to cha
 
 Every response writes `inputTokens` (always uncached input), `cacheReadTokens`, `cacheWriteTokens5m`, `cacheWriteTokens1h`, `outputTokens`, `reasoningTokens`, `model`, `provider` and `costMicroUsd` to the message, plus rollups per user per day per model. Keepalive requests are metered the same way, tagged as upkeep.
 
-**Rollups on `@convex-dev/aggregate`.** Convex has no `GROUP BY`; the aggregate component gives O(log n) sums by namespace, kept in sync by triggers. The rollup dimensions still have to be decided up front. Adding one later means backfilling.
+**Rollup documents.** Convex has no `GROUP BY`, so one `dailyUsage` row per owner, UTC day and dimension (model, provider, thread) holds every usage field plus cost, upserted in the mutation that finalizes the reply. `@convex-dev/aggregate` was considered; it sums one value per aggregate, which would take 21 aggregates here (ADR 0002). The rollup dimensions still have to be decided up front. Adding one later means backfilling.
 
 With BYOK the provider bills the user directly, so these numbers drive display and soft budgets, not billing. Cost comes from the price table (section 10), except on OpenRouter, which returns `usage.cost` per request and is used as-is.
 
@@ -338,7 +338,7 @@ The trap: the condenser looks like it is saving tokens while quietly destroying 
 
 ### 8.4 Whether Convex is right
 
-Settled in [ADR 0002](./adr/0002-convex-backend.md): yes. Branching, resumable streams and cross-device sync are its sweet spot and they are this app's features. Its weakest area for this product, metering rollups, is covered by `@convex-dev/aggregate`. Self-hosting is Docker Compose with SQLite by default.
+Settled in [ADR 0002](./adr/0002-convex-backend.md): yes. Branching, resumable streams and cross-device sync are its sweet spot and they are this app's features. Its weakest area for this product, metering rollups, is covered by daily rollup documents written in the same mutation as the usage. Self-hosting is Docker Compose with SQLite by default.
 
 Remaining risks: Convex Cloud bills function wall-time, which long LLM actions use a lot of (self-hosters avoid this, a public instance would not); and self-host support is community-only.
 
@@ -346,7 +346,7 @@ Remaining risks: Convex Cloud bills function wall-time, which long LLM actions u
 
 | Phase | Items                                                                                                                                                                                                                                                  | Why here                                                                   |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
-| 1     | S1 message tree, S10 metering on `aggregate`, provider layer (hand-written anthropic adapter, AI SDK for openai-compatible, encrypted keys, SSRF guard with private-host allowlist), price table sync, plus a one-day spike running Convex self-hosted in Docker | Everything depends on these, and key handling is not something to retrofit |
+| 1     | S1 message tree, S10 metering with daily rollup documents, provider layer (hand-written anthropic adapter, AI SDK for openai-compatible, encrypted keys, SSRF guard with private-host allowlist), price table sync, plus a one-day spike running Convex self-hosted in Docker | Everything depends on these, and key handling is not something to retrofit |
 | 2     | S5 cache-aware prefix + keepalive                                                                                                                                                                                                                      | Biggest single win                                                         |
 | 3     | S9 context inspector with cache-break warnings, `/usage` page                                                                                                                                                                                                       | Nearly free once S5 exists, and it is the differentiator                   |
 | 4     | S2 fork, edit and retry; S7 effort (per thread + per turn); S11 output budget; inline images; thread title search; PWA                                                                                                                                 | Cheap, high value, each item small                                         |
@@ -365,7 +365,7 @@ Deliberately not worried about yet: streaming UX polish. The provider layer is r
 | Layer     | Choice                                   | Reasoning                                                                                                                                                                    |
 | --------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Backend   | Convex                                   | Branching, resumable streams and cross-device sync are its sweet spot. T3 Chat landed here after Redis then PlanetScale. Open source with Docker self-hosting. See ADR 0002 |
-| Components| `persistent-text-streaming`, `aggregate` | Streaming and metering rollups. Not the Agent component: its own thread and message model would fight the message tree                                                       |
+| Components| `persistent-text-streaming`               | Streaming. Not the Agent component: its own thread and message model would fight the message tree                                                       |
 | Frontend  | Next.js, installable as a PWA            | Standard, matches the public reference implementations                                                                                                                       |
 | Auth      | Single-user login                        | One password set at install, so strangers cannot spend your keys if the instance is online. No accounts, no paid auth service                                                |
 | Providers | Direct provider APIs, bring your own key | User adds a provider with base URL, API key and API style. The inspector shows the user's real bill                                                                          |
@@ -374,7 +374,7 @@ Deliberately not worried about yet: streaming UX polish. The provider layer is r
 **Convex risks going in**
 
 - Lock-in is real: the data access layer is not portable.
-- Rollup dimensions are chosen up front, even with the aggregate component.
+- Rollup dimensions are chosen up front; adding one later means a backfill.
 - Pricing is compute-based on function wall-time, and long LLM actions are exactly that shape. Model the volume before committing to a public instance.
 - Read the [June 2025 postmortem](https://news.convex.dev/how-convex-took-down-t3-chat-june-1-2025-postmortem/) of the T3 Chat outage. Search index compaction invalidated thousands of subscribed queries at once, clients reconnected without backing off, and tooling cut hardware mid-incident. T3 Chat was unusable for nearly 3 hours. Relevant here because chat history search uses the same text-search path, which is why v1 searches titles only.
 

@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
+import { usageValidator } from "./lib/usage";
 
 // Convention: every table the owner creates has `ownerId: v.id("users")`,
 // set via `requireOwner` in ./owner.ts, so multi-user later is a feature
@@ -16,6 +17,8 @@ export default defineSchema({
     detected: v.string(), // which provider the key belongs to, e.g. "Anthropic · org 1a2b3c4d"
     keyCheckedAt: v.number(),
     models: v.array(v.object({ id: v.string(), displayName: v.string(), hidden: v.boolean() })),
+    // Learned from usage fields the provider actually returns, never assumed.
+    capabilities: v.optional(v.object({ caching: v.boolean(), reasoning: v.boolean() })),
   }).index("by_ownerId", ["ownerId"]),
   threads: defineTable({
     ownerId: v.id("users"),
@@ -41,7 +44,21 @@ export default defineSchema({
     error: v.optional(v.string()),
     model: v.optional(v.string()),
     providerId: v.optional(v.id("providers")),
+    usage: v.optional(usageValidator), // as reported by the provider
+    costMicroUsd: v.optional(v.number()), // absent with usage present = model has no price
   }).index("by_threadId", ["threadId"]),
+  // Per owner, UTC day and dimension: sums kept in the mutation that finalizes a reply
+  // (design doc S10, 8.2). Survives thread deletes so daily spend stays accurate.
+  dailyUsage: defineTable({
+    ownerId: v.id("users"),
+    day: v.string(), // YYYY-MM-DD, UTC
+    dimension: v.union(v.literal("model"), v.literal("provider"), v.literal("thread")),
+    key: v.string(),
+    calls: v.number(),
+    unpricedCalls: v.number(),
+    costMicroUsd: v.number(),
+    ...usageValidator.fields,
+  }).index("by_owner_day_dimension_key", ["ownerId", "day", "dimension", "key"]),
   settings: defineTable({
     ownerId: v.id("users"),
     allowlistedHosts: v.array(v.string()), // private hosts the URL guard lets through, e.g. "192.168.1.20:11434"

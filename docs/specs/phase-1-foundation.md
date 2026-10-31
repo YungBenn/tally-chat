@@ -93,7 +93,7 @@ The chat surface in this phase is functional, not designed; the visual design wa
 - **Outbound URL guard.** Every provider request goes through it: https only by default, DNS resolved and checked against private, loopback, link-local and metadata ranges, redirects followed manually and re-checked, allowlisted private hosts bypass the range check. Resolution goes through an injectable resolver.
 - **Key vault.** Encrypts and decrypts provider keys with a master key from an environment variable (authenticated encryption). Decryption happens only inside the action that calls the provider. No query or mutation returns key material; the client sees only provider name, base URL, API style and key status.
 - **Pricing.** A sync script vendors LiteLLM's MIT-licensed model price file into the repo; a local overrides file wins over it. Lookup by provider and model returns base input, output, cache read, 5-minute write and 1-hour write prices. Unknown model: cost recorded as unknown, never guessed.
-- **Metering.** Writes normalized usage and cost onto the assistant message and updates rollups through `@convex-dev/aggregate` in the same mutation.
+- **Metering.** Writes normalized usage and cost onto the assistant message and upserts daily rollup documents (one per owner, day and dimension) in the same mutation.
 - **Streaming.** `persistent-text-streaming` component; the action flushes buffered chunks roughly every 100 ms, never per token.
 
 ### Schema shape (irreversible, settle as written)

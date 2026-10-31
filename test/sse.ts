@@ -3,6 +3,8 @@ const encode = (event: object) => `event: ${(event as { type: string }).type}\nd
 export const textDelta = (text: string) => encode({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text } });
 export const streamError = (message: string) => encode({ type: "error", error: { type: "overloaded_error", message } });
 export const messageStop = encode({ type: "message_stop" });
+export const messageStart = (usage: object) => encode({ type: "message_start", message: { usage } });
+export const messageDelta = (usage: object) => encode({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage });
 export const sse = (...events: string[]) => events.join("");
 
 // A stream that pauses at each gate until the test releases it, and errors when aborted.

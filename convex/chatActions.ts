@@ -7,6 +7,7 @@ import { internalAction } from "./_generated/server";
 import { streamAnthropicMessage } from "./lib/anthropic";
 import { SYSTEM_PROMPTS } from "./lib/systemPrompts";
 import { appendChunk } from "./lib/textStream";
+import { normalizeAnthropicUsage, type AnthropicUsage } from "./lib/usage";
 import { decryptSecret } from "./lib/vault";
 
 const FLUSH_MS = 100;
@@ -21,8 +22,14 @@ export const generate = internalAction({
     if (!input) return null;
     let full = "";
     let pending = "";
+    // ponytail: a stopped reply only has usage up to the last message_delta, so output
+    // tokens generated after it are billed by the provider but not recorded here.
+    let usage: AnthropicUsage | undefined;
     const finish = (status: "done" | "stopped" | "error", error?: string) =>
-      ctx.runMutation(internal.chat.finalize, { messageId, status, content: full, pending, error });
+      ctx.runMutation(internal.chat.finalize, {
+        messageId, status, content: full, pending, error,
+        ...(usage ? normalizeAnthropicUsage(usage) : {}),
+      });
 
     const abort = new AbortController();
     try {
@@ -40,7 +47,12 @@ export const generate = internalAction({
         abort.signal,
       );
       let lastFlush = Date.now();
-      for await (const text of deltas) {
+      for await (const event of deltas) {
+        if (event.type === "usage") {
+          usage = event.usage;
+          continue;
+        }
+        const text = event.text;
         full += text;
         pending += text;
         if (Date.now() - lastFlush < FLUSH_MS) continue;

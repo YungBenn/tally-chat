@@ -3,7 +3,9 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query, type QueryCtx } from "./_generated/server";
 import { CURRENT_SYSTEM_PROMPT_VERSION } from "./lib/systemPrompts";
+import { recordDailyUsage } from "./lib/rollups";
 import { appendChunk, createStream, streamText } from "./lib/textStream";
+import { costMicroUsd, priceFor, usageValidator } from "./lib/usage";
 import { requireOwner } from "./owner";
 
 async function ownedThread(ctx: QueryCtx, ownerId: Id<"users">, threadId: Id<"threads">) {
@@ -59,6 +61,9 @@ const messageView = v.object({
   status: v.union(v.literal("streaming"), v.literal("done"), v.literal("stopped"), v.literal("error")),
   text: v.string(),
   error: v.optional(v.string()),
+  model: v.optional(v.string()),
+  usage: v.optional(usageValidator),
+  costMicroUsd: v.optional(v.number()),
 });
 
 export const getThread = query({
@@ -81,6 +86,9 @@ export const getThread = query({
         // device sees what has arrived so far and keeps updating.
         text: m.status === "streaming" && m.streamId ? await streamText(ctx, m.streamId) : m.content,
         error: m.error,
+        model: m.model,
+        usage: m.usage,
+        costMicroUsd: m.costMicroUsd,
       })),
     );
     return { title: thread.title, providerId: thread.providerId, modelId: thread.modelId, messages };
@@ -193,13 +201,39 @@ export const finalize = internalMutation({
     content: v.string(),
     pending: v.string(),
     error: v.optional(v.string()),
+    usage: v.optional(usageValidator),
+    reports: v.optional(v.object({ caching: v.boolean(), reasoning: v.boolean() })),
   },
   returns: v.null(),
-  handler: async (ctx, { messageId, status, content, pending, error }) => {
+  handler: async (ctx, { messageId, status, content, pending, error, usage, reports }) => {
     const message = await ctx.db.get("messages", messageId);
     if (!message || message.status !== "streaming") return null;
     if (message.streamId) await appendChunk(ctx, message.streamId, pending, true);
-    await ctx.db.patch("messages", messageId, { status, content, error });
+    if (!usage) {
+      await ctx.db.patch("messages", messageId, { status, content, error });
+      return null;
+    }
+
+    const model = message.model ?? "";
+    const cost = costMicroUsd(usage, priceFor(model));
+    await ctx.db.patch("messages", messageId, { status, content, error, usage, costMicroUsd: cost ?? undefined });
+    await recordDailyUsage(ctx, {
+      ownerId: message.ownerId,
+      at: Date.now(),
+      model,
+      providerId: message.providerId ?? "",
+      threadId: message.threadId,
+      usage,
+      costMicroUsd: cost,
+    });
+    const provider = message.providerId && (await ctx.db.get("providers", message.providerId));
+    if (provider && reports) {
+      const known = provider.capabilities ?? { caching: false, reasoning: false };
+      const capabilities = { caching: known.caching || reports.caching, reasoning: known.reasoning || reports.reasoning };
+      if (capabilities.caching !== known.caching || capabilities.reasoning !== known.reasoning || !provider.capabilities) {
+        await ctx.db.patch("providers", provider._id, { capabilities });
+      }
+    }
     return null;
   },
 });

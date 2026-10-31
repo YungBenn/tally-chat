@@ -9,6 +9,10 @@ import Composer from "@/components/Composer";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
+const n = (x: number) => x.toLocaleString("en-US");
+// Per-turn amounts: 4 significant digits; totals of $1 or more: 2 decimals (design doc section 12).
+const usd = (micro: number) => `$${micro >= 1e6 ? (micro / 1e6).toFixed(2) : Number((micro / 1e6).toPrecision(4))}`;
+
 export default function ThreadPage() {
   const { threadId } = useParams<{ threadId: Id<"threads"> }>();
   const thread = useQuery(api.chat.getThread, { threadId });
@@ -37,6 +41,19 @@ export default function ThreadPage() {
                   {m.text}
                   {m.status === "streaming" && <span className="ml-0.5 animate-pulse text-muted">▍</span>}
                 </div>
+                {m.usage && (
+                  <p className="font-mono text-xs text-muted">
+                    {[
+                      m.model,
+                      m.costMicroUsd === undefined ? "cost unknown" : usd(m.costMicroUsd),
+                      `in ${n(m.usage.inputTokens)}`,
+                      `cache read ${n(m.usage.cacheReadTokens)}`,
+                      `cache write ${n(m.usage.cacheWriteTokens5m + m.usage.cacheWriteTokens1h)}`,
+                      `out ${n(m.usage.outputTokens)}`,
+                      `reasoning ${n(m.usage.reasoningTokens)}`,
+                    ].join(" · ")}
+                  </p>
+                )}
                 {m.status === "stopped" && <p className="font-mono text-xs text-muted">stopped</p>}
                 {m.status === "error" && (
                   <p role="alert" className="font-mono text-xs text-danger">
