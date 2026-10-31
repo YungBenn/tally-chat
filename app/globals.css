@@ -43,3 +43,8 @@ body {
   color: var(--foreground);
   background: var(--background);
 }
+
+/* Programming ligatures turn "https://" into a glyph; numbers and URLs must read literally. */
+.font-mono {
+  font-variant-ligatures: none;
+}

@@ -4,14 +4,14 @@
 
 **Blocked by:** 01 Scaffold and owner login
 
-**Status:** ready-for-agent
+**Status:** done (pending review)
 
-- [ ] Owner can add a provider with name, API style `anthropic`, base URL and key
-- [ ] Non-https base URLs are refused (the full URL guard lands in 04)
-- [ ] Saving runs one cheap test call; a bad key is reported and nothing is saved
-- [ ] A saved provider shows its detected provider identity and key status, never key material
-- [ ] Key is stored encrypted with a master key from an environment variable; the database holds only ciphertext
-- [ ] Tests prove no client-facing query or mutation returns key material, and request headers are never logged
-- [ ] Model list is pulled from the provider on save and the owner can hide or edit entries
-- [ ] Owner can replace a key or delete a provider
-- [ ] The add-provider form explains that ChatGPT Plus or Claude Pro subscriptions are not API keys
+- [x] Owner can add a provider with name, API style `anthropic`, base URL and key
+- [x] Non-https base URLs are refused (the full URL guard lands in 04)
+- [x] Saving runs one cheap test call; a bad key is reported and nothing is saved
+- [x] A saved provider shows its detected provider identity and key status, never key material
+- [x] Key is stored encrypted with a master key from an environment variable; the database holds only ciphertext
+- [x] Tests prove no client-facing query or mutation returns key material, and request headers are never logged
+- [x] Model list is pulled from the provider on save and the owner can hide or edit entries
+- [x] Owner can replace a key or delete a provider
+- [x] The add-provider form explains that ChatGPT Plus or Claude Pro subscriptions are not API keys

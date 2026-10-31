@@ -56,7 +56,7 @@ describe("fakeFetch harness", () => {
     try {
       const res = await fetch("https://api.example.test/v1/x", { method: "POST", body: JSON.stringify({ a: 1 }) });
       expect(await res.json()).toEqual({ ok: true });
-      expect(fake.requests).toEqual([{ method: "POST", url: "https://api.example.test/v1/x", body: { a: 1 } }]);
+      expect(fake.requests).toEqual([{ method: "POST", url: "https://api.example.test/v1/x", headers: {}, body: { a: 1 } }]);
     } finally {
       fake.restore();
     }

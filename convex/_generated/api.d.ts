@@ -10,7 +10,10 @@
 
 import type * as auth from "../auth.js";
 import type * as http from "../http.js";
+import type * as lib_anthropic from "../lib/anthropic.js";
+import type * as lib_vault from "../lib/vault.js";
 import type * as owner from "../owner.js";
+import type * as providers from "../providers.js";
 
 import type {
   ApiFromModules,
@@ -21,7 +24,10 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   http: typeof http;
+  "lib/anthropic": typeof lib_anthropic;
+  "lib/vault": typeof lib_vault;
   owner: typeof owner;
+  providers: typeof providers;
 }>;
 
 /**
