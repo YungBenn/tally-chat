@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { CURRENT_SYSTEM_PROMPT_VERSION } from "./lib/systemPrompts";
+import { assembleHistory } from "./lib/context";
 import { recordDailyUsage } from "./lib/rollups";
 import { appendChunk, createStream, streamText } from "./lib/textStream";
 import { costMicroUsd, priceFor, usageValidator } from "./lib/usage";
@@ -259,7 +260,6 @@ export const generationInput = internalQuery({
     if (!message || message.status !== "streaming" || !message.streamId) return null;
     const thread = (await ctx.db.get("threads", message.threadId))!;
     const provider = await ctx.db.get("providers", thread.providerId);
-    const ancestors = await Promise.all(message.ancestorIds.map((id) => ctx.db.get("messages", id)));
     const settings = await ctx.db
       .query("settings")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", message.ownerId))
@@ -270,9 +270,7 @@ export const generationInput = internalQuery({
       systemPromptVersion: thread.systemPromptVersion,
       provider: provider && { apiStyle: provider.apiStyle, baseUrl: provider.baseUrl, apiKeyEncrypted: provider.apiKeyEncrypted },
       allowlist: settings?.allowlistedHosts ?? [],
-      history: ancestors
-        .filter((m) => m !== null && m.content !== "")
-        .map((m) => ({ role: m!.role, content: m!.content })),
+      history: await assembleHistory(ctx, message),
     };
   },
 });

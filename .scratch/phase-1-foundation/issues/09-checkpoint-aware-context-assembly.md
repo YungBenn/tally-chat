@@ -4,12 +4,12 @@
 
 **Blocked by:** 08 Retry, edit and branch switching
 
-**Status:** ready-for-agent
+**Status:** done (pending review)
 
-- [ ] With no checkpoint on the branch, the request is system prompt then the full branch
-- [ ] With checkpoints, only the latest one on the branch is applied
-- [ ] Pinned messages inside the covered range follow the summary in original order
-- [ ] A fork made before a checkpoint never sees it
-- [ ] "Turn 40 of a thread condensed twice and forked once" produces the expected ordered context (test)
-- [ ] Assembling the same branch twice yields byte-identical system and message content (test)
-- [ ] Bumping `systemPromptVersion` is the only thing that changes the system prompt bytes
+- [x] With no checkpoint on the branch, the request is system prompt then the full branch
+- [x] With checkpoints, only the latest one on the branch is applied
+- [x] Pinned messages inside the covered range follow the summary in original order
+- [x] A fork made before a checkpoint never sees it
+- [x] "Turn 40 of a thread condensed twice and forked once" produces the expected ordered context (test)
+- [x] Assembling the same branch twice yields byte-identical system and message content (test)
+- [x] Bumping `systemPromptVersion` is the only thing that changes the system prompt bytes

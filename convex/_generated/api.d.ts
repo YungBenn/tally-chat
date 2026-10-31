@@ -13,6 +13,7 @@ import type * as chat from "../chat.js";
 import type * as chatActions from "../chatActions.js";
 import type * as http from "../http.js";
 import type * as lib_anthropic from "../lib/anthropic.js";
+import type * as lib_context from "../lib/context.js";
 import type * as lib_openaiCompatible from "../lib/openaiCompatible.js";
 import type * as lib_rollups from "../lib/rollups.js";
 import type * as lib_systemPrompts from "../lib/systemPrompts.js";
@@ -37,6 +38,7 @@ declare const fullApi: ApiFromModules<{
   chatActions: typeof chatActions;
   http: typeof http;
   "lib/anthropic": typeof lib_anthropic;
+  "lib/context": typeof lib_context;
   "lib/openaiCompatible": typeof lib_openaiCompatible;
   "lib/rollups": typeof lib_rollups;
   "lib/systemPrompts": typeof lib_systemPrompts;

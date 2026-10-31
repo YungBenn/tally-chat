@@ -48,6 +48,15 @@ export default defineSchema({
     usage: v.optional(usageValidator), // as reported by the provider
     costMicroUsd: v.optional(v.number()), // absent with usage present = model has no price
   }).index("by_thread_parent", ["threadId", "parentId"]),
+  // A summary standing in for every message up to coversUpToId on any branch containing it
+  // (ADR 0001). Stored outside the tree so condensing never rewrites messages.
+  checkpoints: defineTable({
+    ownerId: v.id("users"),
+    threadId: v.id("threads"),
+    coversUpToId: v.id("messages"),
+    summary: v.string(),
+    tokens: v.number(),
+  }).index("by_threadId", ["threadId"]),
   // Per owner, UTC day and dimension: sums kept in the mutation that finalizes a reply
   // (design doc S10, 8.2). Survives thread deletes so daily spend stays accurate.
   dailyUsage: defineTable({
