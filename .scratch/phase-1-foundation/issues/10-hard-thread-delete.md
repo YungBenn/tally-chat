@@ -4,10 +4,10 @@
 
 **Blocked by:** 06 Metering and cost
 
-**Status:** ready-for-agent
+**Status:** done (pending review)
 
-- [ ] Deleting a thread removes its messages, checkpoints and stream data
-- [ ] Rollup totals are unchanged by the delete (test)
-- [ ] No function exists to delete or hide a single message
-- [ ] Deleting a thread with a reply still streaming stops the stream first
-- [ ] Deleted threads are gone from every device's thread list
+- [x] Deleting a thread removes its messages, checkpoints and stream data
+- [x] Rollup totals are unchanged by the delete (test)
+- [x] No function exists to delete or hide a single message
+- [x] Deleting a thread with a reply still streaming stops the stream first
+- [x] Deleted threads are gone from every device's thread list

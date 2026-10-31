@@ -20,7 +20,11 @@ export const generate = internalAction({
   returns: v.null(),
   handler: async (ctx, { messageId }) => {
     const input = await ctx.runQuery(internal.chat.generationInput, { messageId });
-    if (!input) return null;
+    if (!input) {
+      // Thread deleted before we started: close the reply so the purge can remove it.
+      await ctx.runMutation(internal.chat.finalize, { messageId, status: "stopped", content: "", pending: "" });
+      return null;
+    }
     let full = "";
     let pending = "";
     // ponytail: a stopped reply only has usage up to the last message_delta, so output

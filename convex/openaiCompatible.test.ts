@@ -43,7 +43,7 @@ async function setup(opts: { baseUrl: string; model: string; key?: string; free?
 async function sendAndFinish(s: Awaited<ReturnType<typeof setup>>, content = "Hi") {
   await s.owner.mutation(api.chat.send, { threadId: s.threadId, content });
   await s.t.finishAllScheduledFunctions(() => {});
-  return (await s.owner.query(api.chat.getThread, { threadId: s.threadId as Id<"threads"> })).messages.at(-1)!;
+  return (await s.owner.query(api.chat.getThread, { threadId: s.threadId as Id<"threads"> }))!.messages.at(-1)!;
 }
 
 describe("OpenAI-compatible chat", () => {
@@ -85,14 +85,14 @@ describe("OpenAI-compatible chat", () => {
     });
     await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Hi" });
     await vi.waitFor(() => expect(g.reached).toBe(true));
-    const { _id } = (await s.owner.query(api.chat.getThread, { threadId: s.threadId })).messages.at(-1)!;
+    const { _id } = (await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!.messages.at(-1)!;
     await s.owner.mutation(api.chat.stop, { messageId: _id });
     vi.setSystemTime(Date.now() + 200);
     g.release();
     await s.t.finishInProgressScheduledFunctions();
 
     expect(aborted).toBe(true);
-    const last = (await s.owner.query(api.chat.getThread, { threadId: s.threadId })).messages.at(-1)!;
+    const last = (await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!.messages.at(-1)!;
     expect(last).toMatchObject({ status: "stopped", text: "Hello world" });
   });
 });

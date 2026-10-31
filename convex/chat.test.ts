@@ -42,7 +42,7 @@ async function setup(baseUrl = "https://api.anthropic.com") {
 
 const reply = (...texts: string[]) => ({ body: sse(...texts.map(textDelta), messageStop), headers: { "content-type": "text/event-stream" } });
 const lastAssistant = async (owner: ReturnType<ReturnType<typeof convexTest>["withIdentity"]>, threadId: Id<"threads">) =>
-  (await owner.query(api.chat.getThread, { threadId })).messages.at(-1)!;
+  (await owner.query(api.chat.getThread, { threadId }))!.messages.at(-1)!;
 
 describe("threads", () => {
   test("a thread needs a visible model of the owner's provider", async () => {
@@ -63,7 +63,7 @@ describe("sending a message", () => {
     const { t, owner, threadId } = await setup();
     fake = fakeFetch({ [MESSAGES_URL]: reply("Hi") });
     await owner.mutation(api.chat.send, { threadId, content: "  Hello there  " });
-    const thread = await owner.query(api.chat.getThread, { threadId });
+    const thread = (await owner.query(api.chat.getThread, { threadId }))!;
     expect(thread.title).toBe("Hello there");
     expect(thread.messages.map((m) => [m.role, m.status, m.text])).toEqual([
       ["user", "done", "Hello there"],
@@ -104,7 +104,7 @@ describe("sending a message", () => {
         { role: "user", content: "Second" },
       ],
     });
-    const ids = (await owner.query(api.chat.getThread, { threadId })).messages.map((m) => m._id);
+    const ids = (await owner.query(api.chat.getThread, { threadId }))!.messages.map((m) => m._id);
     const leaf = await t.run((ctx) => ctx.db.get("messages", ids[3]));
     expect(leaf!.ancestorIds).toEqual(ids.slice(0, 3));
   });

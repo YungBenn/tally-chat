@@ -5,7 +5,7 @@ import { internalMutation, internalQuery, mutation, query, type MutationCtx, typ
 import { CURRENT_SYSTEM_PROMPT_VERSION } from "./lib/systemPrompts";
 import { assembleHistory } from "./lib/context";
 import { recordDailyUsage } from "./lib/rollups";
-import { appendChunk, createStream, streamText } from "./lib/textStream";
+import { appendChunk, createStream, deleteStream, streamText } from "./lib/textStream";
 import { costMicroUsd, priceFor, usageValidator } from "./lib/usage";
 import { requireOwner } from "./owner";
 
@@ -68,16 +68,23 @@ const messageView = v.object({
   costMicroUsd: v.optional(v.number()),
 });
 
+// null when the thread doesn't exist (or was deleted), so a page left open on another
+// device can say so instead of crashing.
 export const getThread = query({
   args: { threadId: v.id("threads") },
-  returns: v.object({
-    title: v.string(),
-    providerId: v.id("providers"),
-    modelId: v.string(),
-    messages: v.array(messageView),
-  }),
+  returns: v.union(
+    v.null(),
+    v.object({
+      title: v.string(),
+      providerId: v.id("providers"),
+      modelId: v.string(),
+      messages: v.array(messageView),
+    }),
+  ),
   handler: async (ctx, { threadId }) => {
-    const thread = await ownedThread(ctx, await requireOwner(ctx), threadId);
+    const ownerId = await requireOwner(ctx);
+    const thread = await ctx.db.get("threads", threadId);
+    if (!thread || thread.ownerId !== ownerId) return null;
     const branch = await activeBranch(ctx, thread);
     const messages = await Promise.all(
       branch.map(async (m) => ({
@@ -222,6 +229,58 @@ export const switchBranch = mutation({
   },
 });
 
+// Hard delete of a whole thread (single messages are never deleted, ADR 0001). The thread
+// row goes now, so it vanishes from every device; purgeThread removes the rest in batches.
+// Daily rollups are separate rows and keep the thread's spend.
+export const deleteThread = mutation({
+  args: { threadId: v.id("threads") },
+  returns: v.null(),
+  handler: async (ctx, { threadId }) => {
+    const ownerId = await requireOwner(ctx);
+    const thread = await ownedThread(ctx, ownerId, threadId);
+    await ctx.db.delete("threads", thread._id);
+    await ctx.scheduler.runAfter(0, internal.chat.purgeThread, { threadId });
+    return null;
+  },
+});
+
+const PURGE_BATCH = 100;
+// ponytail: a reply whose action crashed stays "streaming" forever; after this long the
+// purge stops waiting for it. A sweeper for stuck replies would fix the root cause.
+const STUCK_STREAM_MS = 15 * 60 * 1000;
+
+export const purgeThread = internalMutation({
+  args: { threadId: v.id("threads") },
+  returns: v.null(),
+  handler: async (ctx, { threadId }) => {
+    const messages = await ctx.db
+      .query("messages")
+      .withIndex("by_thread_parent", (q) => q.eq("threadId", threadId))
+      .take(PURGE_BATCH);
+    let waiting = false;
+    for (const m of messages) {
+      // A reply still streaming is stopped first and left until it finalizes, so the
+      // tokens the provider already billed still reach the rollups.
+      if (m.status === "streaming" && Date.now() - m._creationTime < STUCK_STREAM_MS) {
+        if (!m.stopRequested) await ctx.db.patch("messages", m._id, { stopRequested: true });
+        waiting = true;
+        continue;
+      }
+      if (m.streamId) await deleteStream(ctx, m.streamId);
+      await ctx.db.delete("messages", m._id);
+    }
+    const checkpoints = await ctx.db
+      .query("checkpoints")
+      .withIndex("by_threadId", (q) => q.eq("threadId", threadId))
+      .take(PURGE_BATCH);
+    for (const c of checkpoints) await ctx.db.delete("checkpoints", c._id);
+
+    const more = messages.length === PURGE_BATCH || checkpoints.length === PURGE_BATCH;
+    if (more || waiting) await ctx.scheduler.runAfter(waiting && !more ? 1000 : 0, internal.chat.purgeThread, { threadId });
+    return null;
+  },
+});
+
 export const stop = mutation({
   args: { messageId: v.id("messages") },
   returns: v.null(),
@@ -258,7 +317,8 @@ export const generationInput = internalQuery({
   handler: async (ctx, { messageId }) => {
     const message = await ctx.db.get("messages", messageId);
     if (!message || message.status !== "streaming" || !message.streamId) return null;
-    const thread = (await ctx.db.get("threads", message.threadId))!;
+    const thread = await ctx.db.get("threads", message.threadId);
+    if (!thread) return null; // deleted while queued; purgeThread stops and removes the reply
     const provider = await ctx.db.get("providers", thread.providerId);
     const settings = await ctx.db
       .query("settings")

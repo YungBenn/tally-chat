@@ -14,5 +14,7 @@ export const createStream = (ctx: MutationCtx) => streaming.createStream(ctx);
 export const streamText = async (ctx: QueryCtx, streamId: string) =>
   (await streaming.getStreamBody(ctx, streamId as StreamId)).text;
 
+export const deleteStream = (ctx: MutationCtx, streamId: string) => streaming.deleteStream(ctx, streamId as StreamId);
+
 export const appendChunk = (ctx: ActionCtx | MutationCtx, streamId: string, text: string, final: boolean) =>
   ctx.runMutation(components.persistentTextStreaming.lib.addChunk, { streamId: streamId as StreamId, text, final });

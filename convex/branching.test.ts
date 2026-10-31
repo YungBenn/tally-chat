@@ -46,7 +46,7 @@ async function setup() {
     await t.finishAllScheduledFunctions(() => {});
     return out;
   };
-  const branch = async () => (await owner.query(api.chat.getThread, { threadId })).messages;
+  const branch = async () => (await owner.query(api.chat.getThread, { threadId }))!.messages;
   const texts = async () => (await branch()).map((m) => m.text);
   const sentHistories = () => fake!.requests.map((r) => (r.body as { messages: { content: string }[] }).messages.map((m) => m.content));
   return { t, owner, threadId, run, branch, texts, sentHistories };

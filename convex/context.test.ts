@@ -130,7 +130,7 @@ describe("context assembly", () => {
     await s.sendFrom(ids.at(-1)!, "U13");
     const first = fake!.requests.at(-1)!.body;
 
-    const [, , reply] = (await s.owner.query(api.chat.getThread, { threadId: s.threadId })).messages.slice(-3);
+    const [, , reply] = (await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!.messages.slice(-3);
     await s.owner.mutation(api.chat.retry, { messageId: reply._id });
     await s.t.finishAllScheduledFunctions(() => {});
     expect(JSON.stringify(fake!.requests.at(-1)!.body)).toBe(JSON.stringify(first));

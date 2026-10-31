@@ -2,7 +2,8 @@
 
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
-import { useParams } from "next/navigation";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import ChatShell from "@/components/ChatShell";
 import Composer from "@/components/Composer";
@@ -93,6 +94,8 @@ export default function ThreadPage() {
   const send = useMutation(api.chat.send);
   const stop = useMutation(api.chat.stop);
   const retry = useMutation(api.chat.retry);
+  const deleteThread = useMutation(api.chat.deleteThread);
+  const router = useRouter();
   const bottom = useRef<HTMLDivElement>(null);
   const last = thread?.messages.at(-1);
   const streaming = last?.status === "streaming";
@@ -101,9 +104,36 @@ export default function ThreadPage() {
     bottom.current?.scrollIntoView({ block: "end" });
   }, [last?.text]);
 
+  if (thread === null) {
+    return (
+      <ChatShell>
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4">
+          <p className="font-serif text-xl text-muted">This thread was deleted.</p>
+          <Link href="/" className="text-sm underline underline-offset-2 hover:text-foreground">
+            Start a new thread
+          </Link>
+        </div>
+      </ChatShell>
+    );
+  }
+
   return (
     <ChatShell>
       <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-4 pt-4">
+          <h1 className="truncate text-sm text-muted">{thread?.title}</h1>
+          <button
+            className={`${quiet} shrink-0 enabled:hover:text-danger`}
+            onClick={() => {
+              if (!confirm("Delete this thread? Its messages are removed for good. Your spend history keeps its cost.")) return;
+              // Leave first, so this page never queries a thread that no longer exists.
+              router.push("/");
+              void deleteThread({ threadId });
+            }}
+          >
+            Delete thread
+          </button>
+        </div>
         <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
           {thread?.messages.map((m) =>
             m.role === "user" ? (
