@@ -4,11 +4,11 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (pending review)
 
-- [ ] Self-hosted Convex backend runs from Docker Compose (default SQLite) and a toy app deploys to it
-- [ ] A toy action streams text through `persistent-text-streaming`; a client reloading mid-stream resumes it
-- [ ] A toy mutation updates an `aggregate` sum by namespace and reads it back
-- [ ] Findings note in `docs/` covering setup steps, versions, anything that broke or needed workarounds
-- [ ] If findings contradict ADR 0002, an ADR change is proposed; otherwise the note says it holds
-- [ ] Toy app code is not merged into the product
+- [x] Self-hosted Convex backend runs from Docker Compose (default SQLite) and a toy app deploys to it
+- [x] A toy action streams text through `persistent-text-streaming`; a client reloading mid-stream resumes it
+- [x] A toy mutation updates an `aggregate` sum by namespace and reads it back
+- [x] Findings note in `docs/` covering setup steps, versions, anything that broke or needed workarounds
+- [x] If findings contradict ADR 0002, an ADR change is proposed; otherwise the note says it holds
+- [x] Toy app code is not merged into the product

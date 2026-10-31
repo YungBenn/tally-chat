@@ -8,10 +8,12 @@
 
 - [ ] Owner can create a thread with a chosen provider and model
 - [ ] Sending appends the user message and an assistant message with status `streaming`, and returns immediately
-- [ ] The provider call runs in a scheduled action and flushes buffered chunks roughly every 100 ms, never per token
+- [ ] The provider call runs in a scheduled internal action and flushes buffered chunks roughly every 100 ms, never per token
+- [ ] The stream is driven server-side, writing through `persistent-text-streaming`'s chunk mutation; no browser-called HTTP streaming endpoint exists (spike finding 1, `docs/spike-convex-self-host.md`)
+- [ ] The `persistent-text-streaming` version is pinned exactly, and the call into its undocumented chunk mutation lives in one place
 - [ ] Reloading mid-stream shows the text so far and continues streaming
 - [ ] A thread open on two devices shows the same messages
-- [ ] Stop aborts the provider call and marks the message `stopped`, keeping streamed content
+- [ ] Stop sets a flag on the message that the streaming action checks between chunks; the action then aborts the provider request and marks the message `stopped`, keeping streamed content (the component has no cancel API, spike finding 3)
 - [ ] A provider error marks the message `error`, keeping streamed content
 - [ ] Each message stores `ancestorIds`; the active branch is built in one read
 - [ ] Message content never changes after its final status is written (test asserts this)
