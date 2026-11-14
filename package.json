@@ -14,13 +14,20 @@
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "3.0.82",
+    "@base-ui/react": "^1.9.0",
     "@convex-dev/auth": "^0.0.95",
     "@convex-dev/persistent-text-streaming": "0.3.5",
+    "@tabler/icons-react": "^3.50.0",
     "ai": "7.0.159",
+    "clsx": "^2.1.1",
     "convex": "^1.44.0",
     "next": "16.3.8",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1",
+    "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
     "@convex-dev/eslint-plugin": "^5.0.0",
