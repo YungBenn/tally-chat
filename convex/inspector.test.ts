@@ -428,3 +428,74 @@ describe("one turn", () => {
     });
   });
 });
+
+describe("edit hints", () => {
+  // Three turns whose replies report requests of 5,000, 10,000 and 15,000 tokens, 100 out each.
+  const seedTurns = (s: Awaited<ReturnType<typeof setup>>) =>
+    s.t.run(async (ctx) => {
+      const ids: Id<"messages">[] = [];
+      for (const size of [5000, 10_000, 15_000]) {
+        for (const role of ["user", "assistant"] as const) {
+          ids.push(
+            await ctx.db.insert("messages", {
+              ownerId: s.ownerId,
+              threadId: s.threadId,
+              parentId: ids.at(-1),
+              ancestorIds: [...ids],
+              role,
+              content: role,
+              status: "done",
+              pinned: false,
+              ...(role === "assistant"
+                ? {
+                    usage: {
+                      inputTokens: 10,
+                      cacheReadTokens: size - 10,
+                      cacheWriteTokens5m: 0,
+                      cacheWriteTokens1h: 0,
+                      outputTokens: 100,
+                      reasoningTokens: 0,
+                    },
+                  }
+                : {}),
+            }),
+          );
+        }
+      }
+      await ctx.db.patch("threads", s.threadId, { activeLeafId: ids.at(-1) });
+      return ids;
+    });
+
+  test("editing further back rewrites more of the cache, so the extra cost grows; the first message is free to edit", async () => {
+    const s = await setup([]);
+    const ids = await seedTurns(s);
+    // Continuing reads 15,100 tokens at $0.10/MTok. Editing U2 writes everything after the system
+    // prompt up to it (5,100 - system) at $2.50/MTok; editing U3, 10,100 - system.
+    const continuing = 15_100 * 0.1;
+    const extra = (before: number) =>
+      Math.round(SYSTEM * 0.1 + (before - SYSTEM) * 2.5 - continuing);
+    expect((await s.inspect()).editHints).toEqual([
+      { messageId: ids[2], extraMicroUsd: extra(5_100) },
+      { messageId: ids[4], extraMicroUsd: extra(10_100) },
+    ]);
+  });
+
+  test("no hints below the minimum cacheable size, under a cent, on OpenAI-compatible threads or without a price", async () => {
+    const short = await setup([usage({})]);
+    await short.send("Hi");
+    await short.send("Again");
+    expect((await short.inspect()).editHints).toEqual([]); // a few dozen tokens: nothing caches
+
+    const mystery = await setup([], "local-mystery");
+    await seedTurns(mystery);
+    expect((await mystery.inspect()).editHints).toEqual([]);
+
+    const s = await setup([]);
+    const thread = await s.owner.mutation(api.chat.createThread, {
+      providerId: s.openaiId,
+      modelId: "gpt-5",
+    });
+    await s.send("Hi", thread);
+    expect((await s.inspect(thread)).editHints).toEqual([]);
+  });
+});

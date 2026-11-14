@@ -103,5 +103,6 @@ export default defineSchema({
     sideJobModel: v.optional(v.object({ providerId: v.id("providers"), modelId: v.string() })),
     timeZone: v.optional(v.string()), // IANA name; daily rollups use the owner's day, UTC until set
     keepaliveEnabled: v.optional(v.boolean()), // absent = on; off = 1-hour cache lifetime instead
+    cacheBreakConfirmMicroUsd: v.optional(v.number()), // edits costing more than this ask first; absent = $0.10
   }).index("by_ownerId", ["ownerId"]),
 });

@@ -4,10 +4,12 @@
 
 **Blocked by:** 03 Inspector rail
 
-**Status:** ready-for-agent
+**Status:** done (pending review)
 
-- [ ] The inspector query returns an edit estimate per user message on the branch, assuming only the system prompt and checkpoint layer stay cached
-- [ ] No hint when the cache is cold, the extra cost is under one cent, or the branch is below the minimum cacheable size
-- [ ] Settings gain a cache-break confirmation threshold, default $0.10
-- [ ] Above it, starting an edit asks for confirmation; below it, no prompt
-- [ ] Tests: the estimate grows with distance from the stable layers and is absent when cold or under one cent
+- [x] The inspector query returns an edit estimate per user message on the branch, assuming only the system prompt and checkpoint layer stay cached
+- [x] No hint when the cache is cold, the extra cost is under one cent, or the branch is below the minimum cacheable size
+- [x] Settings gain a cache-break confirmation threshold, default $0.10
+- [x] Above it, starting an edit asks for confirmation; below it, no prompt
+- [x] Tests: the estimate grows with distance from the stable layers and is absent when cold or under one cent
+
+**Note:** queries can't read the clock, so the query returns hints whenever the thread is Anthropic style, priced and above the cacheable minimum, and the client hides them while the cache is cold. Verified live: a three-turn thread showed `breaks cache · +$0.01504` on turn three (none on turn two, under a cent), and with the threshold at $0.01 the edit asked first.

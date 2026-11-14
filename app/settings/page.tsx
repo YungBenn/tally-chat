@@ -91,6 +91,65 @@ function Keepalive() {
   );
 }
 
+function CacheBreakConfirm() {
+  const settings = useQuery(api.settings.get);
+  const setThreshold = useMutation(api.settings.setCacheBreakConfirm);
+  const [error, setError] = useState<string | null>(null);
+  if (!settings) return null;
+
+  return (
+    <section
+      data-surface="panel"
+      className="flex flex-col gap-4 rounded-[var(--primitive-radius-surface)] p-5"
+    >
+      <div>
+        <h2 className="font-semibold tracking-[-0.01em]">
+          Cache-break confirmation
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Editing a past message throws away the cached history after it. When
+          that costs more than this, tally.chat asks before you edit.
+        </p>
+      </div>
+      <form
+        className="flex items-start gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const dollars = Number(
+            new FormData(e.currentTarget).get("threshold"),
+          );
+          setError(null);
+          setThreshold({ microUsd: Math.round(dollars * 1e6) }).catch((err) =>
+            setError(
+              err instanceof ConvexError ? String(err.data) : "Could not save",
+            ),
+          );
+        }}
+      >
+        <Input
+          key={settings.cacheBreakConfirmMicroUsd}
+          name="threshold"
+          type="number"
+          min={0}
+          step={0.01}
+          defaultValue={settings.cacheBreakConfirmMicroUsd / 1e6}
+          aria-label="Confirm above, in US dollars"
+          leftIcon={<span className="text-sm text-muted-foreground">$</span>}
+          inputClassName="font-mono"
+        />
+        <Button type="submit" variant="outline">
+          Save
+        </Button>
+      </form>
+      {error && (
+        <p role="alert" className="text-sm text-primitive-destructive">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
 function TimeZone() {
   const settings = useQuery(api.settings.get);
   const setTimeZone = useMutation(api.settings.setTimeZone);
@@ -153,6 +212,7 @@ export default function SettingsPage() {
           </h1>
           <SideJobModel />
           <Keepalive />
+          <CacheBreakConfirm />
           <TimeZone />
           <section
             data-surface="panel"

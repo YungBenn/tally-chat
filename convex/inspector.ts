@@ -108,6 +108,11 @@ export const get = query({
         prices: pricesValidator,
         expectedOutputTokens: v.union(v.null(), v.number()),
       }),
+      // Per user message on the branch: roughly how much more editing it costs than
+      // continuing, when that's at least a cent. The client hides them while the cache is cold.
+      editHints: v.array(
+        v.object({ messageId: v.id("messages"), extraMicroUsd: v.number() }),
+      ),
       thread: v.object({
         costMicroUsd: v.number(),
         unpricedCalls: v.number(),
@@ -158,10 +163,66 @@ export const get = query({
             )
           : null,
       },
+      editHints:
+        provider?.apiStyle === "anthropic" && prices
+          ? await editHints(ctx, thread, branch, layers, prices)
+          : [],
       thread: await threadFigures(ctx, ownerId, threadId),
     };
   },
 });
+
+const MIN_CACHEABLE_TOKENS = 512; // every 5.x model; shorter prefixes never cache (design doc S5)
+const MIN_HINT_MICRO_USD = 10_000; // under a cent isn't worth a hint
+
+// Editing a past message forks there: the new request repeats the branch up to that message.
+// Assume only the explicit-breakpoint layers (system prompt, checkpoint layer) are still cached,
+// since older cache entries expire, so everything after them up to the message is a cache write.
+// Compared with continuing (the whole prefix read from cache), that's the extra cost. It can
+// overstate a very recent edit; it never understates one.
+async function editHints(
+  ctx: QueryCtx,
+  thread: Doc<"threads">,
+  branch: Doc<"messages">[],
+  layers: { kind: string; tokens: number }[],
+  p: { cacheRead: number; cacheWrite: number },
+) {
+  const prefix = layers.reduce((sum, l) => sum + l.tokens, 0);
+  if (prefix < MIN_CACHEABLE_TOKENS) return [];
+  const system = layers[0].tokens;
+  const checkpointLayer =
+    layers.find((l) => l.kind === "checkpoint")?.tokens ?? 0;
+  const { checkpoint } = await assembleHistory(
+    ctx,
+    thread._id,
+    branch.map((m) => m._id),
+  );
+  const cut = checkpoint
+    ? branch.findIndex((m) => m._id === checkpoint.coversUpToId) + 1
+    : 0;
+  const continuing = prefix * p.cacheRead;
+
+  const hints: { messageId: Id<"messages">; extraMicroUsd: number }[] = [];
+  let before = system; // tokens of the request before branch[i], measured where a reply allows
+  for (let i = 0; i < branch.length; i++) {
+    const m = branch[i];
+    if (m.role === "user") {
+      // A fork inside the checkpoint's range loses the checkpoint: only the system prompt stays.
+      const stable = i < cut ? system : system + checkpointLayer;
+      const rewrite = Math.max(0, before - stable);
+      const extra = Math.round(
+        (stable * p.cacheRead + rewrite * p.cacheWrite - continuing) * 1e6,
+      );
+      if (extra >= MIN_HINT_MICRO_USD)
+        hints.push({ messageId: m._id, extraMicroUsd: extra });
+    }
+    before =
+      m.role === "assistant" && m.usage
+        ? totalInput(m.usage) + m.usage.outputTokens - m.usage.reasoningTokens
+        : before + estimateTokens(m.content);
+  }
+  return hints;
+}
 
 // The context window the next send repeats, by layer: the system prompt, the checkpoint layer
 // (when one applies) and the turns since. Turns are measured from the latest reply's usage:

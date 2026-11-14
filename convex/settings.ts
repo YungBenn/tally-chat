@@ -1,10 +1,19 @@
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import {
+  internalQuery,
+  mutation,
+  query,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
 import { requireOwner } from "./owner";
 
 const settingsFor = (ctx: QueryCtx, ownerId: Id<"users">) =>
-  ctx.db.query("settings").withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId)).unique();
+  ctx.db
+    .query("settings")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+    .unique();
 
 // Accepts "host" or "host:port" (IPv6 in brackets); no scheme, path or credentials.
 function normalizeHost(input: string): string {
@@ -21,7 +30,10 @@ function normalizeHost(input: string): string {
   return url.host;
 }
 
-const sideJobModelValidator = v.object({ providerId: v.id("providers"), modelId: v.string() });
+const sideJobModelValidator = v.object({
+  providerId: v.id("providers"),
+  modelId: v.string(),
+});
 
 export const get = query({
   args: {},
@@ -30,6 +42,7 @@ export const get = query({
     sideJobModel: v.union(v.null(), sideJobModelValidator),
     timeZone: v.union(v.null(), v.string()),
     keepaliveEnabled: v.boolean(),
+    cacheBreakConfirmMicroUsd: v.number(),
   }),
   handler: async (ctx) => {
     const settings = await settingsFor(ctx, await requireOwner(ctx));
@@ -38,6 +51,8 @@ export const get = query({
       sideJobModel: settings?.sideJobModel ?? null,
       timeZone: settings?.timeZone ?? null,
       keepaliveEnabled: settings?.keepaliveEnabled !== false,
+      cacheBreakConfirmMicroUsd:
+        settings?.cacheBreakConfirmMicroUsd ?? DEFAULT_CACHE_BREAK_CONFIRM,
     };
   },
 });
@@ -55,7 +70,12 @@ export const setTimeZone = mutation({
     }
     const settings = await settingsFor(ctx, ownerId);
     if (settings) await ctx.db.patch("settings", settings._id, { timeZone });
-    else await ctx.db.insert("settings", { ownerId, allowlistedHosts: [], timeZone });
+    else
+      await ctx.db.insert("settings", {
+        ownerId,
+        allowlistedHosts: [],
+        timeZone,
+      });
     return null;
   },
 });
@@ -68,13 +88,51 @@ export const setSideJobModel = mutation({
     const ownerId = await requireOwner(ctx);
     if (sideJobModel) {
       const provider = await ctx.db.get("providers", sideJobModel.providerId);
-      if (!provider || provider.ownerId !== ownerId || !provider.models.some((m) => m.id === sideJobModel.modelId && !m.hidden)) {
+      if (
+        !provider ||
+        provider.ownerId !== ownerId ||
+        !provider.models.some((m) => m.id === sideJobModel.modelId && !m.hidden)
+      ) {
         throw new ConvexError("Model not available");
       }
     }
     const settings = await settingsFor(ctx, ownerId);
-    if (settings) await ctx.db.patch("settings", settings._id, { sideJobModel: sideJobModel ?? undefined });
-    else await ctx.db.insert("settings", { ownerId, allowlistedHosts: [], sideJobModel: sideJobModel ?? undefined });
+    if (settings)
+      await ctx.db.patch("settings", settings._id, {
+        sideJobModel: sideJobModel ?? undefined,
+      });
+    else
+      await ctx.db.insert("settings", {
+        ownerId,
+        allowlistedHosts: [],
+        sideJobModel: sideJobModel ?? undefined,
+      });
+    return null;
+  },
+});
+
+const DEFAULT_CACHE_BREAK_CONFIRM = 100_000; // $0.10
+
+// Editing a past message asks for confirmation when its cache break costs more than this.
+export const setCacheBreakConfirm = mutation({
+  args: { microUsd: v.number() },
+  returns: v.null(),
+  handler: async (ctx, { microUsd }) => {
+    const ownerId = await requireOwner(ctx);
+    if (!Number.isFinite(microUsd) || microUsd < 0)
+      throw new ConvexError("Enter an amount of $0 or more");
+    const cacheBreakConfirmMicroUsd = Math.round(microUsd);
+    const settings = await settingsFor(ctx, ownerId);
+    if (settings)
+      await ctx.db.patch("settings", settings._id, {
+        cacheBreakConfirmMicroUsd,
+      });
+    else
+      await ctx.db.insert("settings", {
+        ownerId,
+        allowlistedHosts: [],
+        cacheBreakConfirmMicroUsd,
+      });
     return null;
   },
 });
@@ -87,17 +145,29 @@ export const setKeepaliveEnabled = mutation({
   handler: async (ctx, { enabled }) => {
     const ownerId = await requireOwner(ctx);
     const settings = await settingsFor(ctx, ownerId);
-    if (settings) await ctx.db.patch("settings", settings._id, { keepaliveEnabled: enabled });
-    else await ctx.db.insert("settings", { ownerId, allowlistedHosts: [], keepaliveEnabled: enabled });
+    if (settings)
+      await ctx.db.patch("settings", settings._id, {
+        keepaliveEnabled: enabled,
+      });
+    else
+      await ctx.db.insert("settings", {
+        ownerId,
+        allowlistedHosts: [],
+        keepaliveEnabled: enabled,
+      });
     return null;
   },
 });
 
-async function setHosts(ctx: MutationCtx, update: (hosts: string[]) => string[]) {
+async function setHosts(
+  ctx: MutationCtx,
+  update: (hosts: string[]) => string[],
+) {
   const ownerId = await requireOwner(ctx);
   const settings = await settingsFor(ctx, ownerId);
   const allowlistedHosts = update(settings?.allowlistedHosts ?? []);
-  if (settings) await ctx.db.patch("settings", settings._id, { allowlistedHosts });
+  if (settings)
+    await ctx.db.patch("settings", settings._id, { allowlistedHosts });
   else await ctx.db.insert("settings", { ownerId, allowlistedHosts });
 }
 
@@ -106,7 +176,9 @@ export const addAllowedHost = mutation({
   returns: v.null(),
   handler: async (ctx, { host }) => {
     const normalized = normalizeHost(host);
-    await setHosts(ctx, (hosts) => (hosts.includes(normalized) ? hosts : [...hosts, normalized]));
+    await setHosts(ctx, (hosts) =>
+      hosts.includes(normalized) ? hosts : [...hosts, normalized],
+    );
     return null;
   },
 });
@@ -123,5 +195,6 @@ export const removeAllowedHost = mutation({
 export const allowlist = internalQuery({
   args: { ownerId: v.id("users") },
   returns: v.array(v.string()),
-  handler: async (ctx, { ownerId }) => (await settingsFor(ctx, ownerId))?.allowlistedHosts ?? [],
+  handler: async (ctx, { ownerId }) =>
+    (await settingsFor(ctx, ownerId))?.allowlistedHosts ?? [],
 });

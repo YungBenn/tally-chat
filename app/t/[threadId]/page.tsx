@@ -24,8 +24,9 @@ import Markdown, { CopyButton } from "@/components/Markdown";
 import { Button } from "@/components/wensity/button";
 import { Textarea } from "@/components/wensity/text-area";
 import { api } from "@/convex/_generated/api";
-import { estimateTokens, metaLine, tokens } from "@/lib/format";
+import { estimateTokens, metaLine, tokens, usd } from "@/lib/format";
 import { useStoredFlag } from "@/lib/storedFlag";
+import { useCacheState } from "@/lib/useCacheState";
 import { usePresence } from "@/lib/usePresence";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -109,12 +110,16 @@ function UserMessage({
   siblingIds,
   busy,
   onType,
+  breakCost,
+  confirmAbove,
 }: {
   id: Id<"messages">;
   text: string;
   siblingIds: Id<"messages">[];
   busy: boolean;
   onType: () => void;
+  breakCost: number | null; // extra micro-dollars editing here costs, when it breaks the cache
+  confirmAbove: number;
 }) {
   const edit = useMutation(api.chat.edit);
   const [editing, setEditing] = useState(false);
@@ -134,12 +139,28 @@ function UserMessage({
               aria-label="Edit"
               title="Edit"
               onClick={() => {
+                if (
+                  breakCost !== null &&
+                  breakCost > confirmAbove &&
+                  !confirm(
+                    `Editing here breaks the prompt cache: the next send costs about ${usd(breakCost)} more than continuing. Edit anyway?`,
+                  )
+                )
+                  return;
                 setDraft(text);
                 setEditing(true);
               }}
             >
               <IconPencil />
             </button>
+            {breakCost !== null && (
+              <span
+                className="font-mono text-xs text-muted-foreground"
+                title="Editing forks the thread here, so everything after the system prompt is written to the cache again"
+              >
+                breaks cache · +{usd(breakCost)}
+              </span>
+            )}
             <Versions ids={siblingIds} current={id} />
           </>
         )
@@ -193,6 +214,21 @@ export default function ThreadPage() {
   const retry = useMutation(api.chat.retry);
   const deleteThread = useMutation(api.chat.deleteThread);
   const markActive = usePresence(threadId);
+  const inspector = useQuery(api.inspector.get, { threadId });
+  const settings = useQuery(api.settings.get);
+  const cache = useCacheState(
+    inspector?.cache ?? {
+      expiresAt: null,
+      keepaliveScheduled: false,
+      lastActiveAt: null,
+    },
+  );
+  // Edit hints only while the cache is warm: cold, editing costs no more than continuing.
+  const breakCosts = new Map(
+    inspector?.cache.managed && cache.state !== "cold"
+      ? inspector.editHints.map((h) => [h.messageId, h.extraMicroUsd] as const)
+      : [],
+  );
   const [draft, setDraft] = useState("");
   const [inspectorOpen, setInspectorOpen] = useStoredFlag(
     "tally.inspectorOpen",
@@ -202,9 +238,13 @@ export default function ThreadPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   // A reply shown on its own in the inspector, remembered with its thread so it never follows
   // the owner into another one (this page stays mounted across threads).
-  const [turn, setTurn] = useState<{ threadId: string; id: Id<"messages"> } | null>(null);
+  const [turn, setTurn] = useState<{
+    threadId: string;
+    id: Id<"messages">;
+  } | null>(null);
   const turnId = turn?.threadId === threadId ? turn.id : null;
-  const setTurnId = (id: Id<"messages"> | null) => setTurn(id && { threadId, id });
+  const setTurnId = (id: Id<"messages"> | null) =>
+    setTurn(id && { threadId, id });
   // The rail on desktop, the bottom sheet on phones (Tailwind's md breakpoint).
   const toggleInspector = () => {
     if (matchMedia("(min-width: 48rem)").matches)
@@ -345,6 +385,10 @@ export default function ThreadPage() {
                       siblingIds={m.siblingIds}
                       busy={streaming}
                       onType={markActive}
+                      breakCost={breakCosts.get(m._id) ?? null}
+                      confirmAbove={
+                        settings?.cacheBreakConfirmMicroUsd ?? 100_000
+                      }
                     />
                   ) : (
                     <MessageRow
