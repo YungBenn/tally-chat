@@ -229,6 +229,19 @@ export const switchBranch = mutation({
   },
 });
 
+// Presence for keepalive: the owner has the thread open in a focused tab, or is typing in it.
+// A deleted or foreign thread is ignored, not refused: a tab left open there has nothing to fix.
+export const markActive = mutation({
+  args: { threadId: v.id("threads") },
+  returns: v.null(),
+  handler: async (ctx, { threadId }) => {
+    const ownerId = await requireOwner(ctx);
+    const thread = await ctx.db.get("threads", threadId);
+    if (thread?.ownerId === ownerId) await ctx.db.patch("threads", threadId, { lastActiveAt: Date.now() });
+    return null;
+  },
+});
+
 // Hard delete of a whole thread (single messages are never deleted, ADR 0001). The thread
 // row goes now, so it vanishes from every device; purgeThread removes the rest in batches.
 // Daily rollups are separate rows and keep the thread's spend.

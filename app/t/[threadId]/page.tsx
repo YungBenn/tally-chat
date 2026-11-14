@@ -20,6 +20,7 @@ import Markdown, { CopyButton } from "@/components/Markdown";
 import { Button } from "@/components/wensity/button";
 import { Textarea } from "@/components/wensity/text-area";
 import { api } from "@/convex/_generated/api";
+import { usePresence } from "@/lib/usePresence";
 import type { Id } from "@/convex/_generated/dataModel";
 
 const n = (x: number) => x.toLocaleString("en-US");
@@ -103,11 +104,13 @@ function UserMessage({
   text,
   siblingIds,
   busy,
+  onType,
 }: {
   id: Id<"messages">;
   text: string;
   siblingIds: Id<"messages">[];
   busy: boolean;
+  onType: () => void;
 }) {
   const edit = useMutation(api.chat.edit);
   const [editing, setEditing] = useState(false);
@@ -150,7 +153,10 @@ function UserMessage({
         >
           <Textarea
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              onType();
+            }}
             autoResize
             minRows={2}
             autoFocus
@@ -182,6 +188,7 @@ export default function ThreadPage() {
   const stop = useMutation(api.chat.stop);
   const retry = useMutation(api.chat.retry);
   const deleteThread = useMutation(api.chat.deleteThread);
+  const markActive = usePresence(threadId);
   const router = useRouter();
   const scroller = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -261,6 +268,7 @@ export default function ThreadPage() {
                   text={m.text}
                   siblingIds={m.siblingIds}
                   busy={streaming}
+                  onType={markActive}
                 />
               ) : (
                 <MessageRow
@@ -349,6 +357,7 @@ export default function ThreadPage() {
       <Composer
         streaming={streaming}
         onStop={() => last && void stop({ messageId: last._id })}
+        onType={markActive}
         onSend={async (text) => {
           setAtBottom(true);
           try {

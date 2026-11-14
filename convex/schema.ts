@@ -29,6 +29,7 @@ export default defineSchema({
     systemPromptVersion: v.number(),
     activeLeafId: v.optional(v.id("messages")),
     titleRequested: v.optional(v.boolean()), // the side-job title runs once per thread
+    lastActiveAt: v.optional(v.number()), // owner focused on or typing in the thread (keepalive presence)
   }).index("by_ownerId", ["ownerId"]),
   // Append-only tree (ADR 0001). The only update a message ever gets is
   // streaming -> final status (plus the stop flag before that).

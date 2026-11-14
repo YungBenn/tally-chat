@@ -8,11 +8,13 @@ import { Textarea } from "@/components/wensity/text-area";
 export default function Composer({
   onSend,
   onStop,
+  onType,
   streaming = false,
   disabled = false,
 }: {
   onSend: (text: string) => Promise<unknown>;
   onStop?: () => void;
+  onType?: () => void;
   streaming?: boolean;
   disabled?: boolean;
 }) {
@@ -46,7 +48,10 @@ export default function Composer({
           maxRows={10}
           value={text}
           placeholder="Message tally..."
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            onType?.();
+          }}
           onKeyDown={(e) => {
             if (
               e.key === "Enter" &&
