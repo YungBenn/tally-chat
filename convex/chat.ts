@@ -4,10 +4,11 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { CURRENT_SYSTEM_PROMPT_VERSION } from "./lib/systemPrompts";
 import { cacheExpiresAt, cacheTtlValidator } from "./lib/cacheStatus";
+import { keepalivePending, restartKeepalive, touchedCache } from "./keepalive";
 import { assembleHistory } from "./lib/context";
-import { recordDailyUsage } from "./lib/rollups";
+import { meterCall } from "./lib/metering";
 import { appendChunk, createStream, deleteStream, streamText } from "./lib/textStream";
-import { costMicroUsd, priceFor, usageValidator, type Usage } from "./lib/usage";
+import { priceFor, usageValidator } from "./lib/usage";
 import { requireOwner } from "./owner";
 
 async function ownedThread(ctx: QueryCtx, ownerId: Id<"users">, threadId: Id<"threads">) {
@@ -81,7 +82,9 @@ export const getThread = query({
       modelId: v.string(),
       messages: v.array(messageView),
       cacheManaged: v.boolean(), // Anthropic-style provider: tally.chat places its cache breakpoints
-      cacheExpiresAt: v.union(v.null(), v.number()), // judge warm/cold with lib/cacheStatus
+      cacheExpiresAt: v.union(v.null(), v.number()), // judge warm/cold/keepalive with lib/cacheStatus
+      keepaliveScheduled: v.boolean(),
+      lastActiveAt: v.union(v.null(), v.number()),
     }),
   ),
   handler: async (ctx, { threadId }) => {
@@ -116,6 +119,8 @@ export const getThread = query({
       messages,
       cacheManaged: (await ctx.db.get("providers", thread.providerId))?.apiStyle === "anthropic",
       cacheExpiresAt: cacheExpiresAt(thread),
+      keepaliveScheduled: await keepalivePending(ctx, thread),
+      lastActiveAt: thread.lastActiveAt ?? null,
     };
   },
 });
@@ -364,6 +369,7 @@ export const generationInput = internalQuery({
       allowlist: v.array(v.string()),
       history: v.array(v.object({ role: v.union(v.literal("user"), v.literal("assistant")), content: v.string() })),
       layerEnd: v.number(),
+      cacheTtl: cacheTtlValidator,
     }),
   ),
   handler: async (ctx, { messageId }) => {
@@ -385,6 +391,9 @@ export const generationInput = internalQuery({
       allowlist: settings?.allowlistedHosts ?? [],
       history: history.messages,
       layerEnd: history.layerEnd,
+      // With keepalive off, pauses up to an hour stay cheap from the second turn on (the first
+      // turn's prefix is too short to be worth a 2x write). On, keepalive covers the pauses.
+      cacheTtl: settings?.keepaliveEnabled === false && message.ancestorIds.length > 1 ? ("1h" as const) : ("5m" as const),
     };
   },
 });
@@ -428,10 +437,11 @@ export const finalize = internalMutation({
     await ctx.db.patch("messages", messageId, { status, content, error, usage, costMicroUsd: cost ?? undefined });
 
     const thread = await ctx.db.get("threads", message.threadId);
-    // A cache-marked request that the provider says read or wrote the cache touched it.
-    const cached = usage.cacheReadTokens + usage.cacheWriteTokens5m + usage.cacheWriteTokens1h > 0;
-    if (thread && cacheRequest && cached) {
-      await ctx.db.patch("threads", thread._id, { cacheTouchedAt: cacheRequest.startedAt, cacheTtl: cacheRequest.ttl });
+    if (thread) {
+      // A cache-marked request that the provider says read or wrote the cache touched it.
+      const touchedAt = cacheRequest && touchedCache(usage) ? cacheRequest.startedAt : null;
+      if (touchedAt !== null) await ctx.db.patch("threads", thread._id, { cacheTouchedAt: touchedAt, cacheTtl: cacheRequest!.ttl });
+      await restartKeepalive(ctx, thread, touchedAt);
     }
 
     // The first finished reply in a thread gets a side-job title, once.
@@ -442,46 +452,6 @@ export const finalize = internalMutation({
     return null;
   },
 });
-
-// Prices one provider call, adds it to the daily rollups and learns the provider's
-// capabilities from what it reported. Returns the cost, or null when it has no price.
-async function meterCall(
-  ctx: MutationCtx,
-  call: {
-    ownerId: Id<"users">;
-    threadId: Id<"threads">;
-    providerId: Id<"providers"> | undefined;
-    model: string;
-    normalized: { usage: Usage; reports?: { caching: boolean; reasoning: boolean }; reportedCostMicroUsd?: number };
-  },
-) {
-  const { usage, reports, reportedCostMicroUsd } = call.normalized;
-  const provider = call.providerId && (await ctx.db.get("providers", call.providerId));
-  // Free providers (local models) cost nothing; a provider-reported cost beats the table.
-  const cost = provider && provider.free ? 0 : (reportedCostMicroUsd ?? costMicroUsd(usage, priceFor(call.model)));
-  const settings = await ctx.db
-    .query("settings")
-    .withIndex("by_ownerId", (q) => q.eq("ownerId", call.ownerId))
-    .unique();
-  await recordDailyUsage(ctx, {
-    ownerId: call.ownerId,
-    at: Date.now(),
-    timeZone: settings?.timeZone,
-    model: call.model,
-    providerId: call.providerId ?? "",
-    threadId: call.threadId,
-    usage,
-    costMicroUsd: cost,
-  });
-  if (provider && reports) {
-    const known = provider.capabilities ?? { caching: false, reasoning: false };
-    const capabilities = { caching: known.caching || reports.caching, reasoning: known.reasoning || reports.reasoning };
-    if (capabilities.caching !== known.caching || capabilities.reasoning !== known.reasoning || !provider.capabilities) {
-      await ctx.db.patch("providers", provider._id, { capabilities });
-    }
-  }
-  return cost;
-}
 
 // The side-job model for a thread: the owner's choice if it still exists and is visible,
 // otherwise the cheapest priced visible model of the thread's provider, else the thread's model.

@@ -35,6 +35,7 @@ export default defineSchema({
     // lifetime it asked for: the cache is warm until cacheTouchedAt + cacheTtl.
     cacheTouchedAt: v.optional(v.number()),
     cacheTtl: v.optional(cacheTtlValidator),
+    keepaliveJobId: v.optional(v.id("_scheduled_functions")), // the thread's one pending keepalive, if any
   }).index("by_ownerId", ["ownerId"]),
   // Append-only tree (ADR 0001). The only update a message ever gets is
   // streaming -> final status (plus the stop flag before that).
@@ -70,7 +71,7 @@ export default defineSchema({
   sideJobs: defineTable({
     ownerId: v.id("users"),
     threadId: v.id("threads"),
-    kind: v.literal("title"),
+    kind: v.union(v.literal("title"), v.literal("keepalive")),
     providerId: v.id("providers"),
     model: v.string(),
     usage: usageValidator,
@@ -95,5 +96,6 @@ export default defineSchema({
     // Unset: the cheapest priced model of the thread's own provider.
     sideJobModel: v.optional(v.object({ providerId: v.id("providers"), modelId: v.string() })),
     timeZone: v.optional(v.string()), // IANA name; daily rollups use the owner's day, UTC until set
+    keepaliveEnabled: v.optional(v.boolean()), // absent = on; off = 1-hour cache lifetime instead
   }).index("by_ownerId", ["ownerId"]),
 });

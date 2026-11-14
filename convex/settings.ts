@@ -29,6 +29,7 @@ export const get = query({
     allowlistedHosts: v.array(v.string()),
     sideJobModel: v.union(v.null(), sideJobModelValidator),
     timeZone: v.union(v.null(), v.string()),
+    keepaliveEnabled: v.boolean(),
   }),
   handler: async (ctx) => {
     const settings = await settingsFor(ctx, await requireOwner(ctx));
@@ -36,6 +37,7 @@ export const get = query({
       allowlistedHosts: settings?.allowlistedHosts ?? [],
       sideJobModel: settings?.sideJobModel ?? null,
       timeZone: settings?.timeZone ?? null,
+      keepaliveEnabled: settings?.keepaliveEnabled !== false,
     };
   },
 });
@@ -73,6 +75,20 @@ export const setSideJobModel = mutation({
     const settings = await settingsFor(ctx, ownerId);
     if (settings) await ctx.db.patch("settings", settings._id, { sideJobModel: sideJobModel ?? undefined });
     else await ctx.db.insert("settings", { ownerId, allowlistedHosts: [], sideJobModel: sideJobModel ?? undefined });
+    return null;
+  },
+});
+
+// Off: pending keepalives stop at their next firing and threads use the 1-hour cache
+// lifetime from their second turn on. On again: keepalive resumes after the next reply.
+export const setKeepaliveEnabled = mutation({
+  args: { enabled: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, { enabled }) => {
+    const ownerId = await requireOwner(ctx);
+    const settings = await settingsFor(ctx, ownerId);
+    if (settings) await ctx.db.patch("settings", settings._id, { keepaliveEnabled: enabled });
+    else await ctx.db.insert("settings", { ownerId, allowlistedHosts: [], keepaliveEnabled: enabled });
     return null;
   },
 });

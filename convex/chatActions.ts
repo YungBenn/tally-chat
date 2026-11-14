@@ -4,7 +4,7 @@ import { lookup } from "node:dns/promises";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
-import { streamAnthropicMessage } from "./lib/anthropic";
+import { sendAnthropicKeepalive, streamAnthropicMessage } from "./lib/anthropic";
 import type { CacheTtl } from "./lib/cacheStatus";
 import { streamOpenAICompatible } from "./lib/openaiCompatible";
 import { SYSTEM_PROMPTS } from "./lib/systemPrompts";
@@ -44,7 +44,7 @@ export const generate = internalAction({
       if (!input.provider) throw new ConvexError("This thread's provider was deleted");
       const anthropic = input.provider.apiStyle === "anthropic";
       const stream = anthropic ? streamAnthropicMessage : streamOpenAICompatible;
-      const ttl: CacheTtl = "5m";
+      const ttl = input.cacheTtl;
       if (anthropic) cacheRequest = { startedAt: Date.now(), ttl };
       const deltas = stream(
         {
@@ -128,6 +128,39 @@ export const generateTitle = internalAction({
     const title = text.trim().replace(/^["'\s]+|["'.\s]+$/g, "").slice(0, 60);
     await ctx.runMutation(internal.chat.saveTitle, {
       threadId, providerId: input.providerId, model: input.model, title: title || undefined, ...usage,
+    });
+    return null;
+  },
+});
+
+// Keepalive job (spec phase 2): re-sends the thread's cached prefix through its latest reply
+// with max_tokens 0, so the cache stays warm while the owner is in the thread. Runs only when
+// keepalive.input says it can help; any failure just ends the cycle until the next reply.
+export const keepalive = internalAction({
+  args: { threadId: v.id("threads") },
+  returns: v.null(),
+  handler: async (ctx, { threadId }) => {
+    const startedAt = Date.now();
+    const input = await ctx.runQuery(internal.keepalive.input, { threadId, now: startedAt });
+    if (!input) return null;
+    let usage: NormalizedUsage | undefined;
+    try {
+      usage = await sendAnthropicKeepalive(
+        {
+          baseUrl: input.provider.baseUrl,
+          apiKey: await decryptSecret(input.provider.apiKeyEncrypted),
+          model: input.model,
+          system: SYSTEM_PROMPTS[input.systemPromptVersion],
+          messages: input.history,
+          cache: { ttl: input.ttl, layerEnd: input.layerEnd, lastBlock: true },
+        },
+        { allowlist: input.allowlist, resolve: systemResolve },
+      );
+    } catch {
+      // usage stays undefined: a failed non-streaming call reports none
+    }
+    await ctx.runMutation(internal.keepalive.record, {
+      threadId, providerId: input.providerId, model: input.model, startedAt, ttl: input.ttl, sent: usage !== undefined, ...usage,
     });
     return null;
   },

@@ -5,6 +5,7 @@ import { ConvexError } from "convex/values";
 import { useState } from "react";
 import ChatShell from "@/components/ChatShell";
 import { Button } from "@/components/wensity/button";
+import { Checkbox } from "@/components/wensity/checkbox";
 import { Input } from "@/components/wensity/input";
 import { NativeSelect } from "@/components/wensity/native-select";
 import { api } from "@/convex/_generated/api";
@@ -56,6 +57,36 @@ function SideJobModel() {
             )),
         )}
       </NativeSelect>
+    </section>
+  );
+}
+
+function Keepalive() {
+  const settings = useQuery(api.settings.get);
+  const setKeepaliveEnabled = useMutation(api.settings.setKeepaliveEnabled);
+  if (!settings) return null;
+
+  return (
+    <section
+      data-surface="panel"
+      className="flex flex-col gap-4 rounded-[var(--primitive-radius-surface)] p-5"
+    >
+      <div>
+        <h2 className="font-semibold tracking-[-0.01em]">Cache keepalive</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Anthropic caches a thread for 5 minutes. While you&apos;re in a
+          thread, tally.chat refreshes it shortly before it expires, so pausing
+          to read doesn&apos;t make your next message expensive. Each refresh is
+          a small metered side job, and they stop 30 minutes after you leave.
+          Turned off, threads use the 1-hour cache instead (from their second
+          message), which costs more to write but needs no refreshes.
+        </p>
+      </div>
+      <Checkbox
+        checked={settings.keepaliveEnabled}
+        onCheckedChange={(enabled) => void setKeepaliveEnabled({ enabled })}
+        label="Keep caches warm while I'm in a thread"
+      />
     </section>
   );
 }
@@ -114,13 +145,14 @@ export default function SettingsPage() {
   }
 
   return (
-    <ChatShell header={<h1 className="text-sm font-medium">Settings</h1>}>
+    <ChatShell>
       <div className="flex-1 overflow-y-auto">
         <main className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 py-8">
           <h1 className="text-2xl font-semibold tracking-[-0.02em]">
             Settings
           </h1>
           <SideJobModel />
+          <Keepalive />
           <TimeZone />
           <section
             data-surface="panel"

@@ -121,3 +121,26 @@ export async function* streamAnthropicMessage(
     }
   }
 }
+
+// A keepalive (spec phase 2): the same request as a real turn, but `max_tokens: 0` and not
+// streamed, so it only refreshes the cache. Returns the usage the provider reported.
+// Throws ConvexError with the provider's message on an HTTP error.
+export async function sendAnthropicKeepalive(
+  req: Omit<MessagesRequest, "maxTokens"> & { baseUrl: string; apiKey: string },
+  guard: GuardOptions,
+): Promise<NormalizedUsage> {
+  const res = await guardedFetch(
+    `${req.baseUrl}/v1/messages`,
+    {
+      method: "POST",
+      headers: { "x-api-key": req.apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify(messagesBody({ ...req, maxTokens: 0 }, false)),
+    },
+    guard,
+  );
+  const body = (await res.json().catch(() => null)) as { usage?: AnthropicUsage; error?: { message?: string } } | null;
+  if (!res.ok || !body?.usage) {
+    throw new ConvexError(`Provider error ${res.status}${body?.error?.message ? `: ${body.error.message}` : ""}`);
+  }
+  return normalizeAnthropicUsage(body.usage);
+}

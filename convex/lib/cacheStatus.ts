@@ -10,9 +10,19 @@ export function cacheExpiresAt(thread: { cacheTouchedAt?: number; cacheTtl?: Cac
   return thread.cacheTouchedAt === undefined ? null : thread.cacheTouchedAt + CACHE_TTL_MS[thread.cacheTtl ?? "5m"];
 }
 
-// Warm or cold at `now`. Queries can't read the clock, so getThread returns the expiry and
-// the client (and the keepalive job) judge it against the current time with this.
-export type CacheState = { state: "cold" } | { state: "warm"; until: number };
-export function cacheState(expiresAt: number | null, now: number): CacheState {
-  return expiresAt !== null && now < expiresAt ? { state: "warm", until: expiresAt } : { state: "cold" };
+// Keepalives stop this long after the owner's last activity in a thread.
+export const ACTIVE_WINDOW_MS = 30 * 60_000;
+
+// The cache at `now`: cold, warm until its expiry, or kept alive (warm, a keepalive pending
+// and the owner active). Queries can't read the clock, so getThread returns the raw fields
+// and the client and the keepalive job judge them against the current time with this.
+export type CacheState = { state: "cold" } | { state: "warm" | "keepalive"; until: number };
+export function cacheState(
+  expiresAt: number | null,
+  now: number,
+  keepalive?: { scheduled: boolean; lastActiveAt: number | null },
+): CacheState {
+  if (expiresAt === null || now >= expiresAt) return { state: "cold" };
+  const active = keepalive?.lastActiveAt != null && now - keepalive.lastActiveAt <= ACTIVE_WINDOW_MS;
+  return { state: keepalive?.scheduled && active ? "keepalive" : "warm", until: expiresAt };
 }

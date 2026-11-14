@@ -228,7 +228,13 @@ export default function ThreadPage() {
           <h1 className="min-w-0 flex-1 truncate text-sm font-medium">
             {thread?.title}
           </h1>
-          {thread?.cacheManaged && <CacheStatus expiresAt={thread.cacheExpiresAt} />}
+          {thread?.cacheManaged && (
+            <CacheStatus
+              expiresAt={thread.cacheExpiresAt}
+              keepaliveScheduled={thread.keepaliveScheduled}
+              lastActiveAt={thread.lastActiveAt}
+            />
+          )}
           <Button
             variant="ghost"
             size="icon"
