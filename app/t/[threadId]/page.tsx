@@ -21,13 +21,12 @@ import Markdown, { CopyButton } from "@/components/Markdown";
 import { Button } from "@/components/wensity/button";
 import { Textarea } from "@/components/wensity/text-area";
 import { api } from "@/convex/_generated/api";
+import { estimateTokens, metaLine, tokens } from "@/lib/format";
 import { usePresence } from "@/lib/usePresence";
 import type { Id } from "@/convex/_generated/dataModel";
 
-const n = (x: number) => x.toLocaleString("en-US");
-// Per-turn amounts: 4 significant digits; totals of $1 or more: 2 decimals (design doc section 12).
-const usd = (micro: number) =>
-  `$${micro >= 1e6 ? (micro / 1e6).toFixed(2) : Number((micro / 1e6).toPrecision(4))}`;
+// The muted, always-visible metadata line under a reply (cost layer: monospace, tabular).
+const meta = "font-mono text-xs leading-5 text-muted-foreground tabular-nums";
 
 // "‹ 2/3 ›" between versions of a message (retries or edits), shown only when there are several.
 function Versions({
@@ -282,7 +281,7 @@ export default function ThreadPage() {
                 <MessageRow
                   key={m._id}
                   avatar={<span className="font-mono">t</span>}
-                  author={m.model ?? "Assistant"}
+                  author={m.modelName ?? m.model ?? "Assistant"}
                   latest={m._id === last?._id}
                   actions={
                     m.status !== "streaming" && (
@@ -298,20 +297,6 @@ export default function ThreadPage() {
                           <IconRefresh />
                         </button>
                         <Versions ids={m.siblingIds} current={m._id} />
-                        {m.usage && (
-                          <span className="ml-1.5 font-mono text-xs text-muted-foreground">
-                            {[
-                              m.costMicroUsd === undefined
-                                ? "cost unknown"
-                                : usd(m.costMicroUsd),
-                              `in ${n(m.usage.inputTokens)}`,
-                              `cache read ${n(m.usage.cacheReadTokens)}`,
-                              `cache write ${n(m.usage.cacheWriteTokens5m + m.usage.cacheWriteTokens1h)}`,
-                              `out ${n(m.usage.outputTokens)}`,
-                              `reasoning ${n(m.usage.reasoningTokens)}`,
-                            ].join(" · ")}
-                          </span>
-                        )}
                       </>
                     )
                   }
@@ -344,6 +329,21 @@ export default function ThreadPage() {
                       {m.error ?? "Something went wrong"}
                     </p>
                   )}
+                  {m.status === "streaming"
+                    ? m.text && (
+                        <p className={meta}>
+                          ~{tokens(estimateTokens(m.text))} out
+                        </p>
+                      )
+                    : m.usage && (
+                        <p className={meta}>
+                          {metaLine(
+                            m.modelName ?? m.model ?? "",
+                            m.costMicroUsd,
+                            m.usage,
+                          )}
+                        </p>
+                      )}
                 </MessageRow>
               ),
             )}

@@ -126,7 +126,9 @@ describe("rollups for upkeep and savings", () => {
       }
     });
     const strip = (rows: typeof metered) =>
-      rows.map(({ _id, _creationTime, ...r }) => r).sort((a, b) => `${a.dimension}${a.key}`.localeCompare(`${b.dimension}${b.key}`));
+      rows
+        .map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !k.startsWith("_"))))
+        .sort((a, b) => `${a.dimension}${a.key}`.localeCompare(`${b.dimension}${b.key}`));
 
     await s.t.mutation(internal.migrations.backfillRollupsPhase3, {});
     const once = await s.t.run((ctx) => ctx.db.query("dailyUsage").collect());

@@ -66,6 +66,7 @@ const messageView = v.object({
   text: v.string(),
   error: v.optional(v.string()),
   model: v.optional(v.string()),
+  modelName: v.optional(v.string()), // the provider's display name for model, when it still lists it
   usage: v.optional(usageValidator),
   costMicroUsd: v.optional(v.number()),
 });
@@ -92,6 +93,11 @@ export const getThread = query({
     const thread = await ctx.db.get("threads", threadId);
     if (!thread || thread.ownerId !== ownerId) return null;
     const branch = await activeBranch(ctx, thread);
+    // Display names from each reply's provider (one read per distinct provider).
+    const providerIds = [...new Set(branch.flatMap((m) => (m.providerId ? [m.providerId] : [])))];
+    const providers = new Map(providerIds.map((id) => [id, ctx.db.get("providers", id)]));
+    const modelName = async (m: Doc<"messages">) =>
+      m.providerId && m.model ? (await providers.get(m.providerId))?.models.find((x) => x.id === m.model)?.displayName : undefined;
     const messages = await Promise.all(
       branch.map(async (m) => ({
         _id: m._id,
@@ -108,6 +114,7 @@ export const getThread = query({
         text: m.status === "streaming" && m.streamId ? await streamText(ctx, m.streamId) : m.content,
         error: m.error,
         model: m.model,
+        modelName: await modelName(m),
         usage: m.usage,
         costMicroUsd: m.costMicroUsd,
       })),

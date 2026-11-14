@@ -4,10 +4,10 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (pending review)
 
-- [ ] The line shows the model's display name from the provider's model list, cost, total input with its cached share, output and reasoning
-- [ ] Money and token counts follow the spec's formatting rules (4 significant digits per turn, `12.4k` above 1,000)
-- [ ] Unpriced models show "cost unknown"; free providers show $0
-- [ ] While streaming, only a `~` output count estimated from the streamed text; no cost or cache figures until usage lands
-- [ ] Checked in the browser in light and dark themes and at phone width
+- [x] The line shows the model's display name from the provider's model list, cost, total input with its cached share, output and reasoning
+- [x] Money and token counts follow the spec's formatting rules (4 significant digits per turn, `12.4k` above 1,000)
+- [x] Unpriced models show "cost unknown"; free providers show $0
+- [x] While streaming, only a `~` output count estimated from the streamed text; no cost or cache figures until usage lands
+- [x] Checked in the browser in light and dark themes and at phone width
