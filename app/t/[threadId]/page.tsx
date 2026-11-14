@@ -200,6 +200,11 @@ export default function ThreadPage() {
   );
 
   const [sheetOpen, setSheetOpen] = useState(false);
+  // A reply shown on its own in the inspector, remembered with its thread so it never follows
+  // the owner into another one (this page stays mounted across threads).
+  const [turn, setTurn] = useState<{ threadId: string; id: Id<"messages"> } | null>(null);
+  const turnId = turn?.threadId === threadId ? turn.id : null;
+  const setTurnId = (id: Id<"messages"> | null) => setTurn(id && { threadId, id });
   // The rail on desktop, the bottom sheet on phones (Tailwind's md breakpoint).
   const toggleInspector = () => {
     if (matchMedia("(min-width: 48rem)").matches)
@@ -400,13 +405,21 @@ export default function ThreadPage() {
                             </p>
                           )
                         : m.usage && (
-                            <p className={meta}>
+                            <button
+                              type="button"
+                              className={`${meta} self-start text-left hover:text-foreground`}
+                              title="Open this reply in the inspector"
+                              onClick={() => {
+                                setTurnId(m._id);
+                                openInspector();
+                              }}
+                            >
                               {metaLine(
                                 m.modelName ?? m.model ?? "",
                                 m.costMicroUsd,
                                 m.usage,
                               )}
-                            </p>
+                            </button>
                           )}
                     </MessageRow>
                   ),
@@ -455,6 +468,8 @@ export default function ThreadPage() {
         <Inspector
           threadId={threadId}
           draft={draft}
+          turnId={turnId}
+          onBack={() => setTurnId(null)}
           railOpen={inspectorOpen}
           sheetOpen={sheetOpen}
           onCloseRail={() => setInspectorOpen(false)}

@@ -4,17 +4,34 @@ import { query, type QueryCtx } from "./_generated/server";
 import { activeBranch } from "./chat";
 import { cacheExpiresAt, cacheTtlValidator } from "./lib/cacheStatus";
 import { assembleHistory } from "./lib/context";
-import { CURRENT_SYSTEM_PROMPT_VERSION, SYSTEM_PROMPTS } from "./lib/systemPrompts";
-import { priceFor, USAGE_FIELDS, type Usage } from "./lib/usage";
+import {
+  CURRENT_SYSTEM_PROMPT_VERSION,
+  SYSTEM_PROMPTS,
+} from "./lib/systemPrompts";
+import { savedFor } from "./lib/metering";
+import {
+  priceFor,
+  USAGE_FIELDS,
+  usageValidator,
+  type Usage,
+} from "./lib/usage";
 import { requireOwner } from "./owner";
 
 // Rough token count for text no provider has measured (characters ÷ 4; spec phase 3).
 export const estimateTokens = (text: string) => Math.ceil(text.length / 4);
-const totalInput = (u: Usage) => u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens5m + u.cacheWriteTokens1h;
+const totalInput = (u: Usage) =>
+  u.inputTokens +
+  u.cacheReadTokens +
+  u.cacheWriteTokens5m +
+  u.cacheWriteTokens1h;
 const RECENT_REPLIES = 5; // the expected output is the mean of this many latest replies
 
 const layerValidator = v.object({
-  kind: v.union(v.literal("system"), v.literal("checkpoint"), v.literal("turns")),
+  kind: v.union(
+    v.literal("system"),
+    v.literal("checkpoint"),
+    v.literal("turns"),
+  ),
   label: v.string(),
   tokens: v.number(),
   estimated: v.boolean(),
@@ -23,20 +40,31 @@ const layerValidator = v.object({
 // USD per token for the next send; null when the model has no price. Free providers are all 0.
 const pricesValidator = v.union(
   v.null(),
-  v.object({ input: v.number(), output: v.number(), cacheRead: v.number(), cacheWrite: v.number() }),
+  v.object({
+    input: v.number(),
+    output: v.number(),
+    cacheRead: v.number(),
+    cacheWrite: v.number(),
+  }),
 );
 
 // USD per token for a send on this model; all 0 on a free provider, null without a price.
 // Without cache prices, a cached token is priced like an uncached one.
-function nextPrices(provider: Doc<"providers"> | null, modelId: string, ttl: "5m" | "1h") {
-  if (provider?.free === true) return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+function nextPrices(
+  provider: Doc<"providers"> | null,
+  modelId: string,
+  ttl: "5m" | "1h",
+) {
+  if (provider?.free === true)
+    return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   const price = priceFor(modelId);
   if (price?.input === undefined || price.output === undefined) return null;
   return {
     input: price.input,
     output: price.output,
     cacheRead: price.cacheRead ?? price.input,
-    cacheWrite: (ttl === "1h" ? price.cacheWrite1h : price.cacheWrite5m) ?? price.input,
+    cacheWrite:
+      (ttl === "1h" ? price.cacheWrite1h : price.cacheWrite5m) ?? price.input,
   };
 }
 
@@ -47,9 +75,12 @@ export const newThread = query({
   handler: async (ctx, { providerId, modelId }) => {
     const ownerId = await requireOwner(ctx);
     const provider = await ctx.db.get("providers", providerId);
-    if (!provider || provider.ownerId !== ownerId) return { systemTokens: 0, prices: null };
+    if (!provider || provider.ownerId !== ownerId)
+      return { systemTokens: 0, prices: null };
     return {
-      systemTokens: estimateTokens(SYSTEM_PROMPTS[CURRENT_SYSTEM_PROMPT_VERSION]),
+      systemTokens: estimateTokens(
+        SYSTEM_PROMPTS[CURRENT_SYSTEM_PROMPT_VERSION],
+      ),
       prices: nextPrices(provider, modelId, "5m"),
     };
   },
@@ -105,7 +136,12 @@ export const get = query({
         managed: provider?.apiStyle === "anthropic",
         expiresAt: cacheExpiresAt(thread),
         keepaliveScheduled: thread.keepaliveJobId
-          ? (await ctx.db.system.get("_scheduled_functions", thread.keepaliveJobId))?.state.kind === "pending"
+          ? (
+              await ctx.db.system.get(
+                "_scheduled_functions",
+                thread.keepaliveJobId,
+              )
+            )?.state.kind === "pending"
           : false,
         lastActiveAt: thread.lastActiveAt ?? null,
         ttl,
@@ -116,7 +152,10 @@ export const get = query({
         prefixTokens: layers.reduce((sum, l) => sum + l.tokens, 0),
         prices,
         expectedOutputTokens: recent.length
-          ? Math.round(recent.reduce((sum, m) => sum + m.usage!.outputTokens, 0) / recent.length)
+          ? Math.round(
+              recent.reduce((sum, m) => sum + m.usage!.outputTokens, 0) /
+                recent.length,
+            )
           : null,
       },
       thread: await threadFigures(ctx, ownerId, threadId),
@@ -128,19 +167,36 @@ export const get = query({
 // (when one applies) and the turns since. Turns are measured from the latest reply's usage:
 // its request size plus its visible output (thinking isn't replayed), minus the layers before
 // them. Messages after that reply, or a branch with no measured reply yet, are estimated.
-async function contextLayers(ctx: QueryCtx, thread: Doc<"threads">, branch: Doc<"messages">[]) {
-  const system = estimateTokens(SYSTEM_PROMPTS[thread.systemPromptVersion] ?? "");
-  const layers: { kind: "system" | "checkpoint" | "turns"; label: string; tokens: number; estimated: boolean }[] = [
+async function contextLayers(
+  ctx: QueryCtx,
+  thread: Doc<"threads">,
+  branch: Doc<"messages">[],
+) {
+  const system = estimateTokens(
+    SYSTEM_PROMPTS[thread.systemPromptVersion] ?? "",
+  );
+  const layers: {
+    kind: "system" | "checkpoint" | "turns";
+    label: string;
+    tokens: number;
+    estimated: boolean;
+  }[] = [
     { kind: "system", label: "system prompt", tokens: system, estimated: true },
   ];
   if (branch.length === 0) return layers;
 
-  const history = await assembleHistory(ctx, thread._id, branch.map((m) => m._id));
+  const history = await assembleHistory(
+    ctx,
+    thread._id,
+    branch.map((m) => m._id),
+  );
   const layerText = history.messages.slice(0, history.layerEnd);
   let layerTokens = 0;
   if (history.checkpoint) {
     const pins = layerText.slice(1); // the summary message comes first, then the covered pins
-    layerTokens = history.checkpoint.tokens + pins.reduce((sum, m) => sum + estimateTokens(m.content), 0);
+    layerTokens =
+      history.checkpoint.tokens +
+      pins.reduce((sum, m) => sum + estimateTokens(m.content), 0);
     layers.push({
       kind: "checkpoint",
       label: `summary${pins.length ? ` + ${pins.length} pinned` : ""}`,
@@ -150,19 +206,27 @@ async function contextLayers(ctx: QueryCtx, thread: Doc<"threads">, branch: Doc<
   }
 
   // Turn numbers count user messages on the branch; verbatim turns start after the checkpoint.
-  const cut = history.checkpoint ? branch.findIndex((m) => m._id === history.checkpoint!.coversUpToId) + 1 : 0;
-  const turnOf = (i: number) => branch.slice(0, i + 1).filter((m) => m.role === "user").length;
+  const cut = history.checkpoint
+    ? branch.findIndex((m) => m._id === history.checkpoint!.coversUpToId) + 1
+    : 0;
+  const turnOf = (i: number) =>
+    branch.slice(0, i + 1).filter((m) => m.role === "user").length;
   const verbatim = branch.slice(cut).filter((m) => m.content !== "");
   if (verbatim.length === 0) return layers;
 
-  const measuredAt = branch.findLastIndex((m) => m.role === "assistant" && m.usage !== undefined);
+  const measuredAt = branch.findLastIndex(
+    (m) => m.role === "assistant" && m.usage !== undefined,
+  );
   let tokens: number;
   let estimated: boolean;
   if (measuredAt >= cut) {
     const reply = branch[measuredAt];
     const u = reply.usage!;
-    const measured = totalInput(u) + u.outputTokens - u.reasoningTokens - system - layerTokens;
-    const later = branch.slice(measuredAt + 1).reduce((sum, m) => sum + estimateTokens(m.content), 0);
+    const measured =
+      totalInput(u) + u.outputTokens - u.reasoningTokens - system - layerTokens;
+    const later = branch
+      .slice(measuredAt + 1)
+      .reduce((sum, m) => sum + estimateTokens(m.content), 0);
     tokens = Math.max(0, measured) + later;
     estimated = later > 0;
   } else {
@@ -171,20 +235,36 @@ async function contextLayers(ctx: QueryCtx, thread: Doc<"threads">, branch: Doc<
   }
   const first = turnOf(cut);
   const last = turnOf(branch.length - 1);
-  layers.push({ kind: "turns", label: first === last ? `turn ${first}` : `turns ${first}–${last}`, tokens, estimated });
+  layers.push({
+    kind: "turns",
+    label: first === last ? `turn ${first}` : `turns ${first}–${last}`,
+    tokens,
+    estimated,
+  });
   return layers;
 }
 
 // Thread totals from the daily rollups (every call metered against it, on any day). Hit rate
 // covers replies: the upkeep (keepalive) and title calls are taken out. Savings count what the
 // replies' caching saved, minus what keeping the cache warm cost.
-async function threadFigures(ctx: QueryCtx, ownerId: Id<"users">, threadId: Id<"threads">) {
+async function threadFigures(
+  ctx: QueryCtx,
+  ownerId: Id<"users">,
+  threadId: Id<"threads">,
+) {
   const sum = async (dimension: "thread" | "upkeep") => {
     const rows = await ctx.db
       .query("dailyUsage")
-      .withIndex("by_owner_dimension_key_day", (q) => q.eq("ownerId", ownerId).eq("dimension", dimension).eq("key", threadId))
+      .withIndex("by_owner_dimension_key_day", (q) =>
+        q.eq("ownerId", ownerId).eq("dimension", dimension).eq("key", threadId),
+      )
       .take(1000);
-    const total = { costMicroUsd: 0, unpricedCalls: 0, savedMicroUsd: 0, ...(Object.fromEntries(USAGE_FIELDS.map((f) => [f, 0])) as Usage) };
+    const total = {
+      costMicroUsd: 0,
+      unpricedCalls: 0,
+      savedMicroUsd: 0,
+      ...(Object.fromEntries(USAGE_FIELDS.map((f) => [f, 0])) as Usage),
+    };
     for (const r of rows) {
       total.costMicroUsd += r.costMicroUsd;
       total.unpricedCalls += r.unpricedCalls;
@@ -200,7 +280,14 @@ async function threadFigures(ctx: QueryCtx, ownerId: Id<"users">, threadId: Id<"
     .withIndex("by_threadId", (q) => q.eq("threadId", threadId))
     .take(1000);
   const replyUsage = Object.fromEntries(
-    USAGE_FIELDS.map((f) => [f, all[f] - upkeep[f] - titles.filter((j) => j.kind === "title").reduce((s, j) => s + j.usage[f], 0)]),
+    USAGE_FIELDS.map((f) => [
+      f,
+      all[f] -
+        upkeep[f] -
+        titles
+          .filter((j) => j.kind === "title")
+          .reduce((s, j) => s + j.usage[f], 0),
+    ]),
   ) as Usage;
   const input = totalInput(replyUsage);
   return {
@@ -208,7 +295,44 @@ async function threadFigures(ctx: QueryCtx, ownerId: Id<"users">, threadId: Id<"
     unpricedCalls: all.unpricedCalls,
     upkeepMicroUsd: upkeep.costMicroUsd,
     hitRate: input > 0 ? replyUsage.cacheReadTokens / input : null,
-    savedMicroUsd: all.savedMicroUsd - upkeep.savedMicroUsd - upkeep.costMicroUsd,
+    savedMicroUsd:
+      all.savedMicroUsd - upkeep.savedMicroUsd - upkeep.costMicroUsd,
     reasoningTokens: all.reasoningTokens,
   };
 }
+
+// One reply in the inspector: its stored usage and cost, and what caching saved on it, priced
+// the same way as the rollups. null when it isn't the owner's or has no usage.
+export const turn = query({
+  args: { messageId: v.id("messages") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      model: v.string(),
+      usage: usageValidator,
+      costMicroUsd: v.union(v.null(), v.number()),
+      savedMicroUsd: v.union(v.null(), v.number()), // null when the model has no price
+    }),
+  ),
+  handler: async (ctx, { messageId }) => {
+    const ownerId = await requireOwner(ctx);
+    const m = await ctx.db.get("messages", messageId);
+    if (!m || m.ownerId !== ownerId || !m.usage) return null;
+    const provider = m.providerId
+      ? await ctx.db.get("providers", m.providerId)
+      : null;
+    const free = provider?.free === true;
+    const model = m.model ?? "";
+    const name =
+      provider?.models.find((x) => x.id === model)?.displayName ?? model;
+    return {
+      model: name,
+      usage: m.usage,
+      costMicroUsd: m.costMicroUsd ?? null,
+      savedMicroUsd:
+        free || priceFor(model)?.input !== undefined
+          ? savedFor(free, model, m.usage)
+          : null,
+    };
+  },
+});

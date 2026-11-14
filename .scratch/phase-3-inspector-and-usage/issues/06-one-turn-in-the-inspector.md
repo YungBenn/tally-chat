@@ -4,10 +4,10 @@
 
 **Blocked by:** 02 Readable metadata line, 03 Inspector rail
 
-**Status:** ready-for-agent
+**Status:** done (pending review)
 
-- [ ] The metadata line is a control (keyboard reachable) that opens the inspector focused on that reply
-- [ ] The turn view shows the reply's stored usage and cost and its caching savings, priced like the rollups
-- [ ] Unpriced and free replies read as elsewhere
-- [ ] A way back to the thread view
-- [ ] Tests cover the turn's savings against a hand-computed value
+- [x] The metadata line is a control (keyboard reachable) that opens the inspector focused on that reply
+- [x] The turn view shows the reply's stored usage and cost and its caching savings, priced like the rollups
+- [x] Unpriced and free replies read as elsewhere
+- [x] A way back to the thread view
+- [x] Tests cover the turn's savings against a hand-computed value

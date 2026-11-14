@@ -1,6 +1,6 @@
 "use client";
 
-import { IconX } from "@tabler/icons-react";
+import { IconArrowLeft, IconX } from "@tabler/icons-react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -195,6 +195,67 @@ export function InspectorBody({
   );
 }
 
+// One reply's breakdown: where its cost came from and what caching saved on it.
+function TurnView({
+  messageId,
+  onBack,
+}: {
+  messageId: Id<"messages">;
+  onBack: () => void;
+}) {
+  const turn = useQuery(api.inspector.turn, { messageId });
+  const back = (
+    <button
+      className="mb-3 flex items-center gap-1 font-sans text-xs text-muted-foreground hover:text-foreground"
+      onClick={onBack}
+    >
+      <IconArrowLeft className="size-3.5" /> Back to the thread
+    </button>
+  );
+  if (turn === undefined) return back;
+  if (turn === null)
+    return (
+      <>
+        {back}
+        <p className="text-sm text-muted-foreground">
+          No usage was recorded for this reply.
+        </p>
+      </>
+    );
+  const u = turn.usage;
+  return (
+    <div className="font-mono text-xs tabular-nums">
+      {back}
+      <Section title={`This reply · ${turn.model}`}>
+        <Row label="uncached input" value={tokens(u.inputTokens)} />
+        <Row label="cache read" value={tokens(u.cacheReadTokens)} />
+        <Row label="cache write 5m" value={tokens(u.cacheWriteTokens5m)} />
+        <Row label="cache write 1h" value={tokens(u.cacheWriteTokens1h)} />
+        <Row label="output" value={tokens(u.outputTokens)} />
+        <Row
+          label="reasoning"
+          value={tokens(u.reasoningTokens)}
+          title="Included in output, billed at the output price"
+        />
+        <div className="my-1 border-t border-border" />
+        <Row
+          label="cost"
+          value={
+            turn.costMicroUsd === null ? "unknown" : usd(turn.costMicroUsd)
+          }
+        />
+        <Row
+          label="cache saved"
+          value={
+            turn.savedMicroUsd === null ? "unknown" : usd(turn.savedMicroUsd)
+          }
+          title="Read discount minus write premiums, against paying the input price for the same tokens"
+        />
+      </Section>
+    </div>
+  );
+}
+
 // A right rail on desktop (its open state remembered per device) and a bottom sheet on phones
 // (opened only on request, so it never covers the chat on load).
 export default function Inspector({
@@ -204,14 +265,23 @@ export default function Inspector({
   sheetOpen,
   onCloseRail,
   onCloseSheet,
+  turnId,
+  onBack,
 }: {
   threadId: Id<"threads">;
   draft: string;
+  turnId: Id<"messages"> | null; // a reply to show on its own, from its metadata line
+  onBack: () => void;
   railOpen: boolean;
   sheetOpen: boolean;
   onCloseRail: () => void;
   onCloseSheet: () => void;
 }) {
+  const content = turnId ? (
+    <TurnView messageId={turnId} onBack={onBack} />
+  ) : (
+    <InspectorBody threadId={threadId} draft={draft} />
+  );
   const header = (onClose: () => void) => (
     <div className="flex items-center justify-between pb-4">
       <h2 className="text-sm font-semibold">Inspector</h2>
@@ -233,7 +303,7 @@ export default function Inspector({
           className="hidden w-88 shrink-0 overflow-y-auto border-l border-border bg-surface-muted px-4 py-4 md:block"
         >
           {header(onCloseRail)}
-          <InspectorBody threadId={threadId} draft={draft} />
+          {content}
         </aside>
       )}
       {sheetOpen && (
@@ -254,7 +324,7 @@ export default function Inspector({
               aria-hidden
             />
             {header(onCloseSheet)}
-            <InspectorBody threadId={threadId} draft={draft} />
+            {content}
           </aside>
         </div>
       )}
