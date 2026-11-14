@@ -11,6 +11,7 @@ export default function Composer({
   onType,
   onDraftChange,
   footer,
+  banner,
   streaming = false,
   disabled = false,
 }: {
@@ -19,6 +20,7 @@ export default function Composer({
   onType?: () => void;
   onDraftChange?: (text: string) => void; // the inspector and cost strip price the draft
   footer?: React.ReactNode; // a line under the box (the cost strip)
+  banner?: React.ReactNode; // a notice above the box (the soft budget)
   streaming?: boolean;
   disabled?: boolean;
 }) {
@@ -33,12 +35,15 @@ export default function Composer({
       setText("");
       onDraftChange?.("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not send");
+      const message = err instanceof Error ? err.message : "Could not send";
+      // The budget banner above already says this, with the override.
+      setError(message === "Daily budget reached" ? null : message);
     }
   }
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pb-4">
+      {banner}
       <div
         data-surface="field"
         className="flex flex-col rounded-[1.5rem] transition-shadow focus-within:ring-2 focus-within:ring-[var(--primitive-ring)]"

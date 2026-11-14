@@ -104,5 +104,7 @@ export default defineSchema({
     timeZone: v.optional(v.string()), // IANA name; daily rollups use the owner's day, UTC until set
     keepaliveEnabled: v.optional(v.boolean()), // absent = on; off = 1-hour cache lifetime instead
     cacheBreakConfirmMicroUsd: v.optional(v.number()), // edits costing more than this ask first; absent = $0.10
+    dailyBudgetMicroUsd: v.optional(v.number()), // soft daily budget; absent = none
+    budgetOverrideDay: v.optional(v.string()), // the owner's day (YYYY-MM-DD) the budget is overridden for
   }).index("by_ownerId", ["ownerId"]),
 });

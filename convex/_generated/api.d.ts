@@ -16,6 +16,7 @@ import type * as http from "../http.js";
 import type * as inspector from "../inspector.js";
 import type * as keepalive from "../keepalive.js";
 import type * as lib_anthropic from "../lib/anthropic.js";
+import type * as lib_budget from "../lib/budget.js";
 import type * as lib_cacheStatus from "../lib/cacheStatus.js";
 import type * as lib_context from "../lib/context.js";
 import type * as lib_metering from "../lib/metering.js";
@@ -48,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   inspector: typeof inspector;
   keepalive: typeof keepalive;
   "lib/anthropic": typeof lib_anthropic;
+  "lib/budget": typeof lib_budget;
   "lib/cacheStatus": typeof lib_cacheStatus;
   "lib/context": typeof lib_context;
   "lib/metering": typeof lib_metering;

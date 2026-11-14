@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { query } from "./_generated/server";
+import { spentOn } from "./lib/budget";
 import { USAGE_FIELDS, type Usage } from "./lib/usage";
 import { requireOwner } from "./owner";
 
@@ -155,6 +156,29 @@ export const summary = query({
       savedMicroUsd7: netSaved(week.all, week.upkeep),
       savedMicroUsd30: netSaved(month.all, month.upkeep),
       hitRate30: hitRate(month.all, month.upkeep),
+    };
+  },
+});
+
+// Today's soft-budget state for the composer banner and the usage page. `today` comes from the
+// client (the owner's day) because queries can't read the clock.
+export const budget = query({
+  args: { today: v.string() },
+  returns: v.object({
+    budgetMicroUsd: v.union(v.null(), v.number()),
+    spentMicroUsd: v.number(),
+    overridden: v.boolean(),
+  }),
+  handler: async (ctx, { today }) => {
+    const ownerId = await requireOwner(ctx);
+    const settings = await ctx.db
+      .query("settings")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+      .unique();
+    return {
+      budgetMicroUsd: settings?.dailyBudgetMicroUsd ?? null,
+      spentMicroUsd: await spentOn(ctx, ownerId, today),
+      overridden: settings?.budgetOverrideDay === today,
     };
   },
 });

@@ -49,3 +49,12 @@ export function metaLine(
       : []),
   ].join(" · ");
 }
+
+// YYYY-MM-DD now in the owner's time zone (UTC until set): the same day the rollups use.
+export const todayIn = (timeZone: string | null) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: timeZone ?? "UTC",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(Date.now());

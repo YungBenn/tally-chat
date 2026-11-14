@@ -7,6 +7,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
+import { dayIn } from "./lib/rollups";
 import { requireOwner } from "./owner";
 
 const settingsFor = (ctx: QueryCtx, ownerId: Id<"users">) =>
@@ -43,6 +44,7 @@ export const get = query({
     timeZone: v.union(v.null(), v.string()),
     keepaliveEnabled: v.boolean(),
     cacheBreakConfirmMicroUsd: v.number(),
+    dailyBudgetMicroUsd: v.union(v.null(), v.number()),
   }),
   handler: async (ctx) => {
     const settings = await settingsFor(ctx, await requireOwner(ctx));
@@ -53,6 +55,7 @@ export const get = query({
       keepaliveEnabled: settings?.keepaliveEnabled !== false,
       cacheBreakConfirmMicroUsd:
         settings?.cacheBreakConfirmMicroUsd ?? DEFAULT_CACHE_BREAK_CONFIRM,
+      dailyBudgetMicroUsd: settings?.dailyBudgetMicroUsd ?? null,
     };
   },
 });
@@ -112,6 +115,51 @@ export const setSideJobModel = mutation({
 });
 
 const DEFAULT_CACHE_BREAK_CONFIRM = 100_000; // $0.10
+
+// The soft daily budget; null removes it. At 100% sending stops until the owner's next day,
+// unless overridden for today.
+export const setDailyBudget = mutation({
+  args: { microUsd: v.union(v.null(), v.number()) },
+  returns: v.null(),
+  handler: async (ctx, { microUsd }) => {
+    const ownerId = await requireOwner(ctx);
+    if (microUsd !== null && (!Number.isFinite(microUsd) || microUsd <= 0)) {
+      throw new ConvexError("Enter a budget above $0, or clear it for none");
+    }
+    const dailyBudgetMicroUsd =
+      microUsd === null ? undefined : Math.round(microUsd);
+    const settings = await settingsFor(ctx, ownerId);
+    if (settings)
+      await ctx.db.patch("settings", settings._id, { dailyBudgetMicroUsd });
+    else
+      await ctx.db.insert("settings", {
+        ownerId,
+        allowlistedHosts: [],
+        dailyBudgetMicroUsd,
+      });
+    return null;
+  },
+});
+
+// Lets sending continue past the budget for the rest of the owner's day.
+export const overrideBudgetToday = mutation({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    const ownerId = await requireOwner(ctx);
+    const settings = await settingsFor(ctx, ownerId);
+    const budgetOverrideDay = dayIn(Date.now(), settings?.timeZone);
+    if (settings)
+      await ctx.db.patch("settings", settings._id, { budgetOverrideDay });
+    else
+      await ctx.db.insert("settings", {
+        ownerId,
+        allowlistedHosts: [],
+        budgetOverrideDay,
+      });
+    return null;
+  },
+});
 
 // Editing a past message asks for confirmation when its cache break costs more than this.
 export const setCacheBreakConfirm = mutation({

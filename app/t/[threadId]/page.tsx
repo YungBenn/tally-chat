@@ -16,6 +16,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import CacheStatus from "@/components/CacheStatus";
+import BudgetBanner from "@/components/BudgetBanner";
 import ChatShell from "@/components/ChatShell";
 import CostStrip from "@/components/CostStrip";
 import Composer from "@/components/Composer";
@@ -488,6 +489,7 @@ export default function ThreadPage() {
             onStop={() => last && void stop({ messageId: last._id })}
             onType={markActive}
             onDraftChange={setDraft}
+            banner={<BudgetBanner />}
             footer={
               <CostStrip
                 threadId={threadId}

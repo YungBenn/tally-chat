@@ -3,16 +3,8 @@
 import { useQuery } from "convex/react";
 import ChatShell from "@/components/ChatShell";
 import { api } from "@/convex/_generated/api";
-import { usd } from "@/lib/format";
+import { todayIn, usd } from "@/lib/format";
 
-// YYYY-MM-DD now in the owner's time zone (UTC until set), the same day the rollups use.
-const todayIn = (timeZone: string | null) =>
-  new Intl.DateTimeFormat("en-CA", {
-    timeZone: timeZone ?? "UTC",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(Date.now());
 const pct = (rate: number | null) =>
   rate === null ? "—" : `${Math.round(rate * 100)}%`;
 const shortDay = (day: string) =>
@@ -82,10 +74,9 @@ function Table({ head, rows }: { head: string[]; rows: string[][] }) {
 // (spec phase 3). Days are the owner's, from the settings time zone.
 export default function UsagePage() {
   const settings = useQuery(api.settings.get);
-  const data = useQuery(
-    api.usage.summary,
-    settings ? { today: todayIn(settings.timeZone) } : "skip",
-  );
+  const today = settings ? todayIn(settings.timeZone) : null;
+  const data = useQuery(api.usage.summary, today ? { today } : "skip");
+  const budget = useQuery(api.usage.budget, today ? { today } : "skip");
 
   return (
     <ChatShell>
@@ -95,11 +86,62 @@ export default function UsagePage() {
           {!data ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : (
-            <UsageBody data={data} />
+            <>
+              {budget?.budgetMicroUsd && (
+                <BudgetProgress
+                  {...budget}
+                  budgetMicroUsd={budget.budgetMicroUsd}
+                />
+              )}
+              <UsageBody data={data} />
+            </>
           )}
         </div>
       </div>
     </ChatShell>
+  );
+}
+
+// Today's spend against the soft budget.
+function BudgetProgress({
+  budgetMicroUsd,
+  spentMicroUsd,
+  overridden,
+}: {
+  budgetMicroUsd: number;
+  spentMicroUsd: number;
+  overridden: boolean;
+}) {
+  const ratio = spentMicroUsd / budgetMicroUsd;
+  return (
+    <section className="flex flex-col gap-2">
+      <div className="flex items-baseline justify-between gap-2">
+        <h2 className="font-semibold tracking-[-0.01em]">
+          Today&apos;s budget
+        </h2>
+        <span className="font-mono text-xs text-muted-foreground tabular-nums">
+          {usd(spentMicroUsd)} of {usd(budgetMicroUsd)} ·{" "}
+          {Math.round(ratio * 100)}%{overridden ? " · overridden" : ""}
+        </span>
+      </div>
+      <div
+        className="h-2 overflow-hidden rounded-full bg-muted"
+        role="progressbar"
+        aria-label="Today's budget used"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.min(100, Math.round(ratio * 100))}
+      >
+        <div
+          className={
+            ratio >= 1
+              ? "h-full bg-primitive-destructive"
+              : "h-full bg-foreground/80"
+          }
+          style={{ width: `${Math.min(100, ratio * 100)}%` }}
+        />
+      </div>
+    </section>
   );
 }
 

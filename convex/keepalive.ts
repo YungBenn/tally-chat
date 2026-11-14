@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { ACTIVE_WINDOW_MS, cacheExpiresAt, cacheState, cacheTtlValidator } from "./lib/cacheStatus";
+import { budgetReached } from "./lib/budget";
 import { assembleHistory } from "./lib/context";
 import { meterCall } from "./lib/metering";
 import { usageValidator, type Usage } from "./lib/usage";
@@ -42,7 +43,7 @@ const providerFields = v.object({
 });
 
 // What the keepalive action sends, or null when any condition says it can't help:
-// keepalive is off, the thread is gone, its provider isn't Anthropic style, the latest reply is streaming or
+// keepalive is off, the owner is over their daily budget, the thread is gone, its provider isn't Anthropic style, the latest reply is streaming or
 // didn't report caching, the owner was last active over 30 minutes ago, or the cache is cold.
 // `now` comes from the action because queries must not read the clock.
 export const input = internalQuery({
@@ -75,6 +76,7 @@ export const input = internalQuery({
       .withIndex("by_ownerId", (q) => q.eq("ownerId", thread.ownerId))
       .unique();
     if (settings?.keepaliveEnabled === false) return null;
+    if (await budgetReached(ctx, settings, now)) return null; // upkeep pauses while over budget
     const history = await assembleHistory(ctx, thread._id, [...leaf.ancestorIds, leaf._id]);
     return {
       providerId: provider._id,

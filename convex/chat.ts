@@ -5,6 +5,7 @@ import { internalMutation, internalQuery, mutation, query, type MutationCtx, typ
 import { CURRENT_SYSTEM_PROMPT_VERSION } from "./lib/systemPrompts";
 import { cacheExpiresAt, cacheTtlValidator } from "./lib/cacheStatus";
 import { keepalivePending, restartKeepalive, touchedCache } from "./keepalive";
+import { assertWithinBudget, budgetReached } from "./lib/budget";
 import { assembleHistory } from "./lib/context";
 import { meterCall } from "./lib/metering";
 import { appendChunk, createStream, deleteStream, streamText } from "./lib/textStream";
@@ -158,7 +159,9 @@ async function appendUserMessage(ctx: MutationCtx, thread: Doc<"threads">, paren
 }
 
 // A new streaming reply under `user`, made the active leaf, with generation scheduled.
+// Send, retry and edit all start their reply here, so the soft budget is enforced once.
 async function startReply(ctx: MutationCtx, thread: Doc<"threads">, user: Doc<"messages">) {
+  await assertWithinBudget(ctx, thread.ownerId);
   const assistantId = await ctx.db.insert("messages", {
     ownerId: thread.ownerId,
     threadId: thread._id,
@@ -486,7 +489,7 @@ async function sideJobModelFor(ctx: QueryCtx, thread: Doc<"threads">) {
 }
 
 export const titleJobInput = internalQuery({
-  args: { threadId: v.id("threads"), replyId: v.id("messages") },
+  args: { threadId: v.id("threads"), replyId: v.id("messages"), now: v.number() },
   returns: v.union(
     v.null(),
     v.object({
@@ -502,7 +505,7 @@ export const titleJobInput = internalQuery({
       allowlist: v.array(v.string()),
     }),
   ),
-  handler: async (ctx, { threadId, replyId }) => {
+  handler: async (ctx, { threadId, replyId, now }) => {
     const thread = await ctx.db.get("threads", threadId);
     const reply = await ctx.db.get("messages", replyId);
     const firstId = reply?.ancestorIds[0];
@@ -514,6 +517,7 @@ export const titleJobInput = internalQuery({
       .query("settings")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", thread.ownerId))
       .unique();
+    if (await budgetReached(ctx, settings, now)) return null; // side jobs pause while over budget
     const { apiStyle, baseUrl, apiKeyEncrypted } = sideJob.provider;
     return {
       question: question.content,

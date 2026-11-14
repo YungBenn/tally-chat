@@ -5,6 +5,7 @@ import { ConvexError } from "convex/values";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import BudgetBanner from "@/components/BudgetBanner";
 import ChatShell from "@/components/ChatShell";
 import Composer from "@/components/Composer";
 import { NewThreadCostStrip } from "@/components/CostStrip";
@@ -67,6 +68,7 @@ export default function NewThread() {
         <Composer
           disabled={!selected}
           onDraftChange={setDraft}
+          banner={<BudgetBanner />}
           footer={
             selected && (
               <NewThreadCostStrip

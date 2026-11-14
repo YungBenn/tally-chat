@@ -95,7 +95,7 @@ export const generateTitle = internalAction({
   args: { threadId: v.id("threads"), replyId: v.id("messages") },
   returns: v.null(),
   handler: async (ctx, { threadId, replyId }) => {
-    const input = await ctx.runQuery(internal.chat.titleJobInput, { threadId, replyId });
+    const input = await ctx.runQuery(internal.chat.titleJobInput, { threadId, replyId, now: Date.now() });
     if (!input) return null;
     let text = "";
     let usage: NormalizedUsage | undefined;

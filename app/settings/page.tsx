@@ -91,6 +91,78 @@ function Keepalive() {
   );
 }
 
+function DailyBudget() {
+  const settings = useQuery(api.settings.get);
+  const setBudget = useMutation(api.settings.setDailyBudget);
+  const [error, setError] = useState<string | null>(null);
+  if (!settings) return null;
+  const save = (microUsd: number | null) => {
+    setError(null);
+    setBudget({ microUsd }).catch((err) =>
+      setError(
+        err instanceof ConvexError ? String(err.data) : "Could not save",
+      ),
+    );
+  };
+
+  return (
+    <section
+      data-surface="panel"
+      className="flex flex-col gap-4 rounded-[var(--primitive-radius-surface)] p-5"
+    >
+      <div>
+        <h2 className="font-semibold tracking-[-0.01em]">Daily budget</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          A soft limit on what you spend in a day, in your time zone. You get a
+          warning at 80%. At 100% sending pauses until tomorrow unless you
+          override it for the day, and keepalives and side jobs pause on their
+          own. Calls without a price don&apos;t count.
+        </p>
+      </div>
+      <form
+        className="flex items-start gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const raw = String(
+            new FormData(e.currentTarget).get("budget"),
+          ).trim();
+          save(raw === "" ? null : Math.round(Number(raw) * 1e6));
+        }}
+      >
+        <Input
+          key={settings.dailyBudgetMicroUsd ?? "none"}
+          name="budget"
+          type="number"
+          min={0}
+          step={0.01}
+          placeholder="No budget"
+          defaultValue={
+            settings.dailyBudgetMicroUsd === null
+              ? ""
+              : settings.dailyBudgetMicroUsd / 1e6
+          }
+          aria-label="Daily budget, in US dollars"
+          leftIcon={<span className="text-sm text-muted-foreground">$</span>}
+          inputClassName="font-mono"
+        />
+        <Button type="submit" variant="outline">
+          Save
+        </Button>
+        {settings.dailyBudgetMicroUsd !== null && (
+          <Button type="button" variant="ghost" onClick={() => save(null)}>
+            Remove
+          </Button>
+        )}
+      </form>
+      {error && (
+        <p role="alert" className="text-sm text-primitive-destructive">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
 function CacheBreakConfirm() {
   const settings = useQuery(api.settings.get);
   const setThreshold = useMutation(api.settings.setCacheBreakConfirm);
@@ -213,6 +285,7 @@ export default function SettingsPage() {
           <SideJobModel />
           <Keepalive />
           <CacheBreakConfirm />
+          <DailyBudget />
           <TimeZone />
           <section
             data-surface="panel"
