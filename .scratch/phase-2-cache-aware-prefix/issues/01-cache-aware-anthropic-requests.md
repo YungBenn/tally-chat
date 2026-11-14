@@ -4,13 +4,13 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (pending review)
 
-- [ ] Prefactor: context assembly also reports where the checkpoint layer ends (no behaviour change; existing assembler tests stay green)
-- [ ] The system prompt is sent as one text block with `cache_control`
-- [ ] When a checkpoint applies, the last block of the checkpoint layer carries `cache_control`; without one, no second breakpoint
-- [ ] Requests set top-level automatic caching
-- [ ] Every breakpoint in a request uses the same TTL (5 minutes in this ticket); never more than 4 breakpoints
-- [ ] Only blocks that need `cache_control` become content-block arrays; two consecutive turns' request prefixes are byte-identical up to the new turn
-- [ ] OpenAI-compatible requests contain no `cache_control`
-- [ ] Title side jobs are unaffected
+- [x] Prefactor: context assembly also reports where the checkpoint layer ends (no behaviour change; existing assembler tests stay green)
+- [x] The system prompt is sent as one text block with `cache_control`
+- [x] When a checkpoint applies, the last block of the checkpoint layer carries `cache_control`; without one, no second breakpoint
+- [x] Requests set top-level automatic caching
+- [x] Every breakpoint in a request uses the same TTL (5 minutes in this ticket); never more than 4 breakpoints
+- [x] Only blocks that need `cache_control` become content-block arrays; two consecutive turns' request prefixes are byte-identical up to the new turn
+- [x] OpenAI-compatible requests contain no `cache_control`
+- [x] Title side jobs are unaffected

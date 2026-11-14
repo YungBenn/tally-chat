@@ -48,6 +48,7 @@ export const generate = internalAction({
           system: SYSTEM_PROMPTS[input.systemPromptVersion],
           messages: input.history,
           maxTokens: MAX_TOKENS,
+          cache: { ttl: "5m", layerEnd: input.layerEnd },
         },
         { allowlist: input.allowlist, resolve: systemResolve },
         abort.signal,

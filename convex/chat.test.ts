@@ -84,7 +84,7 @@ describe("sending a message", () => {
     expect(request.body).toMatchObject({
       model: "claude-sonnet-5-5",
       stream: true,
-      system: SYSTEM_PROMPTS[1],
+      system: [{ type: "text", text: SYSTEM_PROMPTS[1] }],
       messages: [{ role: "user", content: "Hi" }],
     });
   });

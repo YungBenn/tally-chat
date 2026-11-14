@@ -1,7 +1,7 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { streamText } from "ai";
 import { ConvexError } from "convex/values";
-import type { ChatMessage, StreamEvent } from "./anthropic";
+import type { MessagesRequest, StreamEvent } from "./anthropic";
 import type { ProviderModel } from "./anthropic";
 import { guardedFetch, type GuardOptions } from "./urlGuard";
 import { normalizeOpenAIUsage, type OpenAIUsage } from "./usage";
@@ -32,7 +32,7 @@ export async function fetchOpenAICompatibleModels(baseUrl: string, apiKey: strin
 // The SDK leaves cache writes and OpenRouter's cost out of its usage, so usage is
 // normalized from the provider's raw usage object instead.
 export async function* streamOpenAICompatible(
-  req: { baseUrl: string; apiKey: string; model: string; system: string; messages: ChatMessage[]; maxTokens: number },
+  req: MessagesRequest & { baseUrl: string; apiKey: string }, // req.cache is ignored: these providers cache on their own
   guard: GuardOptions,
   signal: AbortSignal,
 ): AsyncGenerator<StreamEvent> {

@@ -29,13 +29,50 @@ export async function fetchAnthropicModels(baseUrl: string, apiKey: string, guar
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 
+// Where a request's cache breakpoints go (spec phase 2, "Request layout"). Every breakpoint
+// shares one TTL, so the longer-before-shorter rule can never be broken.
+export type CacheLayout = {
+  ttl: "5m" | "1h";
+  layerEnd: number; // leading messages forming the checkpoint layer; 0 = none
+  lastBlock?: boolean; // keepalives also mark the last message explicitly
+};
+
+export type MessagesRequest = {
+  model: string;
+  system: string;
+  messages: ChatMessage[];
+  maxTokens: number;
+  cache?: CacheLayout; // absent (side jobs): no cache_control at all
+};
+
+// The Messages API body. Breakpoints: the system prompt, the end of the checkpoint layer,
+// and top-level automatic caching sliding over the verbatim turns (plus the last message for
+// a keepalive): at most 4. Only marked messages become content-block arrays; the rest stay
+// plain strings, so a branch's request bytes stay stable from turn to turn.
+export function messagesBody(req: MessagesRequest, stream: boolean) {
+  const cc = req.cache && { type: "ephemeral" as const, ttl: req.cache.ttl };
+  const marked = new Set<number>();
+  if (req.cache && req.cache.layerEnd > 0) marked.add(req.cache.layerEnd - 1);
+  if (req.cache?.lastBlock) marked.add(req.messages.length - 1);
+  return {
+    model: req.model,
+    max_tokens: req.maxTokens,
+    system: cc ? [{ type: "text" as const, text: req.system, cache_control: cc }] : req.system,
+    messages: req.messages.map((m, i) =>
+      marked.has(i) ? { role: m.role, content: [{ type: "text" as const, text: m.content, cache_control: cc }] } : m,
+    ),
+    ...(cc ? { cache_control: cc } : {}),
+    stream,
+  };
+}
+
 export type StreamEvent = { type: "text"; text: string } | ({ type: "usage" } & NormalizedUsage);
 
 // Streams a Messages API reply, yielding text deltas and the usage reported so far
 // (message_start carries the input side, message_delta the cumulative output).
 // Throws ConvexError with the provider's message on an HTTP or in-stream error.
 export async function* streamAnthropicMessage(
-  req: { baseUrl: string; apiKey: string; model: string; system: string; messages: ChatMessage[]; maxTokens: number },
+  req: MessagesRequest & { baseUrl: string; apiKey: string },
   guard: GuardOptions,
   signal: AbortSignal,
 ): AsyncGenerator<StreamEvent> {
@@ -45,13 +82,7 @@ export async function* streamAnthropicMessage(
       method: "POST",
       signal,
       headers: { "x-api-key": req.apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({
-        model: req.model,
-        max_tokens: req.maxTokens,
-        system: req.system,
-        messages: req.messages,
-        stream: true,
-      }),
+      body: JSON.stringify(messagesBody(req, true)),
     },
     guard,
   );

@@ -340,6 +340,7 @@ export const generationInput = internalQuery({
       ),
       allowlist: v.array(v.string()),
       history: v.array(v.object({ role: v.union(v.literal("user"), v.literal("assistant")), content: v.string() })),
+      layerEnd: v.number(),
     }),
   ),
   handler: async (ctx, { messageId }) => {
@@ -352,13 +353,15 @@ export const generationInput = internalQuery({
       .query("settings")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", message.ownerId))
       .unique();
+    const history = await assembleHistory(ctx, message.threadId, message.ancestorIds);
     return {
       streamId: message.streamId,
       model: thread.modelId,
       systemPromptVersion: thread.systemPromptVersion,
       provider: provider && { apiStyle: provider.apiStyle, baseUrl: provider.baseUrl, apiKeyEncrypted: provider.apiKeyEncrypted },
       allowlist: settings?.allowlistedHosts ?? [],
-      history: await assembleHistory(ctx, message),
+      history: history.messages,
+      layerEnd: history.layerEnd,
     };
   },
 });

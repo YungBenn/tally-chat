@@ -19,7 +19,9 @@ beforeAll(setAuthEnv);
 let fake: ReturnType<typeof fakeFetch> | undefined;
 afterEach(() => fake?.restore());
 
-type Body = { system: string; messages: { role: string; content: string }[] };
+type Block = { type: "text"; text: string };
+type Body = { system: Block[]; messages: { role: string; content: string | Block[] }[] };
+const text = (content: string | Block[]) => (typeof content === "string" ? content : content.map((b) => b.text).join(""));
 
 async function setup() {
   const t = convexTest(schema, modules);
@@ -71,14 +73,14 @@ const turns = (from: number, to: number, opts: { pin?: number; tag?: string } = 
     return { user: `U${n}${tag}`, reply: `A${n}${tag}`, pinned: n === opts.pin };
   });
 const verbatim = (from: number, to: number, tag = "") => turns(from, to, { tag }).flatMap((x) => [x.user, x.reply]);
-const contents = (body: Body) => body.messages.map((m) => m.content);
+const contents = (body: Body) => body.messages.map((m) => text(m.content));
 
 describe("context assembly", () => {
   test("with no checkpoint, the request is the system prompt and the whole branch", async () => {
     const s = await setup();
     const ids = await s.seed(null, turns(1, 3));
     const body = await s.sendFrom(ids.at(-1)!, "U4");
-    expect(body.system).toBe(SYSTEM_PROMPTS[1]);
+    expect(text(body.system)).toBe(SYSTEM_PROMPTS[1]);
     expect(contents(body)).toEqual([...verbatim(1, 3), "U4"]);
   });
 
@@ -107,7 +109,7 @@ describe("context assembly", () => {
     expect(contents(early)).toEqual([SUMMARY_PREFIX + "S1: turns 1-10", ...verbatim(11, 20), "U21early", "A21early", "U22early"]);
 
     // None of it touched the system prompt.
-    for (const body of [turn40, late, early]) expect(body.system).toBe(SYSTEM_PROMPTS[1]);
+    for (const body of [turn40, late, early]) expect(text(body.system)).toBe(SYSTEM_PROMPTS[1]);
   });
 
   test("a pinned message inside the covered range keeps its original order with other pins", async () => {
