@@ -4,11 +4,13 @@
 
 **Blocked by:** 03 Inspector rail
 
-**Status:** ready-for-agent
+**Status:** done (pending review)
 
-- [ ] Warm, kept alive and cold, judged on the client with the existing cache status helper, flipping live without a reload
-- [ ] The warm tooltip counts down to expiry
-- [ ] The kept-alive pulse is disabled under reduced motion
-- [ ] Color is never the only signal; contrast meets WCAG AA in both themes
-- [ ] Clicking opens the inspector scrolled to its cache line
-- [ ] Hidden on OpenAI-compatible threads, as today
+- [x] Warm, kept alive and cold, judged on the client with the existing cache status helper, flipping live without a reload
+- [x] The warm tooltip counts down to expiry
+- [x] The kept-alive pulse is disabled under reduced motion
+- [x] Color is never the only signal; contrast meets WCAG AA in both themes
+- [x] Clicking opens the inspector scrolled to its cache line
+- [x] Hidden on OpenAI-compatible threads, as today
+
+**Note:** chip contrast measured at 4.97 to 8.47 against its background in both themes (AA needs 4.5).

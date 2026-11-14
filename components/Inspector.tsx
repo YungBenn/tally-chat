@@ -138,7 +138,10 @@ export function InspectorBody({
           state={STATE_LABEL.fresh}
           cost={p ? money(p.input, draftTokens) : "—"}
         />
-        <p className="pt-1 font-sans text-[11px] leading-4 text-muted-foreground">
+        <p
+          data-inspector-section="cache"
+          className="pt-1 font-sans text-[11px] leading-4 text-muted-foreground"
+        >
           {!cache.managed
             ? `This provider caches on its own; its last reply read ${tokens(cache.lastReadTokens ?? 0)} tokens from cache.`
             : historyState === "cached"

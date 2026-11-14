@@ -207,6 +207,20 @@ export default function ThreadPage() {
     else setSheetOpen(!sheetOpen);
   };
 
+  // Opens the inspector (rail or sheet) and, given a section, scrolls it into view.
+  const openInspector = (section?: "cache") => {
+    if (matchMedia("(min-width: 48rem)").matches) setInspectorOpen(true);
+    else setSheetOpen(true);
+    if (section)
+      requestAnimationFrame(() =>
+        document
+          .querySelectorAll(`[data-inspector-section="${section}"]`)
+          .forEach((el) =>
+            el.scrollIntoView({ block: "nearest", behavior: "smooth" }),
+          ),
+      );
+  };
+
   // ⌘I (Ctrl+I elsewhere) toggles the inspector.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -266,6 +280,7 @@ export default function ThreadPage() {
               expiresAt={thread.cacheExpiresAt}
               keepaliveScheduled={thread.keepaliveScheduled}
               lastActiveAt={thread.lastActiveAt}
+              onOpen={() => openInspector("cache")}
             />
           )}
           <Button

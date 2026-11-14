@@ -1205,3 +1205,21 @@ input[type="radio"][aria-hidden="true"][tabindex="-1"] {
     color: #ffa657;
   }
 }
+
+/* ── Cache status chip: color always paired with a label (spec phase 3) ── */
+:root {
+  --cache-warm: #1f6b3d;
+  --cache-warm-soft: #e3f1e7;
+  --cache-keep: #8a5a0b;
+  --cache-keep-soft: #f6ead2;
+  --cache-cold: #4b5563;
+  --cache-cold-soft: #eceef1;
+}
+.dark {
+  --cache-warm: #7fd19c;
+  --cache-warm-soft: #12291b;
+  --cache-keep: #e5b65e;
+  --cache-keep-soft: #2e2412;
+  --cache-cold: #b4bcc8;
+  --cache-cold-soft: #1f2329;
+}
