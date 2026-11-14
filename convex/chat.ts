@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { CURRENT_SYSTEM_PROMPT_VERSION } from "./lib/systemPrompts";
+import { cacheExpiresAt, cacheTtlValidator } from "./lib/cacheStatus";
 import { assembleHistory } from "./lib/context";
 import { recordDailyUsage } from "./lib/rollups";
 import { appendChunk, createStream, deleteStream, streamText } from "./lib/textStream";
@@ -79,6 +80,8 @@ export const getThread = query({
       providerId: v.id("providers"),
       modelId: v.string(),
       messages: v.array(messageView),
+      cacheManaged: v.boolean(), // Anthropic-style provider: tally.chat places its cache breakpoints
+      cacheExpiresAt: v.union(v.null(), v.number()), // judge warm/cold with lib/cacheStatus
     }),
   ),
   handler: async (ctx, { threadId }) => {
@@ -106,7 +109,14 @@ export const getThread = query({
         costMicroUsd: m.costMicroUsd,
       })),
     );
-    return { title: thread.title, providerId: thread.providerId, modelId: thread.modelId, messages };
+    return {
+      title: thread.title,
+      providerId: thread.providerId,
+      modelId: thread.modelId,
+      messages,
+      cacheManaged: (await ctx.db.get("providers", thread.providerId))?.apiStyle === "anthropic",
+      cacheExpiresAt: cacheExpiresAt(thread),
+    };
   },
 });
 
@@ -396,9 +406,10 @@ export const finalize = internalMutation({
     usage: v.optional(usageValidator),
     reports: v.optional(v.object({ caching: v.boolean(), reasoning: v.boolean() })),
     reportedCostMicroUsd: v.optional(v.number()),
+    cacheRequest: v.optional(v.object({ startedAt: v.number(), ttl: cacheTtlValidator })),
   },
   returns: v.null(),
-  handler: async (ctx, { messageId, status, content, pending, error, usage, reports, reportedCostMicroUsd }) => {
+  handler: async (ctx, { messageId, status, content, pending, error, usage, reports, reportedCostMicroUsd, cacheRequest }) => {
     const message = await ctx.db.get("messages", messageId);
     if (!message || message.status !== "streaming") return null;
     if (message.streamId) await appendChunk(ctx, message.streamId, pending, true);
@@ -416,8 +427,14 @@ export const finalize = internalMutation({
     });
     await ctx.db.patch("messages", messageId, { status, content, error, usage, costMicroUsd: cost ?? undefined });
 
-    // The first finished reply in a thread gets a side-job title, once.
     const thread = await ctx.db.get("threads", message.threadId);
+    // A cache-marked request that the provider says read or wrote the cache touched it.
+    const cached = usage.cacheReadTokens + usage.cacheWriteTokens5m + usage.cacheWriteTokens1h > 0;
+    if (thread && cacheRequest && cached) {
+      await ctx.db.patch("threads", thread._id, { cacheTouchedAt: cacheRequest.startedAt, cacheTtl: cacheRequest.ttl });
+    }
+
+    // The first finished reply in a thread gets a side-job title, once.
     if (status === "done" && message.ancestorIds.length === 1 && thread && !thread.titleRequested) {
       await ctx.db.patch("threads", thread._id, { titleRequested: true });
       await ctx.scheduler.runAfter(0, internal.chatActions.generateTitle, { threadId: thread._id, replyId: messageId });

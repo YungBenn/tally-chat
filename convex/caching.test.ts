@@ -2,6 +2,7 @@
 import persistentTextStreaming from "@convex-dev/persistent-text-streaming/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
+import { cacheState } from "./lib/cacheStatus";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
 import { messageDelta, messageStart, messageStop, oaiDelta, oaiDone, oaiFinish, sse, textDelta } from "../test/sse";
@@ -19,7 +20,10 @@ const OPENAI = "POST https://api.openai.com/v1/chat/completions";
 
 beforeAll(setAuthEnv);
 let fake: ReturnType<typeof fakeFetch> | undefined;
-afterEach(() => fake?.restore());
+afterEach(() => {
+  fake?.restore();
+  vi.useRealTimers();
+});
 
 const FIVE_MIN = { type: "ephemeral", ttl: "5m" };
 type Body = { max_tokens: number; system: unknown; messages: { role: string; content: unknown }[]; cache_control?: unknown };
@@ -27,7 +31,7 @@ type Body = { max_tokens: number; system: unknown; messages: { role: string; con
 // Every cache_control in a request, wherever it sits.
 const breakpoints = (body: unknown) => [...JSON.stringify(body).matchAll(/"cache_control":(\{[^}]*\})/g)].map((m) => JSON.parse(m[1]));
 
-async function setup() {
+async function setup(usage: object = { input_tokens: 10, cache_read_input_tokens: 0, output_tokens: 2 }) {
   const t = convexTest(schema, modules);
   persistentTextStreaming.register(t);
   const ownerId = await t.run((ctx) => ctx.db.insert("users", { email: "owner" }));
@@ -47,10 +51,9 @@ async function setup() {
   );
   const owner = t.withIdentity({ subject: `${ownerId}|session` });
   const threadId = await owner.mutation(api.chat.createThread, { providerId: anthropicId, modelId: "claude-sonnet-5-5" });
-  const usage = { input_tokens: 10, cache_read_input_tokens: 0, output_tokens: 2 };
   fake = fakeFetch({
     [ANTHROPIC]: { body: sse(messageStart(usage), textDelta("ok"), messageDelta({ output_tokens: 2 }), messageStop) },
-    [OPENAI]: { body: oaiDelta("ok") + oaiFinish({ prompt_tokens: 10, completion_tokens: 2 }) + oaiDone },
+    [OPENAI]: { body: oaiDelta("ok") + oaiFinish({ prompt_tokens: 10, completion_tokens: 2, prompt_tokens_details: { cached_tokens: 8 } }) + oaiDone },
   });
   const send = async (content: string, thread = threadId) => {
     await owner.mutation(api.chat.send, { threadId: thread, content });
@@ -132,5 +135,37 @@ describe("cache-aware Anthropic requests", () => {
     expect(title).toBeDefined();
     expect(typeof title.system).toBe("string");
     expect(breakpoints(title)).toEqual([]);
+  });
+});
+
+describe("cache status", () => {
+  const caching = { input_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 2000, output_tokens: 2 };
+  const status = async (s: Awaited<ReturnType<typeof setup>>, thread = s.threadId) =>
+    (await s.owner.query(api.chat.getThread, { threadId: thread }))!.cacheExpiresAt;
+
+  test("a never-touched thread is cold", async () => {
+    const s = await setup(caching);
+    expect(await status(s)).toBeNull();
+    expect(cacheState(await status(s), Date.now())).toEqual({ state: "cold" });
+  });
+
+  test("a reply that wrote the cache makes it warm for 5 minutes from the request's start, then cold", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(10_000_000);
+    const s = await setup(caching);
+    await s.send("Hi");
+    const expiresAt = (await status(s))!;
+    expect(expiresAt).toBeCloseTo(10_000_000 + 5 * 60_000, -2); // counts from the start, give or take test-clock nudges
+    expect(cacheState(expiresAt, 10_000_000 + 4 * 60_000)).toEqual({ state: "warm", until: expiresAt });
+    expect(cacheState(expiresAt, expiresAt)).toEqual({ state: "cold" });
+  });
+
+  test("replies that report no cache reads or writes don't touch it, nor do OpenAI-compatible ones", async () => {
+    const s = await setup(); // no reads, no writes
+    await s.send("Hi");
+    expect(await status(s)).toBeNull();
+    const thread = await s.owner.mutation(api.chat.createThread, { providerId: s.openaiId, modelId: "gpt-5" });
+    await s.send("Hi", thread); // reports 8 cached tokens, but tally.chat doesn't manage that cache
+    expect(await status(s, thread)).toBeNull();
   });
 });

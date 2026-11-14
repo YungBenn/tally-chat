@@ -14,6 +14,7 @@ import { ConvexError } from "convex/values";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import CacheStatus from "@/components/CacheStatus";
 import ChatShell from "@/components/ChatShell";
 import Composer from "@/components/Composer";
 import Markdown, { CopyButton } from "@/components/Markdown";
@@ -227,6 +228,7 @@ export default function ThreadPage() {
           <h1 className="min-w-0 flex-1 truncate text-sm font-medium">
             {thread?.title}
           </h1>
+          {thread?.cacheManaged && <CacheStatus expiresAt={thread.cacheExpiresAt} />}
           <Button
             variant="ghost"
             size="icon"

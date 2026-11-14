@@ -5,6 +5,7 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 import { streamAnthropicMessage } from "./lib/anthropic";
+import type { CacheTtl } from "./lib/cacheStatus";
 import { streamOpenAICompatible } from "./lib/openaiCompatible";
 import { SYSTEM_PROMPTS } from "./lib/systemPrompts";
 import { appendChunk } from "./lib/textStream";
@@ -30,16 +31,21 @@ export const generate = internalAction({
     // ponytail: a stopped reply only has usage up to the last message_delta, so output
     // tokens generated after it are billed by the provider but not recorded here.
     let usage: NormalizedUsage | undefined;
+    // Set when the request carried cache breakpoints: the cache lifetime counts from its start.
+    let cacheRequest: { startedAt: number; ttl: CacheTtl } | undefined;
     const finish = (status: "done" | "stopped" | "error", error?: string) =>
       ctx.runMutation(internal.chat.finalize, {
-        messageId, status, content: full, pending, error,
+        messageId, status, content: full, pending, error, cacheRequest,
         ...usage,
       });
 
     const abort = new AbortController();
     try {
       if (!input.provider) throw new ConvexError("This thread's provider was deleted");
-      const stream = input.provider.apiStyle === "anthropic" ? streamAnthropicMessage : streamOpenAICompatible;
+      const anthropic = input.provider.apiStyle === "anthropic";
+      const stream = anthropic ? streamAnthropicMessage : streamOpenAICompatible;
+      const ttl: CacheTtl = "5m";
+      if (anthropic) cacheRequest = { startedAt: Date.now(), ttl };
       const deltas = stream(
         {
           baseUrl: input.provider.baseUrl,
@@ -48,7 +54,7 @@ export const generate = internalAction({
           system: SYSTEM_PROMPTS[input.systemPromptVersion],
           messages: input.history,
           maxTokens: MAX_TOKENS,
-          cache: { ttl: "5m", layerEnd: input.layerEnd },
+          cache: { ttl, layerEnd: input.layerEnd },
         },
         { allowlist: input.allowlist, resolve: systemResolve },
         abort.signal,

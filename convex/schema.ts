@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
+import { cacheTtlValidator } from "./lib/cacheStatus";
 import { usageValidator } from "./lib/usage";
 
 // Convention: every table the owner creates has `ownerId: v.id("users")`,
@@ -30,6 +31,10 @@ export default defineSchema({
     activeLeafId: v.optional(v.id("messages")),
     titleRequested: v.optional(v.boolean()), // the side-job title runs once per thread
     lastActiveAt: v.optional(v.number()), // owner focused on or typing in the thread (keepalive presence)
+    // Start time of the last request that read or wrote this thread's prompt cache, and the
+    // lifetime it asked for: the cache is warm until cacheTouchedAt + cacheTtl.
+    cacheTouchedAt: v.optional(v.number()),
+    cacheTtl: v.optional(cacheTtlValidator),
   }).index("by_ownerId", ["ownerId"]),
   // Append-only tree (ADR 0001). The only update a message ever gets is
   // streaming -> final status (plus the stop flag before that).
