@@ -3,41 +3,49 @@
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { useState } from "react";
-import AppHeader from "@/components/AppHeader";
+import ChatShell from "@/components/ChatShell";
+import { Button } from "@/components/wensity/button";
+import { Input } from "@/components/wensity/input";
+import { NativeSelect } from "@/components/wensity/native-select";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-
-const input =
-  "w-full rounded-lg border border-line bg-card px-3 py-2 font-mono text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/20";
 
 function SideJobModel() {
   const settings = useQuery(api.settings.get);
   const providers = useQuery(api.providers.list);
   const setSideJobModel = useMutation(api.settings.setSideJobModel);
   if (!settings || !providers) return null;
-  const current = settings.sideJobModel ? `${settings.sideJobModel.providerId}|${settings.sideJobModel.modelId}` : "";
+  const current = settings.sideJobModel
+    ? `${settings.sideJobModel.providerId}|${settings.sideJobModel.modelId}`
+    : "";
 
   return (
-    <section className="flex flex-col gap-4 rounded-xl border border-line bg-card p-5">
+    <section
+      data-surface="panel"
+      className="flex flex-col gap-4 rounded-[var(--primitive-radius-surface)] p-5"
+    >
       <div>
-        <h2 className="font-medium">Side-job model</h2>
-        <p className="mt-1 text-sm text-muted">
-          Runs work you didn&apos;t ask for directly, like thread titles. Pick something cheap: it is metered like
-          any other call.
+        <h2 className="font-semibold tracking-[-0.01em]">Side-job model</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Runs work you didn&apos;t ask for directly, like thread titles. Pick
+          something cheap: it is metered like any other call.
         </p>
       </div>
-      <select
+      <NativeSelect
         aria-label="Side-job model"
-        className={input.replace("font-mono ", "")}
         value={current}
         onChange={(e) => {
           const [providerId, modelId] = e.target.value.split("|");
           void setSideJobModel({
-            sideJobModel: e.target.value ? { providerId: providerId as Id<"providers">, modelId } : null,
+            sideJobModel: e.target.value
+              ? { providerId: providerId as Id<"providers">, modelId }
+              : null,
           });
         }}
       >
-        <option value="">Default: the cheapest priced model of each thread&apos;s provider</option>
+        <option value="">
+          Default: the cheapest priced model of each thread&apos;s provider
+        </option>
         {providers.flatMap((p) =>
           p.models
             .filter((m) => !m.hidden)
@@ -47,7 +55,7 @@ function SideJobModel() {
               </option>
             )),
         )}
-      </select>
+      </NativeSelect>
     </section>
   );
 }
@@ -59,16 +67,19 @@ function TimeZone() {
   const zones = Intl.supportedValuesOf("timeZone");
 
   return (
-    <section className="flex flex-col gap-4 rounded-xl border border-line bg-card p-5">
+    <section
+      data-surface="panel"
+      className="flex flex-col gap-4 rounded-[var(--primitive-radius-surface)] p-5"
+    >
       <div>
-        <h2 className="font-medium">Time zone</h2>
-        <p className="mt-1 text-sm text-muted">
-          Where your day starts and ends for daily spend. Changing it applies to new calls; past days keep their dates.
+        <h2 className="font-semibold tracking-[-0.01em]">Time zone</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Where your day starts and ends for daily spend. Changing it applies to
+          new calls; past days keep their dates.
         </p>
       </div>
-      <select
+      <NativeSelect
         aria-label="Time zone"
-        className={input.replace("font-mono ", "")}
         value={settings.timeZone ?? "UTC"}
         onChange={(e) => void setTimeZone({ timeZone: e.target.value })}
       >
@@ -77,7 +88,7 @@ function TimeZone() {
             {zone.replaceAll("_", " ")}
           </option>
         ))}
-      </select>
+      </NativeSelect>
     </section>
   );
 }
@@ -96,57 +107,79 @@ export default function SettingsPage() {
       await addHost({ host: String(new FormData(formEl).get("host")) });
       formEl.reset();
     } catch (err) {
-      setError(err instanceof ConvexError ? String(err.data) : "Something went wrong");
+      setError(
+        err instanceof ConvexError ? String(err.data) : "Something went wrong",
+      );
     }
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <AppHeader />
-      <main className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 py-8">
-        <h1 className="font-serif text-2xl">Settings</h1>
-        <SideJobModel />
-        <TimeZone />
-        <section className="flex flex-col gap-4 rounded-xl border border-line bg-card p-5">
-          <div>
-            <h2 className="font-medium">Private host allowlist</h2>
-            <p className="mt-1 text-sm text-muted">
-              By default this server only calls public https addresses, so a typed URL can&apos;t reach your network.
-              Hosts listed here are allowed anyway, over http too. Add only machines you trust, such as Ollama on
-              your LAN.
-            </p>
-          </div>
-          {settings && settings.allowlistedHosts.length > 0 && (
-            <ul className="flex flex-col">
-              {settings.allowlistedHosts.map((host) => (
-                <li key={host} className="flex items-center justify-between border-t border-line py-2">
-                  <span className="font-mono text-sm">{host}</span>
-                  <button
-                    className="cursor-pointer rounded-lg px-2.5 py-1 text-sm text-muted hover:bg-line/60 hover:text-danger"
-                    onClick={() => void removeHost({ host })}
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <form className="flex flex-col gap-2" onSubmit={onSubmit}>
-            <div className="flex gap-2">
-              <input className={input} name="host" placeholder="192.168.1.20:11434" aria-label="Host" required />
-              <button className="cursor-pointer rounded-lg bg-accent px-4 py-2 text-sm font-medium whitespace-nowrap text-accent-foreground hover:opacity-90">
-                Add host
-              </button>
-            </div>
-            <span className="text-xs text-muted">A host, or host:port to allow only that port.</span>
-            {error && (
-              <p role="alert" className="text-sm text-danger">
-                {error}
+    <ChatShell header={<h1 className="text-sm font-medium">Settings</h1>}>
+      <div className="flex-1 overflow-y-auto">
+        <main className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 py-8">
+          <h1 className="text-2xl font-semibold tracking-[-0.02em]">
+            Settings
+          </h1>
+          <SideJobModel />
+          <TimeZone />
+          <section
+            data-surface="panel"
+            className="flex flex-col gap-4 rounded-[var(--primitive-radius-surface)] p-5"
+          >
+            <div>
+              <h2 className="font-semibold tracking-[-0.01em]">
+                Private host allowlist
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                By default this server only calls public https addresses, so a
+                typed URL can&apos;t reach your network. Hosts listed here are
+                allowed anyway, over http too. Add only machines you trust, such
+                as Ollama on your LAN.
               </p>
+            </div>
+            {settings && settings.allowlistedHosts.length > 0 && (
+              <ul className="flex flex-col">
+                {settings.allowlistedHosts.map((host) => (
+                  <li
+                    key={host}
+                    className="flex items-center justify-between border-t border-border py-2"
+                  >
+                    <span className="font-mono text-sm">{host}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="hover:text-primitive-destructive"
+                      onClick={() => void removeHost({ host })}
+                    >
+                      Remove
+                    </Button>
+                  </li>
+                ))}
+              </ul>
             )}
-          </form>
-        </section>
-      </main>
-    </div>
+            <form className="flex flex-col gap-2" onSubmit={onSubmit}>
+              <div className="flex gap-2">
+                <Input
+                  inputClassName="font-mono"
+                  name="host"
+                  placeholder="192.168.1.20:11434"
+                  aria-label="Host"
+                  required
+                />
+                <Button type="submit">Add host</Button>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                A host, or host:port to allow only that port.
+              </span>
+              {error && (
+                <p role="alert" className="text-sm text-primitive-destructive">
+                  {error}
+                </p>
+              )}
+            </form>
+          </section>
+        </main>
+      </div>
+    </ChatShell>
   );
 }

@@ -4,10 +4,9 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { Button } from "@/components/wensity/button";
+import { Input } from "@/components/wensity/input";
 import { api } from "@/convex/_generated/api";
-
-const input =
-  "w-full rounded-lg border border-line bg-card px-3 py-2.5 text-[15px] outline-none focus:border-accent focus:ring-2 focus:ring-accent/20";
 
 export default function SignIn() {
   const { signIn } = useAuthActions();
@@ -48,14 +47,16 @@ export default function SignIn() {
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-6 px-4">
       <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2 text-[15px] font-semibold">
-          <span className="grid size-6 place-items-center rounded-md bg-accent font-mono text-xs text-accent-foreground">
+        <div className="flex items-center gap-2 text-[15px] font-semibold tracking-[-0.01em]">
+          <span className="grid size-6 place-items-center rounded-md bg-foreground font-mono text-xs text-background">
             t
           </span>
           tally.chat
         </div>
-        <h1 className="font-serif text-2xl">{setup ? "Set your password" : "Welcome back"}</h1>
-        <p className="text-sm text-muted">
+        <h1 className="mt-4 text-2xl font-semibold tracking-[-0.02em]">
+          {setup ? "Set your password" : "Welcome back"}
+        </h1>
+        <p className="text-sm text-muted-foreground">
           {setup
             ? "This instance has no owner yet. The password you set now protects your provider keys; there is only one account."
             : "Enter the instance password."}
@@ -63,38 +64,42 @@ export default function SignIn() {
       </div>
       <form className="flex flex-col gap-3" onSubmit={onSubmit}>
         {/* Lets password managers save the single account under a name. */}
-        <input type="text" name="username" value="owner" autoComplete="username" readOnly hidden />
-        <label className="flex flex-col gap-1.5 text-sm font-medium">
-          Password
-          <input
-            className={input}
+        <input
+          type="text"
+          name="username"
+          value="owner"
+          autoComplete="username"
+          readOnly
+          hidden
+        />
+        <Input
+          label="Password"
+          type="password"
+          name="password"
+          minLength={8}
+          required
+          autoFocus
+          autoComplete={setup ? "new-password" : "current-password"}
+        />
+        {setup && (
+          <Input
+            label="Confirm password"
             type="password"
-            name="password"
+            name="confirm"
             minLength={8}
             required
-            autoFocus
-            autoComplete={setup ? "new-password" : "current-password"}
+            autoComplete="new-password"
+            hint="At least 8 characters."
           />
-        </label>
-        {setup && (
-          <label className="flex flex-col gap-1.5 text-sm font-medium">
-            Confirm password
-            <input className={input} type="password" name="confirm" minLength={8} required autoComplete="new-password" />
-            <span className="text-xs font-normal text-muted">At least 8 characters.</span>
-          </label>
         )}
         {error && (
-          <p role="alert" className="text-sm text-danger">
+          <p role="alert" className="text-sm text-primitive-destructive">
             {error}
           </p>
         )}
-        <button
-          type="submit"
-          disabled={loading}
-          className="mt-1 cursor-pointer rounded-lg bg-accent py-2.5 text-[15px] font-medium text-accent-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {loading ? "One moment..." : setup ? "Set password" : "Log in"}
-        </button>
+        <Button type="submit" size="lg" className="mt-1" loading={loading}>
+          {setup ? "Set password" : "Log in"}
+        </Button>
       </form>
     </main>
   );

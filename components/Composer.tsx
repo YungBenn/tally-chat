@@ -1,6 +1,9 @@
 "use client";
 
+import { IconArrowUp, IconPlayerStopFilled } from "@tabler/icons-react";
 import { useState } from "react";
+import { Button } from "@/components/wensity/button";
+import { Textarea } from "@/components/wensity/text-area";
 
 export default function Composer({
   onSend,
@@ -29,46 +32,64 @@ export default function Composer({
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pb-4">
-      <div className="rounded-2xl border border-line bg-card p-3 shadow-sm">
-        <label className="sr-only" htmlFor="composer">
-          Message
-        </label>
-        <textarea
+      <div
+        data-surface="field"
+        className="flex flex-col rounded-[1.5rem] transition-shadow focus-within:ring-2 focus-within:ring-[var(--primitive-ring)]"
+      >
+        <Textarea
           id="composer"
-          rows={2}
+          aria-label="Message"
+          variant="ghost"
+          resize="none"
+          autoResize
+          minRows={1}
+          maxRows={10}
           value={text}
           placeholder="Message tally..."
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+            if (
+              e.key === "Enter" &&
+              !e.shiftKey &&
+              !e.nativeEvent.isComposing
+            ) {
               e.preventDefault();
               void submit();
             }
           }}
-          className="max-h-48 w-full resize-none bg-transparent text-[15px] outline-none placeholder:text-muted"
+          textareaClassName="min-h-0 border-0 bg-transparent px-5 pt-4 pb-1 text-[15px] shadow-none hover:bg-transparent focus:ring-0 focus:ring-offset-0"
         />
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex justify-end px-3 pb-3">
           {streaming ? (
-            <button
+            <Button
+              variant="outline"
+              size="icon"
+              className="rounded-full"
+              aria-label="Stop"
+              title="Stop"
               onClick={onStop}
-              className="cursor-pointer rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-line/60"
             >
-              Stop
-            </button>
+              <IconPlayerStopFilled />
+            </Button>
           ) : (
-            <button
-              onClick={() => void submit()}
-              disabled={!text.trim() || disabled}
+            <Button
+              size="icon"
+              className="rounded-full"
               aria-label="Send"
-              className="grid size-8 cursor-pointer place-items-center rounded-lg bg-accent font-semibold text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              title="Send"
+              disabled={!text.trim() || disabled}
+              onClick={() => void submit()}
             >
-              ↑
-            </button>
+              <IconArrowUp />
+            </Button>
           )}
         </div>
       </div>
       {error && (
-        <p role="alert" className="mt-2 text-sm text-danger">
+        <p
+          role="alert"
+          className="mt-2 px-2 text-sm text-primitive-destructive"
+        >
           {error}
         </p>
       )}

@@ -26,7 +26,7 @@ async function activeBranch(ctx: QueryCtx, thread: Doc<"threads">): Promise<Doc<
 
 export const listThreads = query({
   args: {},
-  returns: v.array(v.object({ _id: v.id("threads"), title: v.string() })),
+  returns: v.array(v.object({ _id: v.id("threads"), _creationTime: v.number(), title: v.string() })),
   handler: async (ctx) => {
     const ownerId = await requireOwner(ctx);
     const threads = await ctx.db
@@ -34,7 +34,7 @@ export const listThreads = query({
       .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
       .order("desc")
       .take(100);
-    return threads.map(({ _id, title }) => ({ _id, title }));
+    return threads.map(({ _id, _creationTime, title }) => ({ _id, _creationTime, title }));
   },
 });
 
