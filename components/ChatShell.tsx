@@ -2,6 +2,7 @@
 
 import { useAuthActions } from "@convex-dev/auth/react";
 import {
+  IconChartBar,
   IconEdit,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -103,6 +104,7 @@ function Sidebar({
       </nav>
       <div className="flex shrink-0 flex-col gap-0.5 border-t border-border p-2">
         {[
+          { href: "/usage", label: "Usage", icon: <IconChartBar /> },
           { href: "/providers", label: "Providers", icon: <IconPlug /> },
           { href: "/settings", label: "Settings", icon: <IconSettings /> },
         ].map((l) => (

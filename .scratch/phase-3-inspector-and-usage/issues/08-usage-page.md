@@ -4,11 +4,11 @@
 
 **Blocked by:** 01 Rollups for upkeep and savings
 
-**Status:** ready-for-agent
+**Status:** done (pending review)
 
-- [ ] One owner-only query takes the day range from the client (queries can't read the clock) and returns per-day rows and per-model totals
-- [ ] Hit rate per day excludes keepalive reads; savings subtract keepalive spend
-- [ ] Unpriced calls are counted and the totals say they are a lower bound when any exist
-- [ ] Plain CSS bars, no chart library; linked from the sidebar
-- [ ] Tests cover the 30-day rows, per-model totals, hit rate excluding keepalives, deleted-thread spend and time-zone days
-- [ ] Checked in the browser on desktop and phone widths, light and dark
+- [x] One owner-only query takes the day range from the client (queries can't read the clock) and returns per-day rows and per-model totals
+- [x] Hit rate per day excludes keepalive reads; savings subtract keepalive spend
+- [x] Unpriced calls are counted and the totals say they are a lower bound when any exist
+- [x] Plain CSS bars, no chart library; linked from the sidebar
+- [x] Tests cover the 30-day rows, per-model totals, hit rate excluding keepalives, deleted-thread spend and time-zone days
+- [x] Checked in the browser on desktop and phone widths, light and dark

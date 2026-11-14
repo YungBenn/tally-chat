@@ -31,6 +31,7 @@ import type * as owner from "../owner.js";
 import type * as providerActions from "../providerActions.js";
 import type * as providers from "../providers.js";
 import type * as settings from "../settings.js";
+import type * as usage from "../usage.js";
 
 import type {
   ApiFromModules,
@@ -62,6 +63,7 @@ declare const fullApi: ApiFromModules<{
   providerActions: typeof providerActions;
   providers: typeof providers;
   settings: typeof settings;
+  usage: typeof usage;
 }>;
 
 /**
