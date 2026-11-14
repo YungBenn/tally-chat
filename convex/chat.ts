@@ -444,8 +444,9 @@ export const finalize = internalMutation({
       await restartKeepalive(ctx, thread, touchedAt);
     }
 
-    // The first finished reply in a thread gets a side-job title, once.
-    if (status === "done" && message.ancestorIds.length === 1 && thread && !thread.titleRequested) {
+    // The first successful reply in a thread gets a side-job title, once (from the thread's
+    // first message, so a failed first reply doesn't leave the thread untitled).
+    if (status === "done" && thread && !thread.titleRequested) {
       await ctx.db.patch("threads", thread._id, { titleRequested: true });
       await ctx.scheduler.runAfter(0, internal.chatActions.generateTitle, { threadId: thread._id, replyId: messageId });
     }
@@ -497,7 +498,8 @@ export const titleJobInput = internalQuery({
   handler: async (ctx, { threadId, replyId }) => {
     const thread = await ctx.db.get("threads", threadId);
     const reply = await ctx.db.get("messages", replyId);
-    const question = reply?.parentId && (await ctx.db.get("messages", reply.parentId));
+    const firstId = reply?.ancestorIds[0];
+    const question = firstId && (await ctx.db.get("messages", firstId));
     if (!thread || !reply || !question) return null;
     const sideJob = await sideJobModelFor(ctx, thread);
     if (!sideJob) return null;

@@ -110,6 +110,29 @@ describe("side-job titles", () => {
     expect(await s.title()).toBe("First title");
   });
 
+  test("if the first reply fails, the first successful reply titles the thread from its first message", async () => {
+    const s = await setup();
+    const ok = anthropicResponder("Packing list help");
+    let replies = 0;
+    fake = fakeFetch({
+      [ANTHROPIC]: {
+        respond: (init) => {
+          const body = JSON.parse(String(init?.body)) as Body;
+          if (body.max_tokens !== 30 && ++replies === 1) return new Response(JSON.stringify({ error: { message: "expired" } }), { status: 401 });
+          return ok.respond(init);
+        },
+      },
+    });
+    await s.chat("What should I pack for a rainy week?");
+    expect(s.titleCalls()).toHaveLength(0); // the reply failed: nothing to title from yet
+    await s.chat("Try again please");
+    expect(s.titleCalls()).toHaveLength(1);
+    expect((s.titleCalls()[0].body as Body).messages[0].content).toContain("What should I pack for a rainy week?");
+    expect(await s.title()).toBe("Packing list help");
+    await s.chat("Thanks");
+    expect(s.titleCalls()).toHaveLength(1); // still once per thread
+  });
+
   test("a failed title call keeps the first-message title and leaves the chat alone", async () => {
     const s = await setup();
     fake = fakeFetch({ [ANTHROPIC]: anthropicResponder(null) });
