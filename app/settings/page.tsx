@@ -147,7 +147,7 @@ export default function SettingsPage() {
   return (
     <ChatShell>
       <div className="flex-1 overflow-y-auto">
-        <main className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 py-8">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 py-8">
           <h1 className="text-2xl font-semibold tracking-[-0.02em]">
             Settings
           </h1>
@@ -210,7 +210,7 @@ export default function SettingsPage() {
               )}
             </form>
           </section>
-        </main>
+        </div>
       </div>
     </ChatShell>
   );
