@@ -25,6 +25,7 @@ import type * as lib_textStream from "../lib/textStream.js";
 import type * as lib_urlGuard from "../lib/urlGuard.js";
 import type * as lib_usage from "../lib/usage.js";
 import type * as lib_vault from "../lib/vault.js";
+import type * as migrations from "../migrations.js";
 import type * as owner from "../owner.js";
 import type * as providerActions from "../providerActions.js";
 import type * as providers from "../providers.js";
@@ -54,6 +55,7 @@ declare const fullApi: ApiFromModules<{
   "lib/urlGuard": typeof lib_urlGuard;
   "lib/usage": typeof lib_usage;
   "lib/vault": typeof lib_vault;
+  migrations: typeof migrations;
   owner: typeof owner;
   providerActions: typeof providerActions;
   providers: typeof providers;

@@ -109,7 +109,7 @@ export const record = internalMutation({
     if (!thread) return null; // deleted meanwhile
     if (usage) {
       const cost = await meterCall(ctx, {
-        ownerId: thread.ownerId, threadId, providerId, model, normalized: { usage, reports, reportedCostMicroUsd },
+        ownerId: thread.ownerId, threadId, providerId, model, normalized: { usage, reports, reportedCostMicroUsd }, upkeep: true,
       });
       await ctx.db.insert("sideJobs", {
         ownerId: thread.ownerId, threadId, kind: "keepalive", providerId, model, usage, costMicroUsd: cost ?? undefined,

@@ -82,13 +82,19 @@ export default defineSchema({
   dailyUsage: defineTable({
     ownerId: v.id("users"),
     day: v.string(), // YYYY-MM-DD in the owner's time zone at the time of the call
-    dimension: v.union(v.literal("model"), v.literal("provider"), v.literal("thread")),
+    // "upkeep" rolls up keepalives only, keyed by thread (cache upkeep per thread and per day).
+    dimension: v.union(v.literal("model"), v.literal("provider"), v.literal("thread"), v.literal("upkeep")),
     key: v.string(),
     calls: v.number(),
     unpricedCalls: v.number(),
     costMicroUsd: v.number(),
+    // Read discount minus write premiums, summed (lib/usage cacheSavingsMicroUsd). Absent on rows
+    // from before phase 3 until the backfill fills it; read as 0.
+    savedMicroUsd: v.optional(v.number()),
     ...usageValidator.fields,
-  }).index("by_owner_day_dimension_key", ["ownerId", "day", "dimension", "key"]),
+  })
+    .index("by_owner_day_dimension_key", ["ownerId", "day", "dimension", "key"])
+    .index("by_owner_dimension_key_day", ["ownerId", "dimension", "key", "day"]),
   settings: defineTable({
     ownerId: v.id("users"),
     allowlistedHosts: v.array(v.string()), // private hosts the URL guard lets through, e.g. "192.168.1.20:11434"

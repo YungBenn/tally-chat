@@ -4,11 +4,13 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (pending review)
 
-- [ ] A keepalive writes an `upkeep` row for its thread alongside its model, provider and thread rows, in the same mutation that meters it
-- [ ] Every metered call adds `savedMicroUsd`: cache read × (input − read price) − 5m writes × (5m write − input price) − 1h writes × (1h write − input price); 0 for free providers and unpriced models
-- [ ] A thread's rollup rows across all its days are one indexed, bounded read
-- [ ] A one-off backfill creates `upkeep` rows from existing keepalive side jobs and fills `savedMicroUsd` from existing replies and side jobs; running it twice changes nothing
-- [ ] Thread delete keeps every rollup row, including upkeep rows
-- [ ] Tests: per-day sums match their calls, including negative savings; backfill equals what metering would have written
+- [x] A keepalive writes an `upkeep` row for its thread alongside its model, provider and thread rows, in the same mutation that meters it
+- [x] Every metered call adds `savedMicroUsd`: cache read × (input − read price) − 5m writes × (5m write − input price) − 1h writes × (1h write − input price); 0 for free providers and unpriced models
+- [x] A thread's rollup rows across all its days are one indexed, bounded read
+- [x] A one-off backfill creates `upkeep` rows from existing keepalive side jobs and fills `savedMicroUsd` from existing replies and side jobs; running it twice changes nothing
+- [x] Thread delete keeps every rollup row, including upkeep rows
+- [x] Tests: per-day sums match their calls, including negative savings; backfill equals what metering would have written
+
+**Note:** the backfill ran on the local deployment (19 rows got savings, 2 upkeep rows created; a second run changed nothing). Run it on any other deployment with `npx convex run migrations:backfillRollupsPhase3`.

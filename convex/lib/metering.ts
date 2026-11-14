@@ -1,7 +1,7 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { recordDailyUsage } from "./rollups";
-import { costMicroUsd, priceFor, type Usage } from "./usage";
+import { cacheSavingsMicroUsd, costMicroUsd, priceFor, type Usage } from "./usage";
 
 // Prices one provider call, adds it to the daily rollups and learns the provider's
 // capabilities from what it reported. Returns the cost, or null when it has no price.
@@ -13,6 +13,7 @@ export async function meterCall(
     providerId: Id<"providers"> | undefined;
     model: string;
     normalized: { usage: Usage; reports?: { caching: boolean; reasoning: boolean }; reportedCostMicroUsd?: number };
+    upkeep?: boolean; // a keepalive
   },
 ) {
   const { usage, reports, reportedCostMicroUsd } = call.normalized;
@@ -32,6 +33,8 @@ export async function meterCall(
     threadId: call.threadId,
     usage,
     costMicroUsd: cost,
+    savedMicroUsd: savedFor(provider ? provider.free === true : false, call.model, usage),
+    upkeep: call.upkeep === true,
   });
   if (provider && reports) {
     const known = provider.capabilities ?? { caching: false, reasoning: false };
@@ -42,3 +45,6 @@ export async function meterCall(
   }
   return cost;
 }
+
+// Free providers bill nothing, so caching saves nothing on them.
+export const savedFor = (free: boolean, model: string, usage: Usage) => (free ? 0 : cacheSavingsMicroUsd(usage, priceFor(model)));

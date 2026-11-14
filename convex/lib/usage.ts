@@ -103,3 +103,19 @@ export function costMicroUsd(usage: Usage, price: Price | null): number | null {
   if (parts.some(([tokens, perToken]) => tokens > 0 && perToken === undefined)) return null;
   return Math.round(parts.reduce((sum, [tokens, perToken]) => sum + tokens * (perToken ?? 0), 0) * 1e6);
 }
+
+// What caching saved on one call, in integer micro-dollars: the read discount minus the write
+// premiums, against paying base input for the same tokens. Negative when writes outweigh reads.
+// 0 without the prices to tell (a missing input price, or a missing price for a class used).
+export function cacheSavingsMicroUsd(usage: Usage, price: Price | null): number {
+  if (price?.input === undefined) return 0;
+  const parts: [number, number | undefined][] = [
+    [usage.cacheReadTokens, price.cacheRead],
+    [usage.cacheWriteTokens5m, price.cacheWrite5m],
+    [usage.cacheWriteTokens1h, price.cacheWrite1h],
+  ];
+  if (parts.some(([tokens, perToken]) => tokens > 0 && perToken === undefined)) return 0;
+  const input = price.input;
+  const saved = parts.reduce((sum, [tokens, perToken]) => sum + tokens * (input - (perToken ?? input)), 0);
+  return Math.round(saved * 1e6);
+}
