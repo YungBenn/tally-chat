@@ -134,7 +134,7 @@ export const generateTitle = internalAction({
 });
 
 // Keepalive job (spec phase 2): re-sends the thread's cached prefix through its latest reply
-// with max_tokens 0, so the cache stays warm while the owner is in the thread. Runs only when
+// (see sendAnthropicKeepalive) with max_tokens 0, so the cache stays warm while the owner is in the thread. Runs only when
 // keepalive.input says it can help; any failure just ends the cycle until the next reply.
 export const keepalive = internalAction({
   args: { threadId: v.id("threads") },
@@ -152,7 +152,7 @@ export const keepalive = internalAction({
           model: input.model,
           system: SYSTEM_PROMPTS[input.systemPromptVersion],
           messages: input.history,
-          cache: { ttl: input.ttl, layerEnd: input.layerEnd, lastBlock: true },
+          cache: { ttl: input.ttl, layerEnd: input.layerEnd },
         },
         { allowlist: input.allowlist, resolve: systemResolve },
       );

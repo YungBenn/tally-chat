@@ -12,3 +12,5 @@
 - [ ] With keepalive off, a pause of over 5 minutes still reads from the 1-hour cache
 - [ ] Not replaying the model's thinking blocks causes no errors on this account; findings recorded in the spec's Further Notes
 - [ ] Cost figures cross-checked against the Anthropic console for the session
+
+**Found so far (via 9router, 2026-11-15):** keepalives must not end on an assistant message on 5.5 models (fixed: a `"."` user message follows the latest reply), and a 9router keepalive reported 2,004 uncached input tokens to check against the direct API. See the spec's Further Notes.

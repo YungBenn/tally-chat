@@ -34,7 +34,7 @@ export type ChatMessage = { role: "user" | "assistant"; content: string };
 export type CacheLayout = {
   ttl: "5m" | "1h";
   layerEnd: number; // leading messages forming the checkpoint layer; 0 = none
-  lastBlock?: boolean; // keepalives also mark the last message explicitly
+  breakAt?: number; // keepalives also mark this message (the latest reply) explicitly
 };
 
 export type MessagesRequest = {
@@ -46,14 +46,14 @@ export type MessagesRequest = {
 };
 
 // The Messages API body. Breakpoints: the system prompt, the end of the checkpoint layer,
-// and top-level automatic caching sliding over the verbatim turns (plus the last message for
+// and top-level automatic caching sliding over the verbatim turns (plus the latest reply for
 // a keepalive): at most 4. Only marked messages become content-block arrays; the rest stay
 // plain strings, so a branch's request bytes stay stable from turn to turn.
 export function messagesBody(req: MessagesRequest, stream: boolean) {
   const cc = req.cache && { type: "ephemeral" as const, ttl: req.cache.ttl };
   const marked = new Set<number>();
   if (req.cache && req.cache.layerEnd > 0) marked.add(req.cache.layerEnd - 1);
-  if (req.cache?.lastBlock) marked.add(req.messages.length - 1);
+  if (req.cache?.breakAt !== undefined) marked.add(req.cache.breakAt);
   return {
     model: req.model,
     max_tokens: req.maxTokens,
@@ -123,19 +123,26 @@ export async function* streamAnthropicMessage(
   }
 }
 
-// A keepalive (spec phase 2): the same request as a real turn, but `max_tokens: 0` and not
-// streamed, so it only refreshes the cache. Returns the usage the provider reported.
-// Throws ConvexError with the provider's message on an HTTP error.
+// Follows the latest reply in a keepalive: 5.5 models reject a conversation that ends on an
+// assistant message (no prefill), and with max_tokens 0 nothing is generated for it anyway.
+export const KEEPALIVE_NUDGE: ChatMessage = { role: "user", content: "." };
+
+// A keepalive (spec phase 2): the same request as a real turn through the latest reply, with
+// an explicit breakpoint on that reply so the cached prefix is exactly what the next turn
+// shares, then KEEPALIVE_NUDGE; `max_tokens: 0` and not streamed, so it only refreshes the
+// cache. Returns the usage the provider reported. Throws ConvexError on an HTTP error.
 export async function sendAnthropicKeepalive(
-  req: Omit<MessagesRequest, "maxTokens"> & { baseUrl: string; apiKey: string },
+  req: Omit<MessagesRequest, "maxTokens" | "cache"> & { cache: CacheLayout; baseUrl: string; apiKey: string },
   guard: GuardOptions,
 ): Promise<NormalizedUsage> {
+  const messages = [...req.messages, KEEPALIVE_NUDGE];
+  const cache = { ...req.cache, breakAt: req.messages.length - 1 };
   const res = await guardedFetch(
     `${req.baseUrl}/v1/messages`,
     {
       method: "POST",
       headers: { "x-api-key": req.apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify(messagesBody({ ...req, maxTokens: 0 }, false)),
+      body: JSON.stringify(messagesBody({ ...req, messages, cache, maxTokens: 0 }, false)),
     },
     guard,
   );

@@ -103,9 +103,13 @@ describe("keepalive", () => {
     expect(first).toMatchObject({ model: "claude-sonnet-5-5", max_tokens: 0, stream: false });
     expect(first.system).toEqual(reply.system);
     expect(first.cache_control).toEqual(reply.cache_control);
+    // The breakpoint sits on the latest reply, so the cached prefix is exactly what the next turn
+    // shares. 5.5 models reject a conversation ending on an assistant message (no prefill), so
+    // a one-character user message follows it; with max_tokens 0 nothing is generated.
     expect(first.messages).toEqual([
       { role: "user", content: "Hi" },
       { role: "assistant", content: [{ type: "text", text: "R1", cache_control: { type: "ephemeral", ttl: "5m" } }] },
+      { role: "user", content: "." },
     ]);
     expect((first.system as { text: string }[])[0].text).toBe(SYSTEM_PROMPTS[1]);
 
@@ -209,7 +213,7 @@ describe("keepalive", () => {
     expect(s.keepalives()).toHaveLength(0);
     await s.later(2.5 * MIN);
     expect(s.keepalives()).toHaveLength(1);
-    expect(s.keepalives()[0].messages).toHaveLength(4); // covers the latest reply
+    expect(s.keepalives()[0].messages.slice(0, 4).map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant"]); // covers the latest reply
   });
 
   test("two tabs marking activity still get one keepalive per window", async () => {
