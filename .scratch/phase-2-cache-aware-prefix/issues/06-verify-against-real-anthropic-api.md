@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 Keepalive, 05 Keepalive switch and the 1-hour fallback
 
-**Status:** needs-owner (requires a real Anthropic API key)
+**Status:** blocked on owner: see `docs/human-actions.md` (add a real Anthropic provider)
 
 - [ ] A multi-turn thread on a 5.5 model: cache read grows each turn once the prefix passes the minimum cacheable size
 - [ ] With the tab focused, a 6-minute pause keeps the cache warm (the next turn reads, the keepalive appears as a side job with a small cost)
