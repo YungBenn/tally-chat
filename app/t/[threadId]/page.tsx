@@ -474,7 +474,7 @@ export default function ThreadPage() {
               <Button
                 variant="outline"
                 size="icon"
-                className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full"
+                className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full shadow-md [--surface-face:var(--surface)]"
                 aria-label="Scroll to bottom"
                 title="Scroll to bottom"
                 onClick={toBottom}
