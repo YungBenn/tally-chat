@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import ChatShell from "@/components/ChatShell";
 import Composer from "@/components/Composer";
+import { NewThreadCostStrip } from "@/components/CostStrip";
 import { NativeSelect } from "@/components/wensity/native-select";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -25,6 +26,7 @@ export default function NewThread() {
       })),
   );
   const [choice, setChoice] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
   const selected = choice ?? options[0]?.value;
 
   return (
@@ -64,6 +66,16 @@ export default function NewThread() {
         </div>
         <Composer
           disabled={!selected}
+          onDraftChange={setDraft}
+          footer={
+            selected && (
+              <NewThreadCostStrip
+                providerId={selected.split("|")[0] as Id<"providers">}
+                modelId={selected.split("|")[1]}
+                draft={draft}
+              />
+            )
+          }
           onSend={async (text) => {
             if (!selected) return;
             const [providerId, modelId] = selected.split("|");

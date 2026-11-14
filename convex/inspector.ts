@@ -4,7 +4,7 @@ import { query, type QueryCtx } from "./_generated/server";
 import { activeBranch } from "./chat";
 import { cacheExpiresAt, cacheTtlValidator } from "./lib/cacheStatus";
 import { assembleHistory } from "./lib/context";
-import { SYSTEM_PROMPTS } from "./lib/systemPrompts";
+import { CURRENT_SYSTEM_PROMPT_VERSION, SYSTEM_PROMPTS } from "./lib/systemPrompts";
 import { priceFor, USAGE_FIELDS, type Usage } from "./lib/usage";
 import { requireOwner } from "./owner";
 
@@ -25,6 +25,35 @@ const pricesValidator = v.union(
   v.null(),
   v.object({ input: v.number(), output: v.number(), cacheRead: v.number(), cacheWrite: v.number() }),
 );
+
+// USD per token for a send on this model; all 0 on a free provider, null without a price.
+// Without cache prices, a cached token is priced like an uncached one.
+function nextPrices(provider: Doc<"providers"> | null, modelId: string, ttl: "5m" | "1h") {
+  if (provider?.free === true) return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  const price = priceFor(modelId);
+  if (price?.input === undefined || price.output === undefined) return null;
+  return {
+    input: price.input,
+    output: price.output,
+    cacheRead: price.cacheRead ?? price.input,
+    cacheWrite: (ttl === "1h" ? price.cacheWrite1h : price.cacheWrite5m) ?? price.input,
+  };
+}
+
+// The cost strip on a new thread: the system prompt and the draft go out as fresh input.
+export const newThread = query({
+  args: { providerId: v.id("providers"), modelId: v.string() },
+  returns: v.object({ systemTokens: v.number(), prices: pricesValidator }),
+  handler: async (ctx, { providerId, modelId }) => {
+    const ownerId = await requireOwner(ctx);
+    const provider = await ctx.db.get("providers", providerId);
+    if (!provider || provider.ownerId !== ownerId) return { systemTokens: 0, prices: null };
+    return {
+      systemTokens: estimateTokens(SYSTEM_PROMPTS[CURRENT_SYSTEM_PROMPT_VERSION]),
+      prices: nextPrices(provider, modelId, "5m"),
+    };
+  },
+});
 
 // Everything the inspector, the cost strip and the cache-break hints show for a thread, priced,
 // so the client only formats. Queries can't read the clock, so cache state comes back as times
@@ -67,20 +96,8 @@ export const get = query({
     const replies = branch.filter((m) => m.role === "assistant" && m.usage);
 
     const layers = await contextLayers(ctx, thread, branch);
-    const price = priceFor(thread.modelId);
     const ttl = thread.cacheTtl ?? "5m";
-    const prices =
-      provider?.free === true
-        ? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
-        : price?.input !== undefined && price.output !== undefined
-          ? {
-              input: price.input,
-              output: price.output,
-              // Without cache prices, a cached token costs what it would uncached.
-              cacheRead: price.cacheRead ?? price.input,
-              cacheWrite: (ttl === "1h" ? price.cacheWrite1h : price.cacheWrite5m) ?? price.input,
-            }
-          : null;
+    const prices = nextPrices(provider, thread.modelId, ttl);
     const recent = replies.slice(-RECENT_REPLIES);
 
     return {

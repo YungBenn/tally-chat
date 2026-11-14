@@ -10,6 +10,7 @@ export default function Composer({
   onStop,
   onType,
   onDraftChange,
+  footer,
   streaming = false,
   disabled = false,
 }: {
@@ -17,6 +18,7 @@ export default function Composer({
   onStop?: () => void;
   onType?: () => void;
   onDraftChange?: (text: string) => void; // the inspector and cost strip price the draft
+  footer?: React.ReactNode; // a line under the box (the cost strip)
   streaming?: boolean;
   disabled?: boolean;
 }) {
@@ -94,6 +96,7 @@ export default function Composer({
           )}
         </div>
       </div>
+      {footer}
       {error && (
         <p
           role="alert"

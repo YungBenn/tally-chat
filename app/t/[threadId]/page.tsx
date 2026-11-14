@@ -17,6 +17,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import CacheStatus from "@/components/CacheStatus";
 import ChatShell from "@/components/ChatShell";
+import CostStrip from "@/components/CostStrip";
 import Composer from "@/components/Composer";
 import Inspector from "@/components/Inspector";
 import Markdown, { CopyButton } from "@/components/Markdown";
@@ -415,6 +416,13 @@ export default function ThreadPage() {
             onStop={() => last && void stop({ messageId: last._id })}
             onType={markActive}
             onDraftChange={setDraft}
+            footer={
+              <CostStrip
+                threadId={threadId}
+                draft={draft}
+                onOpen={toggleInspector}
+              />
+            }
             onSend={async (text) => {
               setAtBottom(true);
               try {

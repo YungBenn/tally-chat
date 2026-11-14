@@ -138,6 +138,15 @@ describe("the next send's prices", () => {
     expect((await mystery.inspect()).next.prices).toBeNull();
   });
 
+  test("a new thread prices the system prompt as fresh input, at the chosen model's prices", async () => {
+    const s = await setup([]);
+    expect(await s.owner.query(api.inspector.newThread, { providerId: s.providerId, modelId: "claude-sonnet-5-5" })).toEqual({
+      systemTokens: SYSTEM,
+      prices: { input: 2e-6, output: 1e-5, cacheRead: 1e-7, cacheWrite: 2.5e-6 },
+    });
+    expect((await s.owner.query(api.inspector.newThread, { providerId: s.providerId, modelId: "local-mystery" })).prices).toBeNull();
+  });
+
   test("OpenAI-compatible threads are not managed and show the reported cache read", async () => {
     const s = await setup([]);
     const thread = await s.owner.mutation(api.chat.createThread, { providerId: s.openaiId, modelId: "gpt-5" });

@@ -4,11 +4,11 @@
 
 **Blocked by:** 03 Inspector rail
 
-**Status:** ready-for-agent
+**Status:** done (pending review)
 
-- [ ] The estimate uses the inspector query's priced parts plus the draft's estimate (characters ÷ 4 at the input price), debounced while typing
-- [ ] Warm prices the prefix at the read price; cold at the 5m or 1h write price; expected output is the mean of the branch's last 5 replies
-- [ ] A new thread prices the system prompt and draft as fresh input
-- [ ] Free providers show $0; unpriced models show cost unknown; OpenAI-compatible threads show their reported hit rate
-- [ ] Clicking the strip opens the inspector (the bottom sheet on phones)
-- [ ] Tests cover the estimate parts warm, cold (5m and 1h), free and unpriced
+- [x] The estimate uses the inspector query's priced parts plus the draft's estimate (characters ÷ 4 at the input price), debounced while typing
+- [x] Warm prices the prefix at the read price; cold at the 5m or 1h write price; expected output is the mean of the branch's last 5 replies
+- [x] A new thread prices the system prompt and draft as fresh input
+- [x] Free providers show $0; unpriced models show cost unknown; OpenAI-compatible threads show their reported hit rate
+- [x] Clicking the strip opens the inspector (the bottom sheet on phones)
+- [x] Tests cover the estimate parts warm, cold (5m and 1h), free and unpriced
