@@ -4,6 +4,7 @@ import {
   IconArrowDown,
   IconChevronLeft,
   IconChevronRight,
+  IconLayoutSidebarRight,
   IconPencil,
   IconRefresh,
   IconTrash,
@@ -17,11 +18,13 @@ import { useEffect, useRef, useState } from "react";
 import CacheStatus from "@/components/CacheStatus";
 import ChatShell from "@/components/ChatShell";
 import Composer from "@/components/Composer";
+import Inspector from "@/components/Inspector";
 import Markdown, { CopyButton } from "@/components/Markdown";
 import { Button } from "@/components/wensity/button";
 import { Textarea } from "@/components/wensity/text-area";
 import { api } from "@/convex/_generated/api";
 import { estimateTokens, metaLine, tokens } from "@/lib/format";
+import { useStoredFlag } from "@/lib/storedFlag";
 import { usePresence } from "@/lib/usePresence";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -189,6 +192,36 @@ export default function ThreadPage() {
   const retry = useMutation(api.chat.retry);
   const deleteThread = useMutation(api.chat.deleteThread);
   const markActive = usePresence(threadId);
+  const [draft, setDraft] = useState("");
+  const [inspectorOpen, setInspectorOpen] = useStoredFlag(
+    "tally.inspectorOpen",
+    false,
+  );
+
+  const [sheetOpen, setSheetOpen] = useState(false);
+  // The rail on desktop, the bottom sheet on phones (Tailwind's md breakpoint).
+  const toggleInspector = () => {
+    if (matchMedia("(min-width: 48rem)").matches)
+      setInspectorOpen(!inspectorOpen);
+    else setSheetOpen(!sheetOpen);
+  };
+
+  // ⌘I (Ctrl+I elsewhere) toggles the inspector.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        e.key.toLowerCase() === "i"
+      ) {
+        e.preventDefault();
+        toggleInspector();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
   const router = useRouter();
   const scroller = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -254,129 +287,157 @@ export default function ThreadPage() {
           >
             <IconTrash />
           </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="shrink-0 text-muted-foreground"
+            aria-label="Inspector"
+            aria-pressed={inspectorOpen || sheetOpen}
+            title="Inspector (⌘I)"
+            onClick={toggleInspector}
+          >
+            <IconLayoutSidebarRight />
+          </Button>
         </>
       }
     >
-      <div className="relative min-h-0 flex-1">
-        <div
-          ref={scroller}
-          className="h-full overflow-y-auto"
-          onScroll={(e) => {
-            const el = e.currentTarget;
-            setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
-          }}
-        >
-          <div className="mx-auto flex max-w-3xl flex-col gap-5 px-4 pt-4 pb-10">
-            {thread?.messages.map((m) =>
-              m.role === "user" ? (
-                <UserMessage
-                  key={m._id}
-                  id={m._id}
-                  text={m.text}
-                  siblingIds={m.siblingIds}
-                  busy={streaming}
-                  onType={markActive}
-                />
-              ) : (
-                <MessageRow
-                  key={m._id}
-                  avatar={<span className="font-mono">t</span>}
-                  author={m.modelName ?? m.model ?? "Assistant"}
-                  latest={m._id === last?._id}
-                  actions={
-                    m.status !== "streaming" && (
-                      <>
-                        <CopyButton text={m.text} className="icon-action" />
-                        <button
-                          className="icon-action"
-                          disabled={streaming}
-                          onClick={() => void retry({ messageId: m._id })}
-                          aria-label="Retry"
-                          title="Retry"
-                        >
-                          <IconRefresh />
-                        </button>
-                        <Versions ids={m.siblingIds} current={m._id} />
-                      </>
-                    )
-                  }
-                >
-                  {m.text ? (
-                    <Markdown text={m.text} />
-                  ) : (
-                    m.status === "streaming" && (
-                      <span className="leading-7 text-muted-foreground">
-                        Thinking…
-                      </span>
-                    )
-                  )}
-                  {m.status === "streaming" && m.text && (
-                    <span
-                      aria-hidden
-                      className="mt-1 inline-block size-2.5 animate-pulse rounded-full bg-foreground"
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="relative min-h-0 flex-1">
+            <div
+              ref={scroller}
+              className="h-full overflow-y-auto"
+              onScroll={(e) => {
+                const el = e.currentTarget;
+                setAtBottom(
+                  el.scrollHeight - el.scrollTop - el.clientHeight < 80,
+                );
+              }}
+            >
+              <div className="mx-auto flex max-w-3xl flex-col gap-5 px-4 pt-4 pb-10">
+                {thread?.messages.map((m) =>
+                  m.role === "user" ? (
+                    <UserMessage
+                      key={m._id}
+                      id={m._id}
+                      text={m.text}
+                      siblingIds={m.siblingIds}
+                      busy={streaming}
+                      onType={markActive}
                     />
-                  )}
-                  {m.status === "stopped" && (
-                    <p className="font-mono text-xs text-muted-foreground">
-                      stopped
-                    </p>
-                  )}
-                  {m.status === "error" && (
-                    <p
-                      role="alert"
-                      className="rounded-[var(--primitive-radius-item)] border border-[var(--primitive-destructive-border)] px-3 py-2 text-sm text-primitive-destructive"
+                  ) : (
+                    <MessageRow
+                      key={m._id}
+                      avatar={<span className="font-mono">t</span>}
+                      author={m.modelName ?? m.model ?? "Assistant"}
+                      latest={m._id === last?._id}
+                      actions={
+                        m.status !== "streaming" && (
+                          <>
+                            <CopyButton text={m.text} className="icon-action" />
+                            <button
+                              className="icon-action"
+                              disabled={streaming}
+                              onClick={() => void retry({ messageId: m._id })}
+                              aria-label="Retry"
+                              title="Retry"
+                            >
+                              <IconRefresh />
+                            </button>
+                            <Versions ids={m.siblingIds} current={m._id} />
+                          </>
+                        )
+                      }
                     >
-                      {m.error ?? "Something went wrong"}
-                    </p>
-                  )}
-                  {m.status === "streaming"
-                    ? m.text && (
-                        <p className={meta}>
-                          ~{tokens(estimateTokens(m.text))} out
-                        </p>
-                      )
-                    : m.usage && (
-                        <p className={meta}>
-                          {metaLine(
-                            m.modelName ?? m.model ?? "",
-                            m.costMicroUsd,
-                            m.usage,
-                          )}
+                      {m.text ? (
+                        <Markdown text={m.text} />
+                      ) : (
+                        m.status === "streaming" && (
+                          <span className="leading-7 text-muted-foreground">
+                            Thinking…
+                          </span>
+                        )
+                      )}
+                      {m.status === "streaming" && m.text && (
+                        <span
+                          aria-hidden
+                          className="mt-1 inline-block size-2.5 animate-pulse rounded-full bg-foreground"
+                        />
+                      )}
+                      {m.status === "stopped" && (
+                        <p className="font-mono text-xs text-muted-foreground">
+                          stopped
                         </p>
                       )}
-                </MessageRow>
-              ),
+                      {m.status === "error" && (
+                        <p
+                          role="alert"
+                          className="rounded-[var(--primitive-radius-item)] border border-[var(--primitive-destructive-border)] px-3 py-2 text-sm text-primitive-destructive"
+                        >
+                          {m.error ?? "Something went wrong"}
+                        </p>
+                      )}
+                      {m.status === "streaming"
+                        ? m.text && (
+                            <p className={meta}>
+                              ~{tokens(estimateTokens(m.text))} out
+                            </p>
+                          )
+                        : m.usage && (
+                            <p className={meta}>
+                              {metaLine(
+                                m.modelName ?? m.model ?? "",
+                                m.costMicroUsd,
+                                m.usage,
+                              )}
+                            </p>
+                          )}
+                    </MessageRow>
+                  ),
+                )}
+              </div>
+            </div>
+            {!atBottom && (
+              <Button
+                variant="outline"
+                size="icon"
+                className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full"
+                aria-label="Scroll to bottom"
+                title="Scroll to bottom"
+                onClick={toBottom}
+              >
+                <IconArrowDown />
+              </Button>
             )}
           </div>
+          <Composer
+            streaming={streaming}
+            onStop={() => last && void stop({ messageId: last._id })}
+            onType={markActive}
+            onDraftChange={setDraft}
+            onSend={async (text) => {
+              setAtBottom(true);
+              try {
+                await send({ threadId, content: text });
+              } catch (err) {
+                throw new Error(
+                  err instanceof ConvexError
+                    ? String(err.data)
+                    : "Could not send",
+                );
+              }
+            }}
+          />
         </div>
-        {!atBottom && (
-          <Button
-            variant="outline"
-            size="icon"
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full"
-            aria-label="Scroll to bottom"
-            title="Scroll to bottom"
-            onClick={toBottom}
-          >
-            <IconArrowDown />
-          </Button>
-        )}
+        <Inspector
+          threadId={threadId}
+          draft={draft}
+          railOpen={inspectorOpen}
+          sheetOpen={sheetOpen}
+          onCloseRail={() => setInspectorOpen(false)}
+          onCloseSheet={() => setSheetOpen(false)}
+        />
       </div>
-      <Composer
-        streaming={streaming}
-        onStop={() => last && void stop({ messageId: last._id })}
-        onType={markActive}
-        onSend={async (text) => {
-          setAtBottom(true);
-          try {
-            await send({ threadId, content: text });
-          } catch (err) {
-            throw new Error(
-              err instanceof ConvexError ? String(err.data) : "Could not send",
-            );
-          }
-        }}
-      />
     </ChatShell>
   );
 }

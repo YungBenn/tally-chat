@@ -12,9 +12,10 @@ import {
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/wensity/button";
 import { api } from "@/convex/_generated/api";
+import { useStoredFlag } from "@/lib/storedFlag";
 import { groupThreads } from "@/lib/threadGroups";
 import { cn } from "@/lib/utils";
 
@@ -133,28 +134,6 @@ function Sidebar({
   );
 }
 
-// Desktop sidebar open/closed, remembered per browser so it survives page changes and reloads.
-const SIDEBAR_KEY = "tally.sidebarClosed";
-const sidebarListeners = new Set<() => void>();
-function readSidebarOpen() {
-  try {
-    return localStorage.getItem(SIDEBAR_KEY) !== "1";
-  } catch {
-    return true;
-  }
-}
-function writeSidebarOpen(open: boolean) {
-  try {
-    if (open) localStorage.removeItem(SIDEBAR_KEY);
-    else localStorage.setItem(SIDEBAR_KEY, "1");
-  } catch {}
-  sidebarListeners.forEach((l) => l());
-}
-function subscribeSidebar(l: () => void) {
-  sidebarListeners.add(l);
-  return () => sidebarListeners.delete(l);
-}
-
 // The app frame: thread sidebar (a drawer below md) and a main column whose top bar holds `header`.
 export default function ChatShell({
   header,
@@ -163,8 +142,10 @@ export default function ChatShell({
   header?: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const sidebarOpen = useSyncExternalStore(subscribeSidebar, readSidebarOpen, () => true);
-  const setSidebarOpen = writeSidebarOpen;
+  const [sidebarOpen, setSidebarOpen] = useStoredFlag(
+    "tally.sidebarOpen",
+    true,
+  );
   const [drawerOpen, setDrawerOpen] = useState(false);
   const settings = useQuery(api.settings.get);
   const setTimeZone = useMutation(api.settings.setTimeZone);

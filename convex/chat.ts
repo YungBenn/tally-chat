@@ -18,7 +18,7 @@ async function ownedThread(ctx: QueryCtx, ownerId: Id<"users">, threadId: Id<"th
 }
 
 // The active branch, root first: the leaf's ancestorIds plus the leaf, fetched in one batch.
-async function activeBranch(ctx: QueryCtx, thread: Doc<"threads">): Promise<Doc<"messages">[]> {
+export async function activeBranch(ctx: QueryCtx, thread: Doc<"threads">): Promise<Doc<"messages">[]> {
   if (!thread.activeLeafId) return [];
   const leaf = await ctx.db.get("messages", thread.activeLeafId);
   if (!leaf) return [];

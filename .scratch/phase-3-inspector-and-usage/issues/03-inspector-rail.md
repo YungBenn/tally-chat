@@ -4,13 +4,15 @@
 
 **Blocked by:** 01 Rollups for upkeep and savings
 
-**Status:** ready-for-agent
+**Status:** done (pending review)
 
-- [ ] One owner-only query returns the layers, their states' inputs (cache expiry, last activity, keepalive pending), the next-send estimate parts and the thread figures, priced
-- [ ] Turn sizes come from the latest reply's usage (request size plus visible output, minus the stable layers); the system prompt and pinned messages are estimated (characters ÷ 4) and marked `~`
-- [ ] Layer states: cached when warm, to be written at the thread's lifetime when cold, fresh for the next message; OpenAI-compatible threads show "provider caches on its own" with the reported cache read
-- [ ] Thread total includes replies, title and keepalives; upkeep is keepalive spend; hit rate covers replies; savings subtract upkeep and may be negative
-- [ ] Unpriced models show unknown costs; free providers show $0
-- [ ] Rail closed by default, open state remembered per device, `⌘I` / Ctrl+I toggles; bottom sheet below the md breakpoint
-- [ ] Tests cover layers with and without a checkpoint, warm, cold and OpenAI-compatible states, and thread figures against a seeded thread
-- [ ] Checked in the browser on desktop and phone widths, light and dark
+- [x] One owner-only query returns the layers, their states' inputs (cache expiry, last activity, keepalive pending), the next-send estimate parts and the thread figures, priced
+- [x] Turn sizes come from the latest reply's usage (request size plus visible output, minus the stable layers); the system prompt and pinned messages are estimated (characters ÷ 4) and marked `~`
+- [x] Layer states: cached when warm, to be written at the thread's lifetime when cold, fresh for the next message; OpenAI-compatible threads show "provider caches on its own" with the reported cache read
+- [x] Thread total includes replies, title and keepalives; upkeep is keepalive spend; hit rate covers replies; savings subtract upkeep and may be negative
+- [x] Unpriced models show unknown costs; free providers show $0
+- [x] Rail closed by default, open state remembered per device, `⌘I` / Ctrl+I toggles; bottom sheet below the md breakpoint
+- [x] Tests cover layers with and without a checkpoint, warm, cold and OpenAI-compatible states, and thread figures against a seeded thread
+- [x] Checked in the browser on desktop and phone widths, light and dark
+
+**Notes:** the phone bottom sheet opens only on request (the inspector button or `⌘I`); only the desktop rail remembers being open, so the sheet never covers the chat on load. The remembered sidebar and inspector states now share one hook.

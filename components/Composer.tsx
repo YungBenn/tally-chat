@@ -9,12 +9,14 @@ export default function Composer({
   onSend,
   onStop,
   onType,
+  onDraftChange,
   streaming = false,
   disabled = false,
 }: {
   onSend: (text: string) => Promise<unknown>;
   onStop?: () => void;
   onType?: () => void;
+  onDraftChange?: (text: string) => void; // the inspector and cost strip price the draft
   streaming?: boolean;
   disabled?: boolean;
 }) {
@@ -27,6 +29,7 @@ export default function Composer({
     try {
       await onSend(text);
       setText("");
+      onDraftChange?.("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send");
     }
@@ -50,6 +53,7 @@ export default function Composer({
           placeholder="Message tally..."
           onChange={(e) => {
             setText(e.target.value);
+            onDraftChange?.(e.target.value);
             onType?.();
           }}
           onKeyDown={(e) => {

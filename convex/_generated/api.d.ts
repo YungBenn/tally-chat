@@ -13,6 +13,7 @@ import type * as chat from "../chat.js";
 import type * as chatActions from "../chatActions.js";
 import type * as crons from "../crons.js";
 import type * as http from "../http.js";
+import type * as inspector from "../inspector.js";
 import type * as keepalive from "../keepalive.js";
 import type * as lib_anthropic from "../lib/anthropic.js";
 import type * as lib_cacheStatus from "../lib/cacheStatus.js";
@@ -43,6 +44,7 @@ declare const fullApi: ApiFromModules<{
   chatActions: typeof chatActions;
   crons: typeof crons;
   http: typeof http;
+  inspector: typeof inspector;
   keepalive: typeof keepalive;
   "lib/anthropic": typeof lib_anthropic;
   "lib/cacheStatus": typeof lib_cacheStatus;

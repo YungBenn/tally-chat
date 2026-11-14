@@ -16,7 +16,7 @@ export async function assembleHistory(
   ctx: QueryCtx,
   threadId: Id<"threads">,
   branchIds: Id<"messages">[],
-): Promise<{ messages: ChatMessage[]; layerEnd: number }> {
+): Promise<{ messages: ChatMessage[]; layerEnd: number; checkpoint: Doc<"checkpoints"> | null }> {
   const branch = (await Promise.all(branchIds.map((id) => ctx.db.get("messages", id)))).filter(
     (m): m is Doc<"messages"> => m !== null,
   );
@@ -34,11 +34,11 @@ export async function assembleHistory(
 
   const toChat = (m: Doc<"messages">): ChatMessage => ({ role: m.role, content: m.content });
   const verbatim = (ms: Doc<"messages">[]) => ms.filter((m) => m.content !== "").map(toChat);
-  if (!latest) return { messages: verbatim(branch), layerEnd: 0 };
+  if (!latest) return { messages: verbatim(branch), layerEnd: 0, checkpoint: null };
   const cut = position.get(latest.coversUpToId)! + 1;
   const layer: ChatMessage[] = [
     { role: "user", content: SUMMARY_PREFIX + latest.summary },
     ...verbatim(branch.slice(0, cut).filter((m) => m.pinned)),
   ];
-  return { messages: [...layer, ...verbatim(branch.slice(cut))], layerEnd: layer.length };
+  return { messages: [...layer, ...verbatim(branch.slice(cut))], layerEnd: layer.length, checkpoint: latest };
 }
