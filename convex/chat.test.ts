@@ -109,6 +109,14 @@ describe("sending a message", () => {
     expect(leaf!.ancestorIds).toEqual(ids.slice(0, 3));
   });
 
+  test("a trailing OpenAI-style [DONE] line (some proxies add one) still finishes the reply", async () => {
+    const { t, owner, threadId } = await setup();
+    fake = fakeFetch({ [MESSAGES_URL]: { body: sse(textDelta("Hi"), messageStop) + "data: [DONE]\n\n" } });
+    await owner.mutation(api.chat.send, { threadId, content: "Hello" });
+    await t.finishAllScheduledFunctions(() => {});
+    expect(await lastAssistant(owner, threadId)).toMatchObject({ status: "done", text: "Hi" });
+  });
+
   test("cannot send while a reply is streaming", async () => {
     const { t, owner, threadId } = await setup();
     fake = fakeFetch({ [MESSAGES_URL]: reply("One") });

@@ -101,7 +101,8 @@ export async function* streamAnthropicMessage(
       const event = buffer.slice(0, end);
       buffer = buffer.slice(end + 2);
       const data = event.split("\n").find((line) => line.startsWith("data:"))?.slice(5).trim();
-      if (!data) continue;
+      // Some proxies (9router) end Anthropic streams with an OpenAI-style "[DONE]" line.
+      if (!data || data === "[DONE]") continue;
       const parsed = JSON.parse(data) as {
         type: string;
         delta?: { type: string; text?: string };
