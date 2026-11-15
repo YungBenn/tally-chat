@@ -36,6 +36,10 @@ _Avoid_: Routing, model switch, override
 A thread brought in from another app's data export. Its messages carry no usage and never count as spend.
 _Avoid_: Migrated chat, archive
 
+**Holo line**:
+The thin spectral edge (cyan to violet to pink to amber) that marks what is live, focused or important: the focused composer, a streaming reply, a warm cache, the active thread. At most three per view.
+_Avoid_: Glow, gradient border, rainbow
+
 **Pinned message**:
 A message that the condenser never folds into a summary.
 _Avoid_: Starred, saved

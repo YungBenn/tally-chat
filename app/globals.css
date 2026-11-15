@@ -3,7 +3,6 @@
    Fonts: load Geist and Geist Mono with next/font (geist package) and expose --font-geist-sans / --font-geist-mono. */
 @import "tailwindcss";
 @import "./holo.css";
-@import "./legacy.css";
 @import "./components.css";
 
 @custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));

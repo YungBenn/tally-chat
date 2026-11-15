@@ -13,7 +13,7 @@ keeps that cache warm while you read, and shows you exactly what you're paying f
 [![Built with Convex](https://img.shields.io/badge/backend-Convex-f3b01c.svg)](https://convex.dev)
 [![Next.js](https://img.shields.io/badge/frontend-Next.js-000.svg)](https://nextjs.org)
 [![Bun](https://img.shields.io/badge/runtime-Bun-fbf0df.svg)](https://bun.sh)
-[![Tests](https://img.shields.io/badge/tests-237%20passing-2f7d4f.svg)](#development)
+[![Tests](https://img.shields.io/badge/tests-250%20passing-2f7d4f.svg)](#development)
 
 </div>
 
@@ -119,7 +119,8 @@ The [self-hosting guide](docs/self-hosting.md) covers local models (Ollama, LM S
 | 5 | Self-host packaging: Docker Compose and a setup guide | ✅ |
 | 6 | Background condenser, vetoed when it would break the cache | ✅ |
 | 7 | Cheaper replies, model suggestions, full-text search, chat import | ✅ |
-| 8 | Documents, Gemini, tools | next |
+| 8 | Redesign on the tally.chat design system: holo lines, motion, mobile | ✅ |
+| 9 | Documents, Gemini, tools | next |
 
 ## Development
 
