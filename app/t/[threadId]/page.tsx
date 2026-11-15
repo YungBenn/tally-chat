@@ -42,6 +42,7 @@ import {
 import { Dialog, Tooltip } from "@/components/ui/overlay";
 import { SHORTCUTS } from "@/lib/shortcuts";
 import { useShortcut, useShortcutLabel } from "@/lib/useShortcut";
+import { COMPACT, useMedia } from "@/lib/useMedia";
 import { toast } from "@/components/ui/toast";
 import { imageTokens } from "@/convex/lib/images";
 import type { Effort } from "@/convex/lib/effort";
@@ -404,52 +405,26 @@ export default function ThreadPage() {
   );
 
   const [sheetOpen, setSheetOpen] = useState(false);
-  // A reply shown on its own in the inspector, remembered with its thread so it never follows
-  // the owner into another one (this page stays mounted across threads).
-  const [turn, setTurn] = useState<{
-    threadId: string;
-    id: Id<"messages">;
-  } | null>(null);
-  const turnId = turn?.threadId === threadId ? turn.id : null;
-  const setTurnId = (id: Id<"messages"> | null) =>
-    setTurn(id && { threadId, id });
-  // The rail on desktop, the bottom sheet on phones (Tailwind's md breakpoint).
-  const toggleInspector = () => {
-    if (matchMedia("(min-width: 48rem)").matches)
-      setInspectorOpen(!inspectorOpen);
-    else setSheetOpen(!sheetOpen);
-  };
+  // The column on wide screens, a bottom sheet under 1200px (spec phase 8).
+  const compact = useMedia(COMPACT);
+  const inspectorShown = compact ? sheetOpen : inspectorOpen;
+  const toggleInspector = () =>
+    compact ? setSheetOpen(!sheetOpen) : setInspectorOpen(!inspectorOpen);
+  useShortcut(SHORTCUTS.toggleInspector, toggleInspector);
 
-  // Opens the inspector (rail or sheet) and, given a section, scrolls it into view.
+  // Opens the inspector and, given a section, scrolls it into view.
   const openInspector = (section?: "cache") => {
-    if (matchMedia("(min-width: 48rem)").matches) setInspectorOpen(true);
-    else setSheetOpen(true);
+    if (compact) setSheetOpen(true);
+    else setInspectorOpen(true);
     if (section)
-      requestAnimationFrame(() =>
-        document
-          .querySelectorAll(`[data-inspector-section="${section}"]`)
-          .forEach((el) =>
-            el.scrollIntoView({ block: "nearest", behavior: "smooth" }),
-          ),
+      setTimeout(
+        () =>
+          document
+            .querySelectorAll(`[data-inspector-section="${section}"]`)
+            .forEach((el) => el.scrollIntoView({ block: "nearest", behavior: "smooth" })),
+        250,
       );
   };
-
-  // ⌘I (Ctrl+I elsewhere) toggles the inspector.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (
-        (e.metaKey || e.ctrlKey) &&
-        !e.shiftKey &&
-        !e.altKey &&
-        e.key.toLowerCase() === "i"
-      ) {
-        e.preventDefault();
-        toggleInspector();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
   const router = useRouter();
   const scroller = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -681,7 +656,7 @@ export default function ThreadPage() {
             icon={<IconLayoutSidebarRight />}
             label="Toggle inspector"
             kbd={inspectorKbd}
-            aria-pressed={inspectorOpen || sheetOpen}
+            aria-pressed={inspectorShown}
             onClick={toggleInspector}
           />
           {effortBreak && (
@@ -850,12 +825,10 @@ export default function ThreadPage() {
           threadId={threadId}
           draft={draft}
           draftImages={draftImages}
-          turnId={turnId}
-          onBack={() => setTurnId(null)}
-          railOpen={inspectorOpen}
-          sheetOpen={sheetOpen}
-          onCloseRail={() => setInspectorOpen(false)}
-          onCloseSheet={() => setSheetOpen(false)}
+          open={inspectorShown}
+          compact={compact}
+          onClose={() => (compact ? setSheetOpen(false) : setInspectorOpen(false))}
+          closeKbd={inspectorKbd}
         />
       </div>
     </ChatShell>
