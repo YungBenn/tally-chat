@@ -9,8 +9,8 @@ export default function manifest(): MetadataRoute.Manifest {
     description: "The chat app that shows you what you are paying for.",
     start_url: "/",
     display: "standalone",
-    background_color: "#fafafa",
-    theme_color: "#fafafa",
+    background_color: "#faf9f7",
+    theme_color: "#faf9f7",
     icons: [
       {
         src: "/icons/icon-192.png",
