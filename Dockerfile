@@ -1,10 +1,20 @@
 # tally.chat web app, production (phase 5). Built by docker compose from this checkout.
 # Bun installs and builds; the Next.js standalone server runs on Bun.
 
-FROM oven/bun:1.4.2 AS build
+FROM oven/bun:1.4.2 AS deps
 WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
+
+# One-shot setup for docker compose: generates secrets, sets the Convex deployment's environment
+# and deploys the functions. generate_key comes from the pinned backend image.
+FROM deps AS setup
+COPY --from=ghcr.io/convex/convex-backend@sha256:207cf95def42f01614b6e3af0af5c20d0dcaa5ff2adf258ee7bc9555576644fa /convex/generate_key /usr/local/bin/convex-generate-key
+COPY convex ./convex
+COPY selfhost/setup.ts ./selfhost/setup.ts
+CMD ["bun", "selfhost/setup.ts"]
+
+FROM deps AS build
 COPY . .
 # Public URLs are baked into the client bundle at build time (Next.js NEXT_PUBLIC_*).
 ARG NEXT_PUBLIC_CONVEX_URL

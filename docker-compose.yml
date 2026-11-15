@@ -1,0 +1,75 @@
+# tally.chat, self-hosted (spec phase 5): `docker compose up -d`.
+# Secrets are generated into ./selfhost/secrets on first run; back that directory up together
+# with the backend's data (see docs/self-hosting.md).
+name: tally
+
+x-backend-image: &backend-image ghcr.io/convex/convex-backend@sha256:207cf95def42f01614b6e3af0af5c20d0dcaa5ff2adf258ee7bc9555576644fa
+
+services:
+  backend:
+    image: *backend-image
+    restart: unless-stopped
+    volumes:
+      - data:/convex/data
+      - ./selfhost/secrets:/secrets
+    environment:
+      # Generated on first start into ./selfhost/secrets/convex (instance name and secret).
+      CREDENTIALS_DIR: /secrets/convex
+      INSTANCE_NAME: tally
+      # How the browser reaches Convex. The ports must match the ones published below.
+      CONVEX_CLOUD_ORIGIN: ${CONVEX_PUBLIC_URL:-http://127.0.0.1:3210}
+      CONVEX_SITE_ORIGIN: ${CONVEX_SITE_PUBLIC_URL:-http://127.0.0.1:3211}
+      DISABLE_BEACON: "1"
+    ports:
+      - ${TALLY_BIND:-127.0.0.1}:3210:3210
+      - ${TALLY_BIND:-127.0.0.1}:3211:3211
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3210/version"]
+      interval: 5s
+      timeout: 5s
+      start_period: 30s
+      retries: 12
+
+  setup:
+    build: { context: ., target: setup }
+    restart: "no"
+    volumes:
+      - ./selfhost/secrets:/secrets
+    environment:
+      CONVEX_SELF_HOSTED_URL: http://backend:3210
+      SITE_URL: ${TALLY_PUBLIC_URL:-http://127.0.0.1:3000}
+    depends_on:
+      backend: { condition: service_healthy }
+
+  web:
+    build:
+      context: .
+      target: run
+      args:
+        NEXT_PUBLIC_CONVEX_URL: ${CONVEX_PUBLIC_URL:-http://127.0.0.1:3210}
+        NEXT_PUBLIC_CONVEX_SITE_URL: ${CONVEX_SITE_PUBLIC_URL:-http://127.0.0.1:3211}
+    restart: unless-stopped
+    environment:
+      # The web server talks to Convex over the compose network; the browser uses the public URL.
+      CONVEX_URL_INTERNAL: http://backend:3210
+    ports:
+      - ${TALLY_BIND:-127.0.0.1}:${TALLY_PORT:-3000}:3000
+    depends_on:
+      backend: { condition: service_healthy }
+      setup: { condition: service_completed_successfully }
+
+  # Optional: `docker compose --profile dashboard up -d`, open http://127.0.0.1:6791 and paste
+  # the admin key from `docker compose exec backend ./generate_admin_key.sh`.
+  dashboard:
+    image: ghcr.io/convex/convex-dashboard@sha256:a55bf8abca1332f787bc4d4a79850182175027be7b70aa230be4389a1d3268e2
+    profiles: [dashboard]
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_DEPLOYMENT_URL: ${CONVEX_PUBLIC_URL:-http://127.0.0.1:3210}
+    ports:
+      - ${TALLY_BIND:-127.0.0.1}:6791:6791
+    depends_on:
+      backend: { condition: service_healthy }
+
+volumes:
+  data:
