@@ -559,7 +559,10 @@ textarea.tc-input { height: auto; min-height: 84px; padding: 10px 12px; resize: 
 .tc-turn { display: flex; flex-direction: column; gap: 8px; scroll-margin-top: 16px; border-radius: var(--radius-card);
   transition: background-color 700ms var(--ease-standard), box-shadow 700ms var(--ease-standard); box-shadow: 0 0 0 10px transparent; }
 .tc-turn.tc-hl { background: var(--accent-soft); box-shadow: 0 0 0 10px var(--accent-soft); }
-.tc-turn-user { align-items: flex-end; }
+.tc-turn-user { align-items: flex-end; position: relative; }
+/* Your message's actions float in the gap below the bubble instead of reserving a row, so a
+   question sits one turn-gap (32px) above its reply. */
+.tc-turn-user > .tc-msg-actions { position: absolute; top: 100%; right: 0; margin-top: 2px; z-index: 1; }
 .tc-turn-user .tc-user-bubble { max-width: 85%; overflow-wrap: anywhere; }
 .tc-assistant { position: relative; }
 .tc-assistant[data-streaming="true"] { animation: tc-msg-in 400ms var(--ease-enter); }
