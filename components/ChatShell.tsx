@@ -135,7 +135,12 @@ function Sidebar({
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
       <div className="flex h-header shrink-0 items-center gap-2 pr-2 pl-5">
-        <Link href="/" onClick={onNavigate} className="mr-auto rounded-control" aria-label="tally.chat home">
+        <Link
+          href="/"
+          onClick={onNavigate}
+          className="mr-auto rounded-control"
+          aria-label="tally.chat home"
+        >
           <BrandMark size={22} wordmark />
         </Link>
         <IconButton
@@ -158,7 +163,11 @@ function Sidebar({
           New thread <Kbd>{newThreadKbd}</Kbd>
         </Button>
         <label className="tc-input tc-search">
-          <IconSearch size={14} stroke={1.5} className="shrink-0 text-foreground-subtle" />
+          <IconSearch
+            size={14}
+            stroke={1.5}
+            className="shrink-0 text-foreground-subtle"
+          />
           <input
             ref={searchRef}
             type="search"
@@ -214,7 +223,9 @@ function Sidebar({
               >
                 <span className="flex min-w-0 items-baseline gap-1 text-caption text-foreground-subtle">
                   <span className="truncate">{m.threadTitle}</span>
-                  <span className="shrink-0">· {m.role === "user" ? "You" : "Reply"}</span>
+                  <span className="shrink-0">
+                    · {m.role === "user" ? "You" : "Reply"}
+                  </span>
                 </span>
                 <span className="line-clamp-2 text-body-sm text-foreground-muted">
                   <Highlight text={m.snippet} query={query} />
@@ -226,8 +237,12 @@ function Sidebar({
         {query
           ? results &&
             results.titles.length === 0 &&
-            results.messages.length === 0 && <p className="tc-sidebar-note">Nothing matches.</p>
-          : threads?.length === 0 && <p className="tc-sidebar-note">No threads yet.</p>}
+            results.messages.length === 0 && (
+              <p className="tc-sidebar-note">Nothing matches.</p>
+            )
+          : threads?.length === 0 && (
+              <p className="tc-sidebar-note">No threads yet.</p>
+            )}
       </nav>
       <div className="flex shrink-0 flex-col gap-0.5 border-t border-border px-3 pt-2 pb-3">
         {NAV.map(({ href, label, icon: Icon }) => (
@@ -267,7 +282,10 @@ export default function ChatShell({
   header?: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const [sidebarOpen, setSidebarOpen] = useStoredFlag("tally.sidebarOpen", true);
+  const [sidebarOpen, setSidebarOpen] = useStoredFlag(
+    "tally.sidebarOpen",
+    true,
+  );
   const [sheetOpen, setSheetOpen] = useState(false);
   const narrow = useMedia(NARROW);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -279,11 +297,14 @@ export default function ChatShell({
   // Daily spend uses the owner's day; record the browser's time zone the first time.
   useEffect(() => {
     if (settings && settings.timeZone === null) {
-      void setTimeZone({ timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+      void setTimeZone({
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      });
     }
   }, [settings, setTimeZone]);
 
-  const toggleSidebar = () => (narrow ? setSheetOpen(!sheetOpen) : setSidebarOpen(!sidebarOpen));
+  const toggleSidebar = () =>
+    narrow ? setSheetOpen(!sheetOpen) : setSidebarOpen(!sidebarOpen);
   useShortcut(SHORTCUTS.toggleSidebar, toggleSidebar);
   useShortcut(SHORTCUTS.newThread, () => {
     setSheetOpen(false);
@@ -300,7 +321,10 @@ export default function ChatShell({
   return (
     <div className="flex h-dvh bg-background">
       {showDocked && (
-        <aside className="flex w-sidebar shrink-0 flex-col border-r border-border" aria-label="Sidebar">
+        <aside
+          className="flex w-sidebar shrink-0 flex-col border-r border-border"
+          aria-label="Sidebar"
+        >
           <Sidebar
             close={() => setSidebarOpen(false)}
             closeLabel="Close sidebar"
@@ -310,7 +334,12 @@ export default function ChatShell({
         </aside>
       )}
       {narrow && (
-        <Sheet open={sheetOpen} onOpenChange={setSheetOpen} side="left" title="Threads">
+        <Sheet
+          open={sheetOpen}
+          onOpenChange={setSheetOpen}
+          side="left"
+          title="Threads"
+        >
           <Sidebar
             close={() => setSheetOpen(false)}
             closeLabel="Close threads"
@@ -320,27 +349,29 @@ export default function ChatShell({
         </Sheet>
       )}
       <main className="flex min-w-0 flex-1 flex-col">
-        <header className="tc-appbar">
-          {narrow ? (
-            <IconButton
-              icon={<IconMenu2 />}
-              label="Open threads"
-              size="touch"
-              onClick={() => setSheetOpen(true)}
-            />
-          ) : (
-            !sidebarOpen && (
+        {(header || narrow || !sidebarOpen) && (
+          <header className="tc-appbar">
+            {narrow ? (
               <IconButton
-                icon={<IconLayoutSidebarLeftExpand />}
-                label="Open sidebar"
-                kbd={sidebarKbd}
-                size="sm"
-                onClick={() => setSidebarOpen(true)}
+                icon={<IconMenu2 />}
+                label="Open threads"
+                size="touch"
+                onClick={() => setSheetOpen(true)}
               />
-            )
-          )}
-          {header}
-        </header>
+            ) : (
+              !sidebarOpen && (
+                <IconButton
+                  icon={<IconLayoutSidebarLeftExpand />}
+                  label="Open sidebar"
+                  kbd={sidebarKbd}
+                  size="sm"
+                  onClick={() => setSidebarOpen(true)}
+                />
+              )
+            )}
+            {header}
+          </header>
+        )}
         {children}
       </main>
     </div>

@@ -1,13 +1,15 @@
 "use client";
 
-import { IconX } from "@tabler/icons-react";
+import { IconPlus, IconX } from "@tabler/icons-react";
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import BudgetBanner, { useSendingPaused } from "@/components/BudgetBanner";
+import BrandMark from "@/components/BrandMark";
 import ChatShell from "@/components/ChatShell";
+import { EmptyState } from "@/components/ui/feedback";
 import Composer from "@/components/Composer";
 import ModeControl from "@/components/ModeControl";
 import { DEFAULT_EFFORT, type Effort } from "@/convex/lib/effort";
@@ -68,16 +70,26 @@ function StartCheaper({
   return (
     <div role="status" className="tc-suggest">
       <span className="min-w-0 flex-1">
-        Looks simple: start on <span className="font-medium text-foreground">{cheapest.name}</span>?{" "}
+        Looks simple: start on{" "}
+        <span className="font-medium text-foreground">{cheapest.name}</span>?{" "}
         <span className="tc-mono text-mono-sm">
           ~{usd(cheap ?? 0)} instead of ~{usd(current ?? 0)}
         </span>{" "}
         for this turn
       </span>
-      <UiButton size="sm" variant="outline" onClick={() => onSwitch(cheapest.modelId)}>
+      <UiButton
+        size="sm"
+        variant="outline"
+        onClick={() => onSwitch(cheapest.modelId)}
+      >
         Switch
       </UiButton>
-      <IconButton icon={<IconX />} label="Dismiss suggestion" size="sm" onClick={() => setDismissed(true)} />
+      <IconButton
+        icon={<IconX />}
+        label="Dismiss suggestion"
+        size="sm"
+        onClick={() => setDismissed(true)}
+      />
     </div>
   );
 }
@@ -88,14 +100,20 @@ function NewThreadModelMenu({
   selected,
   onPick,
 }: {
-  providers: { _id: Id<"providers">; name: string; models: { id: string; displayName: string; hidden?: boolean }[] }[];
+  providers: {
+    _id: Id<"providers">;
+    name: string;
+    models: { id: string; displayName: string; hidden?: boolean }[];
+  }[];
   selected: string;
   onPick: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   useShortcut(SHORTCUTS.modelPicker, () => setOpen((o) => !o));
   const [pid, mid] = selected.split("|");
-  const name = providers.find((p) => p._id === pid)?.models.find((m) => m.id === mid)?.displayName ?? mid;
+  const name =
+    providers.find((p) => p._id === pid)?.models.find((m) => m.id === mid)
+      ?.displayName ?? mid;
   const shown = providers.filter((p) => p.models.some((m) => !m.hidden));
   return (
     <Menu
@@ -112,7 +130,11 @@ function NewThreadModelMenu({
           {p.models
             .filter((m) => !m.hidden)
             .map((m) => (
-              <MenuItem key={m.id} check={selected === `${p._id}|${m.id}`} onClick={() => onPick(`${p._id}|${m.id}`)}>
+              <MenuItem
+                key={m.id}
+                check={selected === `${p._id}|${m.id}`}
+                onClick={() => onPick(`${p._id}|${m.id}`)}
+              >
                 {m.displayName}
               </MenuItem>
             ))}
@@ -152,95 +174,107 @@ export default function NewThread() {
       ?.models.find((m) => m.id === selected?.split("|")[1])?.vision === true;
 
   return (
-    <ChatShell
-    >
-      <div className="flex flex-1 flex-col justify-center overflow-y-auto pb-[10vh]">
-        <div className="mb-6 flex flex-col items-center gap-4 px-4 text-center">
-          <span className="grid size-10 place-items-center rounded-full border border-border bg-surface font-mono text-sm font-semibold">
-            t
-          </span>
-          <h1 className="text-2xl font-semibold tracking-[-0.02em]">
-            What are we working on?
-          </h1>
-          {providers && options.length === 0 && (
-            <p className="text-sm text-muted-foreground">
+    <ChatShell>
+      <div className="tc-home tc-grid-bg">
+        {providers && options.length === 0 ? (
+          <EmptyState
+            className="w-full max-w-lg"
+            title="Add a provider to start"
+            description="Connect Anthropic, OpenAI, OpenRouter, Ollama or any OpenAI-compatible API with your own key. Keys stay on your server."
+            action={
               <Link
                 href="/providers"
-                className="underline underline-offset-2 hover:text-foreground"
+                className="tc-btn tc-btn-primary holo-border holo-sweep"
               >
+                <IconPlus size={16} stroke={1.5} />
                 Add a provider
-              </Link>{" "}
-              to start a thread.
+              </Link>
+            }
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-2 text-center">
+            <BrandMark size={32} draw />
+            <h1 className="mt-3 text-display">Start a thread</h1>
+            <p className="text-body text-foreground-muted">
+              Pick a model and effort. The estimate below updates as you type.
             </p>
-          )}
-        </div>
-        <Composer
-          disabled={!selected}
-          paused={paused}
-          onDraftChange={setDraft}
-          controls={
-            selected &&
-            providers && (
+          </div>
+        )}
+        {(!providers || options.length > 0) && (
+          <Composer
+            disabled={!selected}
+            paused={paused}
+            onDraftChange={setDraft}
+            controls={
+              selected &&
+              providers && (
+                <>
+                  <NewThreadModelMenu
+                    providers={providers}
+                    selected={selected}
+                    onPick={setChoice}
+                  />
+                  {anthropic && (
+                    <EffortControl value={effort} onChange={setEffort} />
+                  )}
+                  <ModeControl value={mode} onChange={setMode} />
+                </>
+              )
+            }
+            banner={
               <>
-                <NewThreadModelMenu providers={providers} selected={selected} onPick={setChoice} />
-                {anthropic && <EffortControl value={effort} onChange={setEffort} />}
-                <ModeControl value={mode} onChange={setMode} />
+                <BudgetBanner />
+                {selected && (
+                  <StartCheaper
+                    providerId={selected.split("|")[0] as Id<"providers">}
+                    modelId={selected.split("|")[1]}
+                    draft={draft}
+                    imageCount={draftImages.length}
+                    onSwitch={(modelId) =>
+                      setChoice(`${selected.split("|")[0]}|${modelId}`)
+                    }
+                  />
+                )}
               </>
-            )
-          }
-          banner={
-            <>
-              <BudgetBanner />
-              {selected && (
-                <StartCheaper
+            }
+            footer={
+              selected && (
+                <NewThreadCostStrip
                   providerId={selected.split("|")[0] as Id<"providers">}
                   modelId={selected.split("|")[1]}
                   draft={draft}
-                  imageCount={draftImages.length}
-                  onSwitch={(modelId) =>
-                    setChoice(`${selected.split("|")[0]}|${modelId}`)
-                  }
+                  draftImages={draftImages}
                 />
-              )}
-            </>
-          }
-          footer={
-            selected && (
-              <NewThreadCostStrip
-                providerId={selected.split("|")[0] as Id<"providers">}
-                modelId={selected.split("|")[1]}
-                draft={draft}
-                draftImages={draftImages}
-              />
-            )
-          }
-          canAttach={vision}
-          onImagesChange={setDraftImages}
-          onSend={async (text, images) => {
-            if (!selected) return;
-            const [providerId, modelId] = selected.split("|");
-            try {
-              const threadId = await createThread({
-                providerId: providerId as Id<"providers">,
-                modelId,
-                effort: anthropic ? effort : undefined,
-              });
-              await send({
-                threadId,
-                content: text,
-                mode,
-                images: images.length ? images : undefined,
-              });
-              router.push(`/t/${threadId}`);
-            } catch (err) {
-              throw new Error(
-                err instanceof ConvexError
-                  ? String(err.data)
-                  : "Could not send",
-              );
+              )
             }
-          }}
-        />
+            canAttach={vision}
+            onImagesChange={setDraftImages}
+            onSend={async (text, images) => {
+              if (!selected) return;
+              const [providerId, modelId] = selected.split("|");
+              try {
+                const threadId = await createThread({
+                  providerId: providerId as Id<"providers">,
+                  modelId,
+                  effort: anthropic ? effort : undefined,
+                });
+                await send({
+                  threadId,
+                  content: text,
+                  mode,
+                  images: images.length ? images : undefined,
+                });
+                router.push(`/t/${threadId}`);
+              } catch (err) {
+                throw new Error(
+                  err instanceof ConvexError
+                    ? String(err.data)
+                    : "Could not send",
+                );
+              }
+            }}
+          />
+        )}
       </div>
     </ChatShell>
   );
