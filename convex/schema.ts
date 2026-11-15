@@ -49,7 +49,13 @@ export default defineSchema({
     cacheTtl: v.optional(cacheTtlValidator),
     keepaliveJobId: v.optional(v.id("_scheduled_functions")), // the thread's one pending keepalive, if any
     effort: v.optional(effortValidator), // Anthropic-style threads: sent on every request; absent = low
-  }).index("by_ownerId", ["ownerId"]),
+  })
+    .index("by_ownerId", ["ownerId"])
+    // Titles only: full-text message search waits for phase 7 (design doc section 10).
+    .searchIndex("search_title", {
+      searchField: "title",
+      filterFields: ["ownerId"],
+    }),
   // Append-only tree (ADR 0001). The only update a message ever gets is
   // streaming -> final status (plus the stop flag before that).
   messages: defineTable({

@@ -85,6 +85,34 @@ export const listThreads = query({
   },
 });
 
+// The owner's threads whose title matches, best first, at most 20 (spec phase 4).
+export const searchThreads = query({
+  args: { query: v.string() },
+  returns: v.array(
+    v.object({
+      _id: v.id("threads"),
+      _creationTime: v.number(),
+      title: v.string(),
+    }),
+  ),
+  handler: async (ctx, { query }) => {
+    const ownerId = await requireOwner(ctx);
+    const text = query.trim();
+    if (!text) return [];
+    const threads = await ctx.db
+      .query("threads")
+      .withSearchIndex("search_title", (q) =>
+        q.search("title", text).eq("ownerId", ownerId),
+      )
+      .take(20);
+    return threads.map(({ _id, _creationTime, title }) => ({
+      _id,
+      _creationTime,
+      title,
+    }));
+  },
+});
+
 export const createThread = mutation({
   args: {
     providerId: v.id("providers"),

@@ -8,7 +8,9 @@ import {
   IconLayoutSidebarLeftExpand,
   IconLogout,
   IconPlug,
+  IconSearch,
   IconSettings,
+  IconX,
 } from "@tabler/icons-react";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
@@ -50,6 +52,17 @@ function Sidebar({
 }) {
   const threads = useQuery(api.chat.listThreads);
   const { threadId } = useParams<{ threadId?: string }>();
+  // Title search (spec phase 4): results replace the grouped list while there's a query.
+  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setQuery(search.trim()), 200);
+    return () => clearTimeout(timer);
+  }, [search]);
+  const results = useQuery(api.chat.searchThreads, query ? { query } : "skip");
+  const groups = query
+    ? [{ label: "Results", threads: results ?? [] }]
+    : groupThreads(threads ?? []);
   const path = usePathname();
   const router = useRouter();
   const { signOut } = useAuthActions();
@@ -68,11 +81,36 @@ function Sidebar({
         </Button>
         <NewThreadButton onNavigate={onNavigate} />
       </div>
+      <div className="relative shrink-0 px-2 pb-1">
+        <IconSearch className="pointer-events-none absolute top-1/2 left-5 size-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setSearch("");
+          }}
+          placeholder="Search titles"
+          aria-label="Search thread titles"
+          className="h-9 w-full rounded-[var(--primitive-radius-item)] border border-border bg-surface pr-8 pl-9 text-sm placeholder:text-muted-foreground focus:border-border-strong focus:outline-none [&::-webkit-search-cancel-button]:hidden"
+        />
+        {search && (
+          <button
+            type="button"
+            aria-label="Clear search"
+            title="Clear search (Esc)"
+            className="icon-action absolute top-1/2 right-3 -translate-y-1/2"
+            onClick={() => setSearch("")}
+          >
+            <IconX />
+          </button>
+        )}
+      </div>
       <nav
         aria-label="Threads"
         className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
       >
-        {groupThreads(threads ?? []).map((g) => (
+        {groups.map((g) => (
           <section key={g.label}>
             <h2 className="px-3 pt-4 pb-1.5 text-xs font-medium text-muted-foreground">
               {g.label}
@@ -96,11 +134,17 @@ function Sidebar({
             ))}
           </section>
         ))}
-        {threads?.length === 0 && (
-          <p className="px-3 pt-4 text-sm text-muted-foreground">
-            No threads yet.
-          </p>
-        )}
+        {query
+          ? results?.length === 0 && (
+              <p className="px-3 pt-4 text-sm text-muted-foreground">
+                No titles match.
+              </p>
+            )
+          : threads?.length === 0 && (
+              <p className="px-3 pt-4 text-sm text-muted-foreground">
+                No threads yet.
+              </p>
+            )}
       </nav>
       <div className="flex shrink-0 flex-col gap-0.5 border-t border-border p-2">
         {[

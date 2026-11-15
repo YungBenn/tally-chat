@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
@@ -16,6 +16,20 @@ const colorScheme = `(()=>{const m=matchMedia("(prefers-color-scheme: dark)");co
 export const metadata: Metadata = {
   title: "tally.chat",
   description: "The chat app that shows you what you are paying for.",
+  // Home-screen install on iOS (the web app manifest covers other platforms); its icon is
+  // app/apple-icon.png.
+  appleWebApp: {
+    capable: true,
+    title: "tally.chat",
+    statusBarStyle: "default",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#fafafa" },
+    { media: "(prefers-color-scheme: dark)", color: "#0a0a0b" },
+  ],
 };
 
 export default function RootLayout({
