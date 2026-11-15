@@ -191,14 +191,16 @@ describe("the inspector's context layers", () => {
             }),
           );
         }
+        // The checkpoint lands after turn 2, so turn 3's reply is measured with it in place.
+        if (ids.length === 4)
+          await ctx.db.insert("checkpoints", {
+            ownerId: s.ownerId,
+            threadId: s.threadId,
+            coversUpToId: ids[3],
+            summary: "S",
+            tokens: 300,
+          });
       }
-      await ctx.db.insert("checkpoints", {
-        ownerId: s.ownerId,
-        threadId: s.threadId,
-        coversUpToId: ids[3],
-        summary: "S",
-        tokens: 300,
-      });
       await ctx.db.patch("threads", s.threadId, { activeLeafId: ids[5] });
     });
     const { layers } = await s.inspect();

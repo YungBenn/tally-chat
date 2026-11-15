@@ -283,6 +283,38 @@ describe("condensing after a reply", () => {
 });
 
 describe("after a checkpoint lands", () => {
+  test("the inspector stops measuring from a reply sent before the checkpoint", async () => {
+    const s = await setup();
+    fake = fakeFetch({ [ANTHROPIC]: provider(() => "Summary one") });
+    await longThread(s, 5);
+    const before = (await s.inspector())!.layers.find((l) => l.kind === "turns")!;
+    await s.chat(`Turn 6 ${LONG}`); // condenses turns 1 to 4 after this reply
+    const turns = (await s.inspector())!.layers.find((l) => l.kind === "turns")!;
+    // That reply's usage covered all six turns; only turns 5 and 6 remain verbatim.
+    expect(turns.label).toBe("turns 5–6");
+    expect(turns.estimated).toBe(true);
+    expect(turns.tokens).toBeLessThan(before.tokens / 2);
+  });
+
+  test("edit hints after a condense price only what follows the summary", async () => {
+    const s = await setup();
+    fake = fakeFetch({ [ANTHROPIC]: provider(() => "Summary one") });
+    const HUGE = "y".repeat(20_000); // ~5k tokens a turn, so a stale measurement would make a hint
+    await s.setCondense({ condenseEnabled: false });
+    for (let i = 1; i <= 5; i++) await s.chat(`Turn ${i} ${HUGE}`);
+    await s.setCondense({ condenseEnabled: true });
+    await s.chat(`Turn 6 ${HUGE}`); // condenses turns 1 to 4
+
+    const messages = (await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!.messages;
+    const hints = (await s.inspector())!.editHints;
+    // Editing turn 5 keeps the summary layer cached and rewrites nothing before turn 5: no hint.
+    expect(hints.find((h) => h.messageId === messages[8]._id)).toBeUndefined();
+    // Editing turn 6 rewrites turn 5 (~5k tokens): a hint, but not one priced off the folded turns.
+    const turn6 = hints.find((h) => h.messageId === messages[10]._id)!;
+    expect(turn6.extraMicroUsd).toBeGreaterThan(0);
+    expect(turn6.extraMicroUsd).toBeLessThan(20_000); // ~5k tokens written at $2.50/M, not ~25k
+  });
+
   test("the cache reads cold, and with the owner active a keepalive writes the new prefix right away", async () => {
     const s = await setup();
     fake = fakeFetch({ [ANTHROPIC]: provider(() => "Summary one") });

@@ -299,6 +299,8 @@ async function editHints(
   let before = system; // tokens of the request before branch[i], measured where a reply allows
   for (let i = 0; i < branch.length; i++) {
     const m = branch[i];
+    // From the checkpoint on, requests carry the checkpoint layer instead of the folded turns.
+    if (checkpoint && i === cut) before = system + checkpointLayer;
     if (m.role === "user") {
       // A fork inside the checkpoint's range loses the checkpoint: only the system prompt stays.
       const stable = i < cut ? system : system + checkpointLayer;
@@ -309,10 +311,15 @@ async function editHints(
       if (extra >= MIN_HINT_MICRO_USD)
         hints.push({ messageId: m._id, extraMicroUsd: extra });
     }
-    before =
-      m.role === "assistant" && m.usage
-        ? totalInput(m.usage) + m.usage.outputTokens - m.usage.reasoningTokens
-        : before + estimateMessage(m);
+    // A reply measures the request it answered; one sent before the checkpoint can't measure
+    // the turns after it (its request still held the folded turns).
+    const measures =
+      m.role === "assistant" &&
+      m.usage &&
+      (i < cut || !checkpoint || m._creationTime > checkpoint._creationTime);
+    before = measures
+      ? totalInput(m.usage!) + m.usage!.outputTokens - m.usage!.reasoningTokens
+      : before + estimateMessage(m);
   }
   return hints;
 }
@@ -370,8 +377,14 @@ export async function contextLayers(
   const verbatim = branch.slice(cut).filter((m) => m.content !== "");
   if (verbatim.length === 0) return layers;
 
+  // A reply sent before the latest checkpoint was measured with the turns it folded, so only
+  // replies created after the checkpoint can measure the current layout.
+  const since = history.checkpoint?._creationTime ?? 0;
   const measuredAt = branch.findLastIndex(
-    (m) => m.role === "assistant" && m.usage !== undefined,
+    (m) =>
+      m.role === "assistant" &&
+      m.usage !== undefined &&
+      m._creationTime > since,
   );
   let tokens: number;
   let estimated: boolean;
