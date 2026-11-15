@@ -12,6 +12,7 @@ import {
 import { CURRENT_SYSTEM_PROMPT_VERSION } from "./lib/systemPrompts";
 import { cacheExpiresAt, cacheTtlValidator } from "./lib/cacheStatus";
 import { keepalivePending, restartKeepalive, touchedCache } from "./keepalive";
+import { scheduleCondense } from "./condense";
 import { assertWithinBudget, budgetReached } from "./lib/budget";
 import { assembleHistory } from "./lib/context";
 import {
@@ -807,6 +808,8 @@ export const finalize = internalMutation({
         error,
         truncated,
       });
+      const thread = await ctx.db.get("threads", message.threadId);
+      if (status === "done" && thread) await scheduleCondense(ctx, thread);
       return null;
     }
 
@@ -848,13 +851,15 @@ export const finalize = internalMutation({
         replyId: messageId,
       });
     }
+    // A finished reply may have grown the thread past the condense threshold (spec phase 6).
+    if (status === "done" && thread) await scheduleCondense(ctx, thread);
     return null;
   },
 });
 
 // The side-job model for a thread: the owner's choice if it still exists and is visible,
 // otherwise the cheapest priced visible model of the thread's provider, else the thread's model.
-async function sideJobModelFor(ctx: QueryCtx, thread: Doc<"threads">) {
+export async function sideJobModelFor(ctx: QueryCtx, thread: Doc<"threads">) {
   const settings = await ctx.db
     .query("settings")
     .withIndex("by_ownerId", (q) => q.eq("ownerId", thread.ownerId))

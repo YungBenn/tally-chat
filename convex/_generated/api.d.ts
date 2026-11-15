@@ -11,6 +11,7 @@
 import type * as auth from "../auth.js";
 import type * as chat from "../chat.js";
 import type * as chatActions from "../chatActions.js";
+import type * as condense from "../condense.js";
 import type * as crons from "../crons.js";
 import type * as http from "../http.js";
 import type * as inspector from "../inspector.js";
@@ -18,6 +19,7 @@ import type * as keepalive from "../keepalive.js";
 import type * as lib_anthropic from "../lib/anthropic.js";
 import type * as lib_budget from "../lib/budget.js";
 import type * as lib_cacheStatus from "../lib/cacheStatus.js";
+import type * as lib_condense from "../lib/condense.js";
 import type * as lib_context from "../lib/context.js";
 import type * as lib_effort from "../lib/effort.js";
 import type * as lib_images from "../lib/images.js";
@@ -47,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   chat: typeof chat;
   chatActions: typeof chatActions;
+  condense: typeof condense;
   crons: typeof crons;
   http: typeof http;
   inspector: typeof inspector;
@@ -54,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   "lib/anthropic": typeof lib_anthropic;
   "lib/budget": typeof lib_budget;
   "lib/cacheStatus": typeof lib_cacheStatus;
+  "lib/condense": typeof lib_condense;
   "lib/context": typeof lib_context;
   "lib/effort": typeof lib_effort;
   "lib/images": typeof lib_images;

@@ -49,6 +49,8 @@ export default defineSchema({
     cacheTtl: v.optional(cacheTtlValidator),
     keepaliveJobId: v.optional(v.id("_scheduled_functions")), // the thread's one pending keepalive, if any
     effort: v.optional(effortValidator), // Anthropic-style threads: sent on every request; absent = low
+    condenseJobId: v.optional(v.id("_scheduled_functions")), // the thread's one pending or running condense
+    condenseFailure: v.optional(v.string()), // why the last condense wrote no checkpoint; cleared by the next one
   })
     .index("by_ownerId", ["ownerId"])
     // Titles only: full-text message search waits for phase 7 (design doc section 10).
@@ -99,7 +101,11 @@ export default defineSchema({
   sideJobs: defineTable({
     ownerId: v.id("users"),
     threadId: v.id("threads"),
-    kind: v.union(v.literal("title"), v.literal("keepalive")),
+    kind: v.union(
+      v.literal("title"),
+      v.literal("keepalive"),
+      v.literal("condense"),
+    ),
     providerId: v.id("providers"),
     model: v.string(),
     usage: usageValidator,
@@ -146,5 +152,11 @@ export default defineSchema({
     cacheBreakConfirmMicroUsd: v.optional(v.number()), // edits costing more than this ask first; absent = $0.10
     dailyBudgetMicroUsd: v.optional(v.number()), // soft daily budget; absent = none
     budgetOverrideDay: v.optional(v.string()), // the owner's day (YYYY-MM-DD) the budget is overridden for
+    // Condensing (spec phase 6); absent = the defaults in lib/condense.
+    condenseEnabled: v.optional(v.boolean()),
+    condenseAtTokens: v.optional(v.number()), // verbatim turns since the checkpoint that trigger a condense
+    condenseKeepTurns: v.optional(v.number()), // recent turns always kept verbatim
+    condenseMinThreadTokens: v.optional(v.number()), // threads smaller than this never condense
+    condensePaybackTurns: v.optional(v.number()), // the cache veto holds condenses that pay back slower
   }).index("by_ownerId", ["ownerId"]),
 });

@@ -204,7 +204,7 @@ describe("the inspector's context layers", () => {
     const { layers } = await s.inspect();
     expect(layers[1]).toEqual({
       kind: "checkpoint",
-      label: "summary + 1 pinned",
+      label: "summary of turns\u00a01\u2060–\u20602 + 1\u00a0pinned",
       tokens: 300 + 1,
       estimated: true,
     });

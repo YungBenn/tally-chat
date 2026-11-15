@@ -10,6 +10,11 @@ import {
   streamAnthropicMessage,
 } from "./lib/anthropic";
 import type { CacheTtl } from "./lib/cacheStatus";
+import {
+  CURRENT_SUMMARY_PROMPT_VERSION,
+  SUMMARY_MAX_TOKENS,
+  SUMMARY_PROMPTS,
+} from "./lib/condense";
 import { streamOpenAICompatible } from "./lib/openaiCompatible";
 import { SYSTEM_PROMPTS } from "./lib/systemPrompts";
 import { appendChunk } from "./lib/textStream";
@@ -209,6 +214,70 @@ export const generateTitle = internalAction({
       providerId: input.providerId,
       model: input.model,
       title: title || undefined,
+      ...usage,
+    });
+    return null;
+  },
+});
+
+// Condense job (spec phase 6): summarizes the turns condense.input picked on the side-job model
+// and saves the summary as a checkpoint. A failed, empty or cut-off summary saves nothing; the
+// next reply tries again.
+export const condense = internalAction({
+  args: { threadId: v.id("threads") },
+  returns: v.null(),
+  handler: async (ctx, { threadId }) => {
+    const input = await ctx.runQuery(internal.condense.input, {
+      threadId,
+      now: Date.now(),
+    });
+    if (!input) return null;
+    let text = "";
+    let truncated = false;
+    let failure: string | undefined;
+    let usage: NormalizedUsage | undefined;
+    try {
+      const stream =
+        input.provider.apiStyle === "anthropic"
+          ? streamAnthropicMessage
+          : streamOpenAICompatible;
+      const events = stream(
+        {
+          baseUrl: input.provider.baseUrl,
+          apiKey: await decryptSecret(input.provider.apiKeyEncrypted),
+          model: input.model,
+          system: SUMMARY_PROMPTS[CURRENT_SUMMARY_PROMPT_VERSION],
+          messages: [{ role: "user", content: input.request }],
+          maxTokens: SUMMARY_MAX_TOKENS,
+          effort: input.provider.apiStyle === "anthropic" ? "low" : undefined,
+        },
+        { allowlist: input.allowlist, resolve: systemResolve },
+        new AbortController().signal,
+      );
+      for await (const event of events) {
+        if (event.type === "text") text += event.text;
+        else if (event.type === "stop") truncated = event.truncated;
+        else
+          usage = {
+            usage: event.usage,
+            reports: event.reports,
+            reportedCostMicroUsd: event.reportedCostMicroUsd,
+          };
+      }
+    } catch (err) {
+      failure =
+        err instanceof ConvexError ? String(err.data) : "Could not reach the provider";
+    }
+    const summary = text.trim();
+    if (!failure && truncated) failure = "the summary was cut off";
+    if (!failure && !summary) failure = "the summary came back empty";
+    await ctx.runMutation(internal.condense.save, {
+      threadId,
+      coversUpToId: input.coversUpToId,
+      providerId: input.providerId,
+      model: input.model,
+      summary: failure ? undefined : summary,
+      failure,
       ...usage,
     });
     return null;

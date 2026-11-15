@@ -6,6 +6,8 @@ import { supportsPerMessageEffort } from "./lib/anthropic";
 import { effortValidator } from "./lib/effort";
 import { cacheExpiresAt, cacheTtlValidator } from "./lib/cacheStatus";
 import { assembleHistory } from "./lib/context";
+import { condensePending } from "./condense";
+import { condenseSettings } from "./lib/condense";
 import { imageTokens } from "./lib/images";
 import {
   CURRENT_SYSTEM_PROMPT_VERSION,
@@ -125,6 +127,18 @@ export const get = query({
       editHints: v.array(
         v.object({ messageId: v.id("messages"), extraMicroUsd: v.number() }),
       ),
+      // Automatic condensing (spec phase 6): off, running, last attempt failed, or how many more
+      // tokens of verbatim turns until the next check condenses.
+      condense: v.object({
+        state: v.union(
+          v.literal("off"),
+          v.literal("condensing"),
+          v.literal("failed"),
+          v.literal("waiting"),
+        ),
+        inTokens: v.number(),
+        failure: v.optional(v.string()),
+      }),
       thread: v.object({
         costMicroUsd: v.number(),
         unpricedCalls: v.number(),
@@ -187,10 +201,32 @@ export const get = query({
         provider?.apiStyle === "anthropic" && prices
           ? await editHints(ctx, thread, branch, layers, prices)
           : [],
+      condense: await condenseStatus(ctx, thread, layers),
       thread: await threadFigures(ctx, ownerId, threadId),
     };
   },
 });
+
+async function condenseStatus(
+  ctx: QueryCtx,
+  thread: Doc<"threads">,
+  layers: { kind: string; tokens: number }[],
+) {
+  const settings = await ctx.db
+    .query("settings")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", thread.ownerId))
+    .unique();
+  const config = condenseSettings(settings);
+  const total = layers.reduce((sum, l) => sum + l.tokens, 0);
+  const turns = layers.find((l) => l.kind === "turns")?.tokens ?? 0;
+  const inTokens = Math.max(0, config.atTokens - turns, config.minThreadTokens - total);
+  if (!config.enabled) return { state: "off" as const, inTokens };
+  if (await condensePending(ctx, thread))
+    return { state: "condensing" as const, inTokens };
+  if (thread.condenseFailure)
+    return { state: "failed" as const, inTokens, failure: thread.condenseFailure };
+  return { state: "waiting" as const, inTokens };
+}
 
 const MIN_CACHEABLE_TOKENS = 512; // every 5.x model; shorter prefixes never cache (design doc S5)
 const MIN_HINT_MICRO_USD = 10_000; // under a cent isn't worth a hint
@@ -248,7 +284,7 @@ async function editHints(
 // (when one applies) and the turns since. Turns are measured from the latest reply's usage:
 // its request size plus its visible output (thinking isn't replayed), minus the layers before
 // them. Messages after that reply, or a branch with no measured reply yet, are estimated.
-async function contextLayers(
+export async function contextLayers(
   ctx: QueryCtx,
   thread: Doc<"threads">,
   branch: Doc<"messages">[],
@@ -272,26 +308,28 @@ async function contextLayers(
     branch.map((m) => m._id),
   );
   const layerText = history.messages.slice(0, history.layerEnd);
-  let layerTokens = 0;
-  if (history.checkpoint) {
-    const pins = layerText.slice(1); // the summary message comes first, then the covered pins
-    layerTokens =
-      history.checkpoint.tokens +
-      pins.reduce((sum, m) => sum + estimateTokens(m.content), 0);
-    layers.push({
-      kind: "checkpoint",
-      label: `summary${pins.length ? ` + ${pins.length} pinned` : ""}`,
-      tokens: layerTokens,
-      estimated: pins.length > 0,
-    });
-  }
-
   // Turn numbers count user messages on the branch; verbatim turns start after the checkpoint.
   const cut = history.checkpoint
     ? branch.findIndex((m) => m._id === history.checkpoint!.coversUpToId) + 1
     : 0;
   const turnOf = (i: number) =>
     branch.slice(0, i + 1).filter((m) => m.role === "user").length;
+  let layerTokens = 0;
+  if (history.checkpoint) {
+    const pins = layerText.slice(1); // the summary message comes first, then the covered pins
+    layerTokens =
+      history.checkpoint.tokens +
+      pins.reduce((sum, m) => sum + estimateTokens(m.content), 0);
+    const covered = turnOf(cut - 1);
+    layers.push({
+      kind: "checkpoint",
+      // No-break space and word joiners keep "turns 1–8" on one line when the label wraps.
+      label: `summary of ${covered === 1 ? "turn\u00a01" : `turns\u00a01\u2060–\u2060${covered}`}${pins.length ? ` + ${pins.length}\u00a0pinned` : ""}`,
+      tokens: layerTokens,
+      estimated: pins.length > 0,
+    });
+  }
+
   const verbatim = branch.slice(cut).filter((m) => m.content !== "");
   if (verbatim.length === 0) return layers;
 
@@ -356,7 +394,7 @@ async function threadFigures(
   };
   const all = await sum("thread");
   const upkeep = await sum("upkeep");
-  const titles = await ctx.db
+  const sideJobs = await ctx.db
     .query("sideJobs")
     .withIndex("by_threadId", (q) => q.eq("threadId", threadId))
     .take(1000);
@@ -365,8 +403,8 @@ async function threadFigures(
       f,
       all[f] -
         upkeep[f] -
-        titles
-          .filter((j) => j.kind === "title")
+        sideJobs
+          .filter((j) => j.kind === "title" || j.kind === "condense")
           .reduce((s, j) => s + j.usage[f], 0),
     ]),
   ) as Usage;

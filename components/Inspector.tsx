@@ -62,7 +62,7 @@ function Row({
       className="grid grid-cols-[1fr_auto_4.5rem_4.5rem] items-baseline gap-x-2 py-0.5"
       title={title}
     >
-      <span className="truncate text-muted-foreground">{label}</span>
+      <span className="break-words text-muted-foreground">{label}</span>
       <span className="text-right">{value}</span>
       <span className="text-right text-muted-foreground">{state}</span>
       <span className="text-right">{cost ?? ""}</span>
@@ -143,6 +143,27 @@ export function InspectorBody({
           state={STATE_LABEL.fresh}
           cost={p ? money(p.input, draftTokens) : "—"}
         />
+        <Row
+          label="next condense"
+          value={
+            data.condense.state === "off"
+              ? "off"
+              : data.condense.state === "condensing"
+                ? "condensing…"
+                : data.condense.state === "failed"
+                  ? "last attempt failed"
+                  : data.condense.inTokens > 0
+                    ? `in ~${tokens(data.condense.inTokens)} tok`
+                    : "after the next reply"
+          }
+          title="Older turns are folded into a summary once the turns since the last summary pass the threshold in Settings"
+        />
+        {data.condense.state === "failed" && (
+          <p className="font-sans text-[11px] text-muted-foreground">
+            Last condense failed: {data.condense.failure}. It tries again after
+            the next reply.
+          </p>
+        )}
         <p
           data-inspector-section="cache"
           className="pt-1 font-sans text-[11px] leading-4 text-muted-foreground"
@@ -161,7 +182,7 @@ export function InspectorBody({
         <Row
           label="total"
           value={known(thread.costMicroUsd)}
-          title="Every call in this thread: replies, title and keepalives"
+          title="Every call in this thread: replies, title, keepalives and condensing"
         />
         <Row
           label="cache upkeep"
