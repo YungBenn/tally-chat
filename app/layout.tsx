@@ -4,7 +4,7 @@ import { GeistMono } from "geist/font/mono";
 import "./globals.css";
 import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
 import ConvexClientProvider from "@/components/ConvexClientProvider";
-import MotionProvider from "@/components/MotionProvider";
+import AppProviders from "@/components/AppProviders";
 
 // The design system's dark tokens hang off a .dark class; follow the OS setting before first paint.
 const colorScheme = `(()=>{const m=matchMedia("(prefers-color-scheme: dark)");const s=()=>document.documentElement.classList.toggle("dark",m.matches);s();m.addEventListener("change",s)})()`;
@@ -45,7 +45,7 @@ export default function RootLayout({
         </head>
         <body className="font-sans antialiased">
           <ConvexClientProvider>
-            <MotionProvider>{children}</MotionProvider>
+            <AppProviders>{children}</AppProviders>
           </ConvexClientProvider>
         </body>
       </html>
