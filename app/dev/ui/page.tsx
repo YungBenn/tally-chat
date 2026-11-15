@@ -12,6 +12,7 @@ import {
   IconSend2,
   IconTrash,
 } from "@tabler/icons-react";
+import BrandMark from "@/components/BrandMark";
 import {
   Badge,
   Button,
@@ -60,6 +61,11 @@ export default function UiGallery() {
   return (
     <main className="tc mx-auto flex max-w-[960px] flex-col gap-8 p-10">
       <h1 className="text-title">components/ui</h1>
+      <Row title="Brand">
+        <BrandMark size={16} />
+        <BrandMark size={22} wordmark />
+        <BrandMark size={40} draw />
+      </Row>
       <Row title="Buttons">
         <Button variant="primary" icon={<IconSend2 />}>
           Send

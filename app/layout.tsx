@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import "./globals.css";
@@ -41,7 +42,9 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         <head>
-          <script dangerouslySetInnerHTML={{ __html: colorScheme }} />
+          <Script id="color-scheme" strategy="beforeInteractive">
+            {colorScheme}
+          </Script>
         </head>
         <body className="font-sans antialiased">
           <ConvexClientProvider>
