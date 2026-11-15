@@ -1,32 +1,69 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
+import { HoloGradient } from "@/components/ui/feedback";
+import { Tooltip } from "@/components/ui/overlay";
+import { cacheRing, type CacheTemp } from "@/lib/cacheRing";
 import { useCacheState } from "@/lib/useCacheState";
 import { cn } from "@/lib/utils";
 
-const CHIP = {
-  warm: {
-    label: "warm",
-    color: "text-[var(--cache-warm)] bg-[var(--cache-warm-soft)]",
-  },
-  keepalive: {
-    label: "kept alive",
-    color: "text-[var(--cache-keep)] bg-[var(--cache-keep-soft)]",
-  },
-  cold: {
-    label: "cold",
-    color: "text-[var(--cache-cold)] bg-[var(--cache-cold-soft)]",
-  },
-};
+const R = 5.25;
+const C = 2 * Math.PI * R;
 
-// "4:32" until the cache expires.
-const countdown = (ms: number) => {
-  const s = Math.max(0, Math.ceil(ms / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-};
+/** The ring and dot alone: warm breathes with a holo ring, cooling turns amber, cold is a plain dot. */
+export function CacheGlyph({ temp, remaining }: { temp: CacheTemp; remaining: number }) {
+  const id = useId();
+  return (
+    <svg width={14} height={14} viewBox="0 0 14 14" aria-hidden>
+      <defs>
+        <HoloGradient id={id} x2={14} y2={14} />
+      </defs>
+      <circle cx={7} cy={7} r={R} stroke="var(--border)" strokeWidth={1.25} fill="none" />
+      {temp !== "cold" && (
+        <circle
+          className="tc-cache-ring"
+          cx={7}
+          cy={7}
+          r={R}
+          stroke={temp === "warm" ? `url(#${id})` : "var(--cache-cooling)"}
+          strokeWidth={1.25}
+          fill="none"
+          strokeDasharray={C}
+          strokeDashoffset={C * (1 - remaining)}
+          strokeLinecap="round"
+        />
+      )}
+      <circle className="tc-cache-dot" cx={7} cy={7} r={2.25} fill={`var(--cache-${temp})`} />
+    </svg>
+  );
+}
 
-// The thread header's cache status chip (spec phase 3): warm with a countdown to expiry in its
-// tooltip, kept alive with a subtle pulse, or cold. Clicking opens the inspector at its cache line.
+// Ticks once a second while the cache is warm, so the ring drains and the time counts down.
+function useNow(live: boolean) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!live) return;
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, [live]);
+  return now;
+}
+
+/** A thread's cache temperature at this moment, for the pill, the cost strip and the inspector. */
+export function useCacheTemp(cache: {
+  expiresAt: number | null;
+  keepaliveScheduled: boolean;
+  lastActiveAt: number | null;
+}) {
+  const state = useCacheState(cache);
+  const now = useNow(state.state !== "cold");
+  return { ...cacheRing(state, now), keptAlive: state.state === "keepalive" };
+}
+
+/**
+ * The thread header's cache pill (design system: CacheStatus). Always says the state in words,
+ * time in mono; warm gets a subtle holo edge. Clicking opens the inspector at its cache section.
+ */
 export default function CacheStatus({
   onOpen,
   ...cache
@@ -36,38 +73,26 @@ export default function CacheStatus({
   lastActiveAt: number | null;
   onOpen: () => void;
 }) {
-  const state = useCacheState(cache);
-  // Ticks once a second while warm, only to keep the tooltip's countdown current.
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (state.state === "cold") return;
-    const tick = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(tick);
-  }, [state.state]);
-  const chip = CHIP[state.state];
-  const title =
-    state.state === "cold"
-      ? "Prompt cache cold: the next send writes the history to the cache again"
-      : `Prompt cache ${chip.label}: expires in ${countdown(state.until - now)}${state.state === "keepalive" ? ", refreshed while you're here" : ""}`;
+  const { temp, remaining, time, keptAlive } = useCacheTemp(cache);
+  const note =
+    temp === "cold"
+      ? "The next send writes the history to the cache again"
+      : keptAlive
+        ? "Kept warm while you're in this thread"
+        : `Expires in ${time} unless you send`;
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      title={title}
-      aria-label={`Cache ${chip.label}. Open the inspector`}
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 font-mono text-xs font-medium transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--primitive-ring)] focus-visible:outline-none",
-        chip.color,
-      )}
-    >
-      <span
-        aria-hidden
-        className={cn(
-          "size-1.5 rounded-full bg-current",
-          state.state === "keepalive" && "motion-safe:animate-pulse",
-        )}
-      />
-      cache {chip.label}
-    </button>
+    <Tooltip content={note}>
+      <button
+        type="button"
+        onClick={onOpen}
+        className={cn("tc-cache", temp === "warm" && "holo-border holo-subtle")}
+        data-state={temp}
+        aria-label={`Cache ${temp}${time ? `, ${time} left` : ""}. Open the inspector`}
+      >
+        <CacheGlyph temp={temp} remaining={remaining} />
+        cache {temp}
+        {time && <span className="tc-num">{time}</span>}
+      </button>
+    </Tooltip>
   );
 }

@@ -3,11 +3,12 @@
 import { useAuthActions } from "@convex-dev/auth/react";
 import {
   IconChartBar,
-  IconEdit,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconLogout,
-  IconPlug,
+  IconMenu2,
+  IconMessagePlus,
+  IconPlugConnected,
   IconSearch,
   IconSettings,
   IconX,
@@ -16,31 +17,19 @@ import { useConvex, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { Button } from "@/components/wensity/button";
+import { useEffect, useRef, useState } from "react";
+import BrandMark from "@/components/BrandMark";
+import BudgetMeter from "@/components/BudgetMeter";
+import { Button, IconButton } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/feedback";
+import { Sheet } from "@/components/ui/overlay";
 import { api } from "@/convex/_generated/api";
+import { SHORTCUTS } from "@/lib/shortcuts";
+import { useMedia, NARROW } from "@/lib/useMedia";
+import { useShortcut, useShortcutLabel } from "@/lib/useShortcut";
 import { useStoredFlag } from "@/lib/storedFlag";
 import { groupThreads } from "@/lib/threadGroups";
 import { cn } from "@/lib/utils";
-
-const row =
-  "flex h-9 items-center gap-2.5 rounded-[var(--primitive-radius-item)] px-3 text-sm transition-colors hover:bg-primitive-surface-hover hover:text-foreground [&_svg]:size-4 [&_svg]:shrink-0";
-
-function NewThreadButton({ onNavigate }: { onNavigate?: () => void }) {
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="icon"
-      aria-label="New thread"
-      title="New thread"
-    >
-      <Link href="/" onClick={onNavigate}>
-        <IconEdit />
-      </Link>
-    </Button>
-  );
-}
 
 // The query's terms marked in a snippet (search matches each term as a word prefix).
 function Highlight({ text, query }: { text: string; query: string }) {
@@ -61,14 +50,49 @@ function Highlight({ text, query }: { text: string; query: string }) {
   );
 }
 
-function Sidebar({
-  onClose,
+/** One thread in the sidebar (design system: ThreadItem). The active one gets a subtle holo edge. */
+function ThreadItem({
+  href,
+  title,
+  active,
   onNavigate,
-  closeLabel,
 }: {
-  onClose: () => void;
+  href: string;
+  title: string;
+  active: boolean;
   onNavigate?: () => void;
+}) {
+  return (
+    <Link
+      href={href}
+      onClick={onNavigate}
+      aria-current={active ? "page" : undefined}
+      data-active={active ? "true" : undefined}
+      className={cn("tc-thread", active && "holo-border holo-subtle")}
+    >
+      <span className="tc-thread-title">{title}</span>
+    </Link>
+  );
+}
+
+const NAV = [
+  { href: "/usage", label: "Usage", icon: IconChartBar },
+  { href: "/providers", label: "Providers", icon: IconPlugConnected },
+  { href: "/settings", label: "Settings", icon: IconSettings },
+];
+
+function Sidebar({
+  close,
+  closeLabel,
+  closeKbd,
+  onNavigate,
+  searchRef,
+}: {
+  close: () => void;
   closeLabel: string;
+  closeKbd?: string;
+  onNavigate?: () => void;
+  searchRef: React.RefObject<HTMLInputElement | null>;
 }) {
   const threads = useQuery(api.chat.listThreads);
   const { threadId } = useParams<{ threadId?: string }>();
@@ -105,93 +129,94 @@ function Sidebar({
   const path = usePathname();
   const router = useRouter();
   const { signOut } = useAuthActions();
+  const newThreadKbd = useShortcutLabel(SHORTCUTS.newThread);
+  const searchKbd = useShortcutLabel(SHORTCUTS.search);
 
   return (
-    <>
-      <div className="flex h-13 shrink-0 items-center justify-between px-2">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={closeLabel}
-          title={closeLabel}
-          onClick={onClose}
-        >
-          <IconLayoutSidebarLeftCollapse />
-        </Button>
-        <NewThreadButton onNavigate={onNavigate} />
-      </div>
-      <div className="relative shrink-0 px-2 pb-1">
-        <IconSearch className="pointer-events-none absolute top-1/2 left-5 size-4 -translate-y-1/2 text-muted-foreground" />
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") setSearch("");
-          }}
-          placeholder="Search"
-          aria-label="Search threads and messages"
-          className="h-9 w-full rounded-[var(--primitive-radius-item)] border border-border bg-surface pr-8 pl-9 text-sm placeholder:text-muted-foreground focus:border-border-strong focus:outline-none [&::-webkit-search-cancel-button]:hidden"
+    <div className="flex h-full min-h-0 flex-col bg-surface">
+      <div className="flex h-header shrink-0 items-center gap-2 pr-2 pl-5">
+        <Link href="/" onClick={onNavigate} className="mr-auto rounded-control" aria-label="tally.chat home">
+          <BrandMark size={22} wordmark />
+        </Link>
+        <IconButton
+          icon={<IconLayoutSidebarLeftCollapse />}
+          label={closeLabel}
+          kbd={closeKbd}
+          size="sm"
+          onClick={close}
         />
-        {search && (
-          <button
-            type="button"
-            aria-label="Clear search"
-            title="Clear search (Esc)"
-            className="icon-action absolute top-1/2 right-3 -translate-y-1/2"
-            onClick={() => setSearch("")}
-          >
-            <IconX />
-          </button>
-        )}
       </div>
-      <nav
-        aria-label="Threads"
-        className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
-      >
+      <div className="flex shrink-0 flex-col gap-2 px-3 pt-1 pb-2">
+        <Button
+          icon={<IconMessagePlus />}
+          className="w-full"
+          onClick={() => {
+            onNavigate?.();
+            router.push("/");
+          }}
+        >
+          New thread <Kbd>{newThreadKbd}</Kbd>
+        </Button>
+        <label className="tc-input tc-search">
+          <IconSearch size={14} stroke={1.5} className="shrink-0 text-foreground-subtle" />
+          <input
+            ref={searchRef}
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setSearch("");
+            }}
+            placeholder="Search"
+            aria-label="Search threads and messages"
+          />
+          {search ? (
+            <button
+              type="button"
+              aria-label="Clear search"
+              className="tc-search-clear"
+              onClick={() => {
+                setSearch("");
+                searchRef.current?.focus();
+              }}
+            >
+              <IconX size={14} stroke={1.5} />
+            </button>
+          ) : (
+            <Kbd>{searchKbd}</Kbd>
+          )}
+        </label>
+      </div>
+      <nav aria-label="Threads" className="min-h-0 flex-1 overflow-y-auto pb-2">
         {groups.map((g) => (
           <section key={g.label}>
-            <h2 className="px-3 pt-4 pb-1.5 text-xs font-medium text-muted-foreground">
-              {g.label}
-            </h2>
+            <h2 className="tc-sidebar-cap">{g.label}</h2>
             {g.threads.map((t) => (
-              <Link
+              <ThreadItem
                 key={t._id}
                 href={`/t/${t._id}`}
-                onClick={onNavigate}
-                aria-current={t._id === threadId ? "page" : undefined}
-                className={cn(
-                  row,
-                  "block truncate leading-9",
-                  t._id === threadId
-                    ? "bg-primitive-surface-selected text-foreground"
-                    : "text-foreground/80",
-                )}
-              >
-                {t.title}
-              </Link>
+                title={t.title}
+                active={t._id === threadId}
+                onNavigate={onNavigate}
+              />
             ))}
           </section>
         ))}
         {query && results && results.messages.length > 0 && (
           <section>
-            <h2 className="px-3 pt-4 pb-1.5 text-xs font-medium text-muted-foreground">
-              Messages
-            </h2>
+            <h2 className="tc-sidebar-cap">Messages</h2>
             {results.messages.map((m) => (
               <Link
                 key={m.messageId}
                 href={`/t/${m.threadId}?m=${m.messageId}`}
                 onClick={onNavigate}
-                className="flex flex-col gap-0.5 rounded-[var(--primitive-radius-item)] px-3 py-2 text-sm transition-colors hover:bg-primitive-surface-hover"
+                className="tc-hit"
               >
-                <span className="flex min-w-0 items-baseline gap-1 text-xs text-muted-foreground">
+                <span className="flex min-w-0 items-baseline gap-1 text-caption text-foreground-subtle">
                   <span className="truncate">{m.threadTitle}</span>
-                  <span className="shrink-0">
-                    · {m.role === "user" ? "You" : "Reply"}
-                  </span>
+                  <span className="shrink-0">· {m.role === "user" ? "You" : "Reply"}</span>
                 </span>
-                <span className="line-clamp-2 text-foreground/80">
+                <span className="line-clamp-2 text-body-sm text-foreground-muted">
                   <Highlight text={m.snippet} query={query} />
                 </span>
               </Link>
@@ -201,52 +226,40 @@ function Sidebar({
         {query
           ? results &&
             results.titles.length === 0 &&
-            results.messages.length === 0 && (
-              <p className="px-3 pt-4 text-sm text-muted-foreground">
-                Nothing matches.
-              </p>
-            )
-          : threads?.length === 0 && (
-              <p className="px-3 pt-4 text-sm text-muted-foreground">
-                No threads yet.
-              </p>
-            )}
+            results.messages.length === 0 && <p className="tc-sidebar-note">Nothing matches.</p>
+          : threads?.length === 0 && <p className="tc-sidebar-note">No threads yet.</p>}
       </nav>
-      <div className="flex shrink-0 flex-col gap-0.5 border-t border-border p-2">
-        {[
-          { href: "/usage", label: "Usage", icon: <IconChartBar /> },
-          { href: "/providers", label: "Providers", icon: <IconPlug /> },
-          { href: "/settings", label: "Settings", icon: <IconSettings /> },
-        ].map((l) => (
+      <div className="flex shrink-0 flex-col gap-0.5 border-t border-border px-3 pt-2 pb-3">
+        {NAV.map(({ href, label, icon: Icon }) => (
           <Link
-            key={l.href}
-            href={l.href}
+            key={href}
+            href={href}
             onClick={onNavigate}
-            aria-current={path === l.href ? "page" : undefined}
-            className={cn(
-              row,
-              path === l.href
-                ? "bg-primitive-surface-selected text-foreground"
-                : "text-muted-foreground",
-            )}
+            aria-current={path === href ? "page" : undefined}
+            className="tc-nav"
           >
-            {l.icon}
-            {l.label}
+            <Icon size={16} stroke={1.5} />
+            {label}
           </Link>
         ))}
         <button
-          className={cn(row, "text-muted-foreground")}
+          type="button"
+          className="tc-nav"
           onClick={() => void signOut().then(() => router.push("/signin"))}
         >
-          <IconLogout />
+          <IconLogout size={16} stroke={1.5} />
           Log out
         </button>
+        <BudgetMeter />
       </div>
-    </>
+    </div>
   );
 }
 
-// The app frame: thread sidebar (a drawer below md) and a main column whose top bar holds `header`.
+/**
+ * The app frame (spec phase 8): sidebar (264, collapsible with ⌘B; a left sheet under 900px) and a
+ * main column whose 48px header holds `header`.
+ */
 export default function ChatShell({
   header,
   children,
@@ -254,79 +267,79 @@ export default function ChatShell({
   header?: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const [sidebarOpen, setSidebarOpen] = useStoredFlag(
-    "tally.sidebarOpen",
-    true,
-  );
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useStoredFlag("tally.sidebarOpen", true);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const narrow = useMedia(NARROW);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
   const settings = useQuery(api.settings.get);
   const setTimeZone = useMutation(api.settings.setTimeZone);
+  const sidebarKbd = useShortcutLabel(SHORTCUTS.toggleSidebar);
 
   // Daily spend uses the owner's day; record the browser's time zone the first time.
   useEffect(() => {
     if (settings && settings.timeZone === null) {
-      void setTimeZone({
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      });
+      void setTimeZone({ timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
     }
   }, [settings, setTimeZone]);
 
+  const toggleSidebar = () => (narrow ? setSheetOpen(!sheetOpen) : setSidebarOpen(!sidebarOpen));
+  useShortcut(SHORTCUTS.toggleSidebar, toggleSidebar);
+  useShortcut(SHORTCUTS.newThread, () => {
+    setSheetOpen(false);
+    router.push("/");
+  });
+  useShortcut(SHORTCUTS.search, () => {
+    if (narrow) setSheetOpen(true);
+    else setSidebarOpen(true);
+    // The input mounts with the sidebar; focus it on the next frame.
+    requestAnimationFrame(() => searchRef.current?.focus());
+  });
+
+  const showDocked = !narrow && sidebarOpen;
   return (
-    <div className="flex h-dvh">
-      {sidebarOpen && (
-        <aside className="hidden w-65 shrink-0 flex-col border-r border-border bg-surface-muted md:flex">
+    <div className="flex h-dvh bg-background">
+      {showDocked && (
+        <aside className="flex w-sidebar shrink-0 flex-col border-r border-border" aria-label="Sidebar">
           <Sidebar
+            close={() => setSidebarOpen(false)}
             closeLabel="Close sidebar"
-            onClose={() => setSidebarOpen(false)}
+            closeKbd={sidebarKbd}
+            searchRef={searchRef}
           />
         </aside>
       )}
-      {drawerOpen && (
-        <div className="fixed inset-0 z-20 md:hidden">
-          <button
-            aria-label="Close threads"
-            className="absolute inset-0 bg-[var(--primitive-backdrop)]"
-            onClick={() => setDrawerOpen(false)}
+      {narrow && (
+        <Sheet open={sheetOpen} onOpenChange={setSheetOpen} side="left" title="Threads">
+          <Sidebar
+            close={() => setSheetOpen(false)}
+            closeLabel="Close threads"
+            onNavigate={() => setSheetOpen(false)}
+            searchRef={searchRef}
           />
-          <aside className="absolute inset-y-0 left-0 flex w-72 max-w-[85%] flex-col border-r border-border bg-surface-muted">
-            <Sidebar
-              closeLabel="Close threads"
-              onClose={() => setDrawerOpen(false)}
-              onNavigate={() => setDrawerOpen(false)}
-            />
-          </aside>
-        </div>
+        </Sheet>
       )}
       <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-13 shrink-0 items-center gap-1 px-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="md:hidden"
-            aria-label="Open threads"
-            title="Open threads"
-            onClick={() => setDrawerOpen(true)}
-          >
-            <IconLayoutSidebarLeftExpand />
-          </Button>
-          {!sidebarOpen && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="hidden md:inline-flex"
-              aria-label="Open sidebar"
-              title="Open sidebar"
-              onClick={() => setSidebarOpen(true)}
-            >
-              <IconLayoutSidebarLeftExpand />
-            </Button>
+        <header className="tc-appbar">
+          {narrow ? (
+            <IconButton
+              icon={<IconMenu2 />}
+              label="Open threads"
+              size="touch"
+              onClick={() => setSheetOpen(true)}
+            />
+          ) : (
+            !sidebarOpen && (
+              <IconButton
+                icon={<IconLayoutSidebarLeftExpand />}
+                label="Open sidebar"
+                kbd={sidebarKbd}
+                size="sm"
+                onClick={() => setSidebarOpen(true)}
+              />
+            )
           )}
-          <span className={cn("contents", sidebarOpen && "md:hidden")}>
-            <NewThreadButton />
-          </span>
-          <div className="flex min-w-0 flex-1 items-center gap-2 pl-1">
-            {header}
-          </div>
+          {header}
         </header>
         {children}
       </main>

@@ -27,6 +27,11 @@ import Inspector from "@/components/Inspector";
 import EffortControl from "@/components/EffortControl";
 import ModeControl from "@/components/ModeControl";
 import ModelMenu, { sameModel, type ModelChoice } from "@/components/ModelMenu";
+import { Button as UiButton, IconButton } from "@/components/ui/button";
+import { Badge } from "@/components/ui/feedback";
+import { Dialog, Tooltip } from "@/components/ui/overlay";
+import { SHORTCUTS } from "@/lib/shortcuts";
+import { useShortcutLabel } from "@/lib/useShortcut";
 import { imageTokens } from "@/convex/lib/images";
 import type { Effort } from "@/convex/lib/effort";
 import type { MessageImage } from "@/convex/lib/images";
@@ -452,6 +457,8 @@ export default function ThreadPage() {
     setAtBottom(true);
     return send({ threadId, content: "Continue.", mode }).catch(() => {});
   };
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const inspectorKbd = useShortcutLabel(SHORTCUTS.toggleInspector);
   const [inspectorOpen, setInspectorOpen] = useStoredFlag(
     "tally.inspectorOpen",
     false,
@@ -711,17 +718,13 @@ export default function ThreadPage() {
     <ChatShell
       header={
         <>
-          <h1 className="min-w-0 flex-1 truncate text-sm font-medium">
-            {thread?.title}
-          </h1>
+          <h1 className="min-w-0 truncate text-subheading">{thread?.title}</h1>
           {thread?.importedFrom && (
-            <span
-              className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground"
-              title="Imported from a data export; its messages carry no cost"
-            >
-              imported from{" "}
-              {thread.importedFrom === "chatgpt" ? "ChatGPT" : "Claude"}
-            </span>
+            <Tooltip content="Imported from a data export; its messages carry no cost">
+              <span className="hidden shrink-0 min-[900px]:inline-flex">
+                <Badge>imported from {thread.importedFrom === "chatgpt" ? "ChatGPT" : "Claude"}</Badge>
+              </span>
+            </Tooltip>
           )}
           {thread?.cacheManaged && (
             <CacheStatus
@@ -731,37 +734,43 @@ export default function ThreadPage() {
               onOpen={() => openInspector("cache")}
             />
           )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="shrink-0 text-muted-foreground hover:text-primitive-destructive"
-            aria-label="Delete thread"
-            title="Delete thread"
-            onClick={() => {
-              if (
-                !confirm(
-                  "Delete this thread? Its messages are removed for good. Your spend history keeps its cost.",
-                )
-              )
-                return;
-              // Leave first, so this page never queries a thread that no longer exists.
-              router.push("/");
-              void deleteThread({ threadId });
-            }}
-          >
-            <IconTrash />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="shrink-0 text-muted-foreground"
-            aria-label="Inspector"
+          <span className="flex-1" />
+          <IconButton
+            icon={<IconTrash />}
+            label="Delete thread"
+            onClick={() => setConfirmDelete(true)}
+          />
+          <IconButton
+            icon={<IconLayoutSidebarRight />}
+            label="Toggle inspector"
+            kbd={inspectorKbd}
             aria-pressed={inspectorOpen || sheetOpen}
-            title="Inspector (⌘I)"
             onClick={toggleInspector}
-          >
-            <IconLayoutSidebarRight />
-          </Button>
+          />
+          <Dialog
+            open={confirmDelete}
+            onOpenChange={setConfirmDelete}
+            tone="danger"
+            icon={<IconTrash size={18} stroke={1.5} />}
+            title="Delete this thread?"
+            description="Its messages are removed for good. Your spend history keeps its cost."
+            actions={
+              <>
+                <UiButton onClick={() => setConfirmDelete(false)}>Cancel</UiButton>
+                <UiButton
+                  variant="danger"
+                  onClick={() => {
+                    setConfirmDelete(false);
+                    // Leave first, so this page never queries a thread that no longer exists.
+                    router.push("/");
+                    void deleteThread({ threadId });
+                  }}
+                >
+                  Delete thread
+                </UiButton>
+              </>
+            }
+          />
         </>
       }
     >
