@@ -6,3 +6,11 @@ export const SYSTEM_PROMPTS: Record<number, string> = {
   2: "You are a helpful assistant. Be concise: lead with the answer, keep replies short unless the user asks for depth or detail, and skip preamble and recaps.",
 };
 export const CURRENT_SYSTEM_PROMPT_VERSION = 2;
+
+// The owner's custom instructions follow the app prompt. Each thread keeps the instructions it
+// was created with, so its system bytes, and its cache, never change when the setting does.
+export const MAX_INSTRUCTIONS_LENGTH = 4000;
+export const systemPrompt = (version: number, instructions?: string) =>
+  instructions
+    ? `${SYSTEM_PROMPTS[version]}\n\nThe user's custom instructions:\n\n${instructions}`
+    : SYSTEM_PROMPTS[version];

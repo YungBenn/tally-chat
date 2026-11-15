@@ -9,6 +9,7 @@ import {
 } from "./_generated/server";
 import { condenseSettings } from "./lib/condense";
 import { dayIn } from "./lib/rollups";
+import { MAX_INSTRUCTIONS_LENGTH } from "./lib/systemPrompts";
 import { requireOwner } from "./owner";
 
 const settingsFor = (ctx: QueryCtx, ownerId: Id<"users">) =>
@@ -40,6 +41,7 @@ const sideJobModelValidator = v.object({
 export const get = query({
   args: {},
   returns: v.object({
+    customInstructions: v.string(),
     allowlistedHosts: v.array(v.string()),
     sideJobModel: v.union(v.null(), sideJobModelValidator),
     timeZone: v.union(v.null(), v.string()),
@@ -55,6 +57,7 @@ export const get = query({
   handler: async (ctx) => {
     const settings = await settingsFor(ctx, await requireOwner(ctx));
     return {
+      customInstructions: settings?.customInstructions ?? "",
       allowlistedHosts: settings?.allowlistedHosts ?? [],
       sideJobModel: settings?.sideJobModel ?? null,
       timeZone: settings?.timeZone ?? null,
@@ -107,6 +110,30 @@ export const setCondense = mutation({
         ownerId,
         allowlistedHosts: [],
         ...fields,
+      });
+    return null;
+  },
+});
+
+// Copied onto each new thread at creation; threads already started keep theirs, so their
+// cached prefix stays valid. Empty text removes them.
+export const setCustomInstructions = mutation({
+  args: { instructions: v.string() },
+  returns: v.null(),
+  handler: async (ctx, { instructions }) => {
+    const ownerId = await requireOwner(ctx);
+    const text = instructions.trim();
+    if (text.length > MAX_INSTRUCTIONS_LENGTH)
+      throw new ConvexError("Keep instructions under 4,000 characters");
+    const customInstructions = text || undefined;
+    const settings = await settingsFor(ctx, ownerId);
+    if (settings)
+      await ctx.db.patch("settings", settings._id, { customInstructions });
+    else
+      await ctx.db.insert("settings", {
+        ownerId,
+        allowlistedHosts: [],
+        customInstructions,
       });
     return null;
   },

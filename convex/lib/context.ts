@@ -9,7 +9,8 @@ export const SUMMARY_PREFIX = "Summary of the earlier conversation:\n\n";
 // The history sent for a branch (the given messages, root first), with the latest checkpoint on that
 // branch standing in for everything it covers (design doc S1, S5). Pinned messages inside
 // the covered range follow the summary verbatim, in their original order. The summary goes
-// in the messages, never the system prompt, so system bytes depend on the version alone.
+// in the messages, never the system prompt, so system bytes depend on the version and the
+// thread's own instructions alone.
 // layerEnd counts the leading messages that form the checkpoint layer (summary plus covered
 // pins): 0 without a checkpoint. The Anthropic adapter puts a cache breakpoint at its end.
 export async function assembleHistory(

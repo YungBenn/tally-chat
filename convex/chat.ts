@@ -9,7 +9,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { CURRENT_SYSTEM_PROMPT_VERSION } from "./lib/systemPrompts";
+import { CURRENT_SYSTEM_PROMPT_VERSION, systemPrompt } from "./lib/systemPrompts";
 import { cacheExpiresAt, cacheTtlValidator } from "./lib/cacheStatus";
 import { keepalivePending, restartKeepalive, touchedCache } from "./keepalive";
 import { coveredIds, scheduleCondense } from "./condense";
@@ -103,12 +103,17 @@ export const createThread = mutation({
       throw new ConvexError("Provider not found");
     if (!provider.models.some((m) => m.id === modelId && !m.hidden))
       throw new ConvexError("Model not available");
+    const settings = await ctx.db
+      .query("settings")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+      .unique();
     return ctx.db.insert("threads", {
       ownerId,
       title: "New thread",
       providerId,
       modelId,
       systemPromptVersion: CURRENT_SYSTEM_PROMPT_VERSION,
+      instructions: settings?.customInstructions,
       startedAt: Date.now(),
       // Only Anthropic-style threads send effort (spec phase 4).
       effort:
@@ -770,7 +775,7 @@ export const generationInput = internalQuery({
       streamId: v.string(),
       model: v.string(),
       effort: v.optional(effortValidator),
-      systemPromptVersion: v.number(),
+      system: v.string(),
       provider: v.union(
         v.null(),
         v.object({
@@ -821,7 +826,7 @@ export const generationInput = internalQuery({
     return {
       streamId: message.streamId,
       model,
-      systemPromptVersion: thread.systemPromptVersion,
+      system: systemPrompt(thread.systemPromptVersion, thread.instructions),
       provider: provider && {
         apiStyle: provider.apiStyle,
         baseUrl: provider.baseUrl,

@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useState } from "react";
 import ChatShell from "@/components/ChatShell";
 import { Button, IconButton } from "@/components/ui/button";
-import { Input, Select, Switch } from "@/components/ui/fields";
+import { Input, Select, Switch, Textarea } from "@/components/ui/fields";
 import { toast } from "@/components/ui/toast";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -116,6 +116,37 @@ function NumberSetting({
         onKeyDown={(e) => e.key === "Enter" && commit(e.currentTarget.value)}
       />
     </div>
+  );
+}
+
+function CustomInstructions() {
+  const settings = useQuery(api.settings.get);
+  const setInstructions = useMutation(api.settings.setCustomInstructions);
+  const [error, run] = useSave();
+  if (!settings) return null;
+  return (
+    <SettingsRow
+      title="Custom instructions"
+      control={
+        <Textarea
+          key={settings.customInstructions}
+          aria-label="Custom instructions"
+          rows={6}
+          maxLength={4000}
+          placeholder="I write TypeScript. Answer in British English."
+          defaultValue={settings.customInstructions}
+          error={error ?? undefined}
+          onBlur={(e) => {
+            if (e.target.value.trim() !== settings.customInstructions)
+              run(setInstructions({ instructions: e.target.value }));
+          }}
+        />
+      }
+    >
+      What every new thread should know about you and how to answer. Threads
+      you already started keep the instructions they began with, so their
+      cache stays warm.
+    </SettingsRow>
   );
 }
 
@@ -410,6 +441,7 @@ export default function SettingsPage() {
       <div className="tc-page">
         <div className="tc-page-col max-w-[800px] gap-2!">
           <h1 className="mb-4 text-title">Settings</h1>
+          <CustomInstructions />
           <SideJobModel />
           <Keepalive />
           <Condensing />

@@ -20,6 +20,7 @@ import { imageValidator } from "./lib/images";
 import { assembleHistory } from "./lib/context";
 import { meterCall } from "./lib/metering";
 import { usageValidator, type Usage } from "./lib/usage";
+import { systemPrompt } from "./lib/systemPrompts";
 
 // Keepalive (spec phase 2): while the owner is in a thread, refresh its 5-minute cache shortly
 // before it expires, so pausing to read doesn't make the next turn a full cache write.
@@ -107,7 +108,7 @@ export const input = internalQuery({
       provider: providerFields,
       model: v.string(),
       effort: v.optional(effortValidator),
-      systemPromptVersion: v.number(),
+      system: v.string(),
       history: v.array(
         v.object({
           role: v.union(v.literal("user"), v.literal("assistant")),
@@ -166,7 +167,7 @@ export const input = internalQuery({
       },
       model: thread.modelId,
       effort: effortFor(thread, provider), // the same parameters as a real turn
-      systemPromptVersion: thread.systemPromptVersion,
+      system: systemPrompt(thread.systemPromptVersion, thread.instructions),
       history: history.messages,
       layerEnd: history.layerEnd,
       ttl: thread.cacheTtl ?? "5m",

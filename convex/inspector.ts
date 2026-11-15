@@ -19,7 +19,7 @@ import { condensePending, condensePlan } from "./condense";
 import { imageTokens } from "./lib/images";
 import {
   CURRENT_SYSTEM_PROMPT_VERSION,
-  SYSTEM_PROMPTS,
+  systemPrompt,
 } from "./lib/systemPrompts";
 import { savedFor } from "./lib/metering";
 import {
@@ -110,9 +110,16 @@ export const newThread = query({
     if (!provider || provider.ownerId !== ownerId)
       return { systemTokens: 0, prices: null, cheapest: null };
     const cheapest = cheapestPricedModel(provider);
+    const settings = await ctx.db
+      .query("settings")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+      .unique();
     return {
       systemTokens: estimateTokens(
-        SYSTEM_PROMPTS[CURRENT_SYSTEM_PROMPT_VERSION],
+        systemPrompt(
+          CURRENT_SYSTEM_PROMPT_VERSION,
+          settings?.customInstructions,
+        ),
       ),
       prices: nextPrices(provider, modelId, "5m"),
       cheapest: cheapest
@@ -365,7 +372,7 @@ export async function contextLayers(
   branch: Doc<"messages">[],
 ) {
   const system = estimateTokens(
-    SYSTEM_PROMPTS[thread.systemPromptVersion] ?? "",
+    systemPrompt(thread.systemPromptVersion, thread.instructions) ?? "",
   );
   const layers: {
     kind: "system" | "checkpoint" | "turns";

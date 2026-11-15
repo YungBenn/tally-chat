@@ -214,12 +214,17 @@ export const writeChunk = internalMutation({
         return { skipped: true as const };
       }
       const provider = await ctx.db.get("providers", job.providerId);
+      const settings = await ctx.db
+        .query("settings")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", job.ownerId))
+        .unique();
       threadId = await ctx.db.insert("threads", {
         ownerId: job.ownerId,
         title: args.conversation.title.slice(0, 200),
         providerId: job.providerId,
         modelId: job.modelId,
         systemPromptVersion: CURRENT_SYSTEM_PROMPT_VERSION,
+        instructions: settings?.customInstructions,
         startedAt: args.conversation.startedAt,
         importedFrom: {
           source: job.source!,
