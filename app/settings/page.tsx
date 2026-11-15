@@ -28,8 +28,8 @@ function SideJobModel() {
       <div>
         <h2 className="font-semibold tracking-[-0.01em]">Side-job model</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Runs work you didn&apos;t ask for directly, like thread titles. Pick
-          something cheap: it is metered like any other call.
+          Runs work you didn&apos;t ask for directly, like thread titles and
+          condensing. Pick something cheap: it is metered like any other call.
         </p>
       </div>
       <NativeSelect
@@ -87,6 +87,108 @@ function Keepalive() {
         onCheckedChange={(enabled) => void setKeepaliveEnabled({ enabled })}
         label="Keep caches warm while I'm in a thread"
       />
+    </section>
+  );
+}
+
+function Condensing() {
+  const settings = useQuery(api.settings.get);
+  const setCondense = useMutation(api.settings.setCondense);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  if (!settings) return null;
+  const { enabled, atTokens, keepTurns } = settings.condense;
+  const save = (fields: {
+    enabled?: boolean;
+    atTokens?: number;
+    keepTurns?: number;
+  }) => {
+    setError(null);
+    setSaved(false);
+    setCondense(fields)
+      .then(() => setSaved(true))
+      .catch((err) =>
+        setError(
+          err instanceof ConvexError ? String(err.data) : "Could not save",
+        ),
+      );
+  };
+
+  return (
+    <section
+      data-surface="panel"
+      className="flex flex-col gap-4 rounded-[var(--primitive-radius-surface)] p-5"
+    >
+      <div>
+        <h2 className="font-semibold tracking-[-0.01em]">Condensing</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          When a thread&apos;s recent turns grow past the threshold, older turns
+          are folded into a summary by your side-job model, so each message
+          resends less. The most recent turns always stay word for word, and a
+          condense that wouldn&apos;t pay for itself through the prompt cache
+          waits. You can still condense a thread by hand from its inspector.
+        </p>
+      </div>
+      <Checkbox
+        checked={enabled}
+        onCheckedChange={(on) => save({ enabled: on })}
+        label="Condense long threads automatically"
+      />
+      <form
+        className="flex flex-wrap items-end gap-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const form = new FormData(e.currentTarget);
+          save({
+            atTokens: Number(form.get("atTokens")),
+            keepTurns: Number(form.get("keepTurns")),
+          });
+        }}
+      >
+        <label className="flex flex-col gap-1 text-sm">
+          Condense past (tokens)
+          <Input
+            key={`at-${atTokens}`}
+            name="atTokens"
+            type="number"
+            min={5000}
+            max={500000}
+            step={1000}
+            defaultValue={atTokens}
+            aria-label="Condense past, in tokens of recent turns"
+            containerClassName="w-40"
+            inputClassName="font-mono"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          Keep the last (turns)
+          <Input
+            key={`keep-${keepTurns}`}
+            name="keepTurns"
+            type="number"
+            min={1}
+            max={50}
+            step={1}
+            defaultValue={keepTurns}
+            aria-label="Turns kept word for word"
+            containerClassName="w-40"
+            inputClassName="font-mono"
+          />
+        </label>
+        <Button type="submit" variant="outline">
+          Save
+        </Button>
+      </form>
+      {error && (
+        <p role="alert" className="text-sm text-primitive-destructive">
+          {error}
+        </p>
+      )}
+      {saved && !error && (
+        <p className="text-sm text-muted-foreground">
+          Saved. It applies from the next reply.
+        </p>
+      )}
     </section>
   );
 }
@@ -284,6 +386,7 @@ export default function SettingsPage() {
           </h1>
           <SideJobModel />
           <Keepalive />
+          <Condensing />
           <CacheBreakConfirm />
           <DailyBudget />
           <TimeZone />

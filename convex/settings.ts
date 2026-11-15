@@ -7,6 +7,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
+import { condenseSettings } from "./lib/condense";
 import { dayIn } from "./lib/rollups";
 import { requireOwner } from "./owner";
 
@@ -45,6 +46,11 @@ export const get = query({
     keepaliveEnabled: v.boolean(),
     cacheBreakConfirmMicroUsd: v.number(),
     dailyBudgetMicroUsd: v.union(v.null(), v.number()),
+    condense: v.object({
+      enabled: v.boolean(),
+      atTokens: v.number(),
+      keepTurns: v.number(),
+    }),
   }),
   handler: async (ctx) => {
     const settings = await settingsFor(ctx, await requireOwner(ctx));
@@ -56,7 +62,53 @@ export const get = query({
       cacheBreakConfirmMicroUsd:
         settings?.cacheBreakConfirmMicroUsd ?? DEFAULT_CACHE_BREAK_CONFIRM,
       dailyBudgetMicroUsd: settings?.dailyBudgetMicroUsd ?? null,
+      condense: (({ enabled, atTokens, keepTurns }) => ({
+        enabled,
+        atTokens,
+        keepTurns,
+      }))(condenseSettings(settings)),
     };
+  },
+});
+
+// Condensing (spec phase 6): on or off, the threshold, and how many recent turns stay verbatim.
+// Changes apply from the next condense check.
+export const CONDENSE_LIMITS = {
+  atTokens: { min: 5_000, max: 500_000 },
+  keepTurns: { min: 1, max: 50 },
+};
+export const setCondense = mutation({
+  args: {
+    enabled: v.optional(v.boolean()),
+    atTokens: v.optional(v.number()),
+    keepTurns: v.optional(v.number()),
+  },
+  returns: v.null(),
+  handler: async (ctx, { enabled, atTokens, keepTurns }) => {
+    const ownerId = await requireOwner(ctx);
+    const inRange = (n: number, { min, max }: { min: number; max: number }) =>
+      Number.isInteger(n) && n >= min && n <= max;
+    if (atTokens !== undefined && !inRange(atTokens, CONDENSE_LIMITS.atTokens))
+      throw new ConvexError("Condense at between 5,000 and 500,000 tokens");
+    if (
+      keepTurns !== undefined &&
+      !inRange(keepTurns, CONDENSE_LIMITS.keepTurns)
+    )
+      throw new ConvexError("Keep between 1 and 50 turns");
+    const fields = {
+      ...(enabled !== undefined ? { condenseEnabled: enabled } : {}),
+      ...(atTokens !== undefined ? { condenseAtTokens: atTokens } : {}),
+      ...(keepTurns !== undefined ? { condenseKeepTurns: keepTurns } : {}),
+    };
+    const settings = await settingsFor(ctx, ownerId);
+    if (settings) await ctx.db.patch("settings", settings._id, fields);
+    else
+      await ctx.db.insert("settings", {
+        ownerId,
+        allowlistedHosts: [],
+        ...fields,
+      });
+    return null;
   },
 });
 

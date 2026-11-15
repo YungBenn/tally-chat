@@ -473,6 +473,35 @@ describe("the cache veto", () => {
   });
 });
 
+describe("condense settings", () => {
+  test("the owner turns condensing off and changes the threshold and kept turns, within limits", async () => {
+    const s = await setup({ condenseAtTokens: undefined, condenseKeepTurns: undefined, condenseEnabled: undefined });
+    expect((await s.owner.query(api.settings.get, {})).condense).toEqual({ enabled: true, atTokens: 30_000, keepTurns: 6 });
+
+    await s.owner.mutation(api.settings.setCondense, { enabled: false });
+    expect((await s.inspector())!.condense.state).toBe("off");
+    await s.owner.mutation(api.settings.setCondense, { atTokens: 50_000, keepTurns: 4 });
+    expect((await s.owner.query(api.settings.get, {})).condense).toEqual({ enabled: false, atTokens: 50_000, keepTurns: 4 });
+
+    await expect(s.owner.mutation(api.settings.setCondense, { atTokens: 100 })).rejects.toThrow("between 5,000 and 500,000");
+    await expect(s.owner.mutation(api.settings.setCondense, { keepTurns: 0 })).rejects.toThrow("between 1 and 50");
+    await expect(s.owner.mutation(api.settings.setCondense, { keepTurns: 2.5 })).rejects.toThrow("between 1 and 50");
+  });
+
+  test("a changed threshold and kept turns apply from the next check", async () => {
+    const s = await setup({ condenseAtTokens: 1e9 });
+    fake = fakeFetch({ [ANTHROPIC]: provider(() => "Summary one") });
+    for (let i = 1; i <= 5; i++) await s.chat(`Turn ${i} ${LONG}`);
+    expect(s.summaryCalls()).toHaveLength(0);
+    await s.t.run((ctx) => ctx.db.query("settings").first().then((row) => ctx.db.patch("settings", row!._id, { condenseAtTokens: 500 })));
+    await s.owner.mutation(api.settings.setCondense, { keepTurns: 3 });
+    await s.chat(`Turn 6 ${LONG}`); // 6 turns, keep 3: turns 1 to 3 fold
+    const request = text(s.summaryCalls()[0].messages[0].content);
+    expect(request).toContain("Turn 3");
+    expect(request).not.toContain("Turn 4");
+  });
+});
+
 describe("planFold", () => {
   const msg = (role: "user" | "assistant", status: Doc<"messages">["status"] = "done") =>
     ({ _id: `${role}${Math.random()}` as Id<"messages">, role, status, content: "x", pinned: false }) as Doc<"messages">;
