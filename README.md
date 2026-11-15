@@ -13,7 +13,7 @@ keeps that cache warm while you read, and shows you exactly what you're paying f
 [![Built with Convex](https://img.shields.io/badge/backend-Convex-f3b01c.svg)](https://convex.dev)
 [![Next.js](https://img.shields.io/badge/frontend-Next.js-000.svg)](https://nextjs.org)
 [![Bun](https://img.shields.io/badge/runtime-Bun-fbf0df.svg)](https://bun.sh)
-[![Tests](https://img.shields.io/badge/tests-191%20passing-2f7d4f.svg)](#development)
+[![Tests](https://img.shields.io/badge/tests-218%20passing-2f7d4f.svg)](#development)
 
 </div>
 
@@ -56,6 +56,7 @@ THIS THREAD
 - **Cache-break warnings**: editing an old message costs more than continuing; tally.chat says how much before you do it.
 - **Effort control**: pick how hard the model thinks per thread, and change it per message without losing the cache on models that support it.
 - **Output modes**: quick, normal or long replies, with Continue when a reply hits its limit.
+- **Background condenser**: long threads fold older turns into a summary on your cheap side-job model, but only when the cache math says it pays off (a condense rewrites the cached prefix). Pin anything that must stay word for word, or condense by hand from the inspector.
 
 ### Own everything
 - **Bring your own keys**: Anthropic natively, plus anything OpenAI-compatible: OpenAI, OpenRouter, DeepSeek, Groq, Ollama, LM Studio, vLLM, or a local proxy.
@@ -114,8 +115,8 @@ The [self-hosting guide](docs/self-hosting.md) covers local models (Ollama, LM S
 | 3 | Inspector, cost strip, usage page, soft budget | ✅ |
 | 4 | Effort, output modes, images, title search, installable app | ✅ |
 | 5 | Self-host packaging: Docker Compose and a setup guide | ✅ |
-| 6 | Background condenser, vetoed when it would break the cache | next |
-| 7 | Model suggestions, documents, Gemini, chat import, full-text search | |
+| 6 | Background condenser, vetoed when it would break the cache | ✅ |
+| 7 | Model suggestions, documents, Gemini, chat import, full-text search | next |
 
 ## Development
 
@@ -136,7 +137,7 @@ Then open http://localhost:3000.
 
 ```bash
 bun run dev        # Convex + Next.js
-bun run test       # Vitest + convex-test (191 tests)
+bun run test       # Vitest + convex-test (218 tests)
 bun run typecheck
 bun run lint
 ```
