@@ -1,0 +1,1143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>tally.chat prototype</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="tally-tokens.css">
+<link rel="stylesheet" href="ds/tally/components/bundle.css">
+<script src="ds/tally/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+.tcp-root,.tcp-root *{box-sizing:border-box}
+.tcp-root{font-family:var(--font-sans,"Geist","Inter",ui-sans-serif,system-ui,sans-serif)}
+a{color:var(--accent)}a:hover{color:var(--accent-hover)}
+.t-display{font-weight:600;font-size:40px;line-height:44px;letter-spacing:-0.025em;margin:0}
+.t-title{font-weight:600;font-size:28px;line-height:34px;letter-spacing:-0.02em;margin:0}
+.t-heading{font-weight:600;font-size:18px;line-height:26px;letter-spacing:-0.01em;margin:0}
+.t-sub{font-weight:600;font-size:15px;line-height:22px;letter-spacing:-0.005em;margin:0}
+.t-body{font-weight:400;font-size:15px;line-height:22px;margin:0}
+.t-sm{font-weight:400;font-size:13px;line-height:20px;margin:0}
+.t-label{font-weight:500;font-size:13px;line-height:18px;margin:0}
+.t-caption{font-weight:500;font-size:12px;line-height:16px;letter-spacing:0.01em;margin:0}
+.t-over{font-weight:600;font-size:11px;line-height:14px;letter-spacing:0.08em;text-transform:uppercase;margin:0}
+.t-mono{font-family:var(--font-mono,"Geist Mono","JetBrains Mono",ui-monospace,monospace);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums;font-variant-ligatures:none}
+.t-monoxs{font-family:var(--font-mono,"Geist Mono","JetBrains Mono",ui-monospace,monospace);font-size:11px;line-height:16px;letter-spacing:0.01em;font-variant-numeric:tabular-nums}
+.t-hero{font-family:var(--font-mono,"Geist Mono","JetBrains Mono",ui-monospace,monospace);font-weight:500;font-size:32px;line-height:36px;letter-spacing:-0.02em;font-variant-numeric:tabular-nums}
+.tcp-navbtn{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:8px;color:var(--foreground-muted);font-weight:500;font-size:13px;line-height:18px;cursor:pointer;transition:background-color 160ms cubic-bezier(0.2,0,0,1),color 160ms cubic-bezier(0.2,0,0,1)}
+.tcp-navbtn:hover{background:var(--surface-hover);color:var(--foreground)}
+.tcp-navbtn.on{background:var(--surface-active);color:var(--foreground)}
+.tcp-navbtn:focus-visible,.tcp-plain:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
+.tcp-plain{all:unset;box-sizing:border-box;cursor:pointer;border-radius:8px}
+.tcp-actions{opacity:0;transition:opacity 160ms cubic-bezier(0.2,0,0,1)}
+.tcp-msg:hover .tcp-actions,.tcp-msg:focus-within .tcp-actions,.tcp-actions.on{opacity:1}
+@keyframes tcpMsgIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.tcp-enter{animation:tcpMsgIn 240ms cubic-bezier(0.22,1,0.36,1) both}
+@keyframes tcpPop{from{opacity:0;transform:scale(0.97) translateY(-4px)}to{opacity:1;transform:none}}
+.tcp-pop{animation:tcpPop 160ms cubic-bezier(0.22,1,0.36,1) both;transform-origin:top left}
+@keyframes tcpBanner{from{opacity:0;max-height:0}to{opacity:1;max-height:240px}}
+.tcp-banner{animation:tcpBanner 400ms cubic-bezier(0.22,1,0.36,1) both;overflow:hidden}
+@keyframes tcpBranch{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:none}}
+.tcp-branch{animation:tcpBranch 240ms cubic-bezier(0.2,0,0,1) both}
+@keyframes tcpFade{from{opacity:0}to{opacity:1}}
+.tcp-fade{animation:tcpFade 240ms cubic-bezier(0.2,0,0,1) both}
+@keyframes tcpSheet{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:none}}
+.tcp-sheet{animation:tcpSheet 400ms cubic-bezier(0.22,1,0.36,1) both}
+@keyframes tcpToast{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+.tcp-toast{animation:tcpToast 240ms cubic-bezier(0.22,1,0.36,1) both}
+@keyframes tcpDialog{from{opacity:0;transform:scale(0.97)}to{opacity:1;transform:none}}
+.tcp-dialog{animation:tcpDialog 400ms cubic-bezier(0.22,1,0.36,1) both}
+.tcp-insp{transition:width 400ms cubic-bezier(0.2,0,0,1)}
+@media (prefers-reduced-motion: reduce){
+.tcp-enter,.tcp-pop,.tcp-banner,.tcp-branch,.tcp-sheet,.tcp-toast,.tcp-dialog{animation:tcpFade 160ms linear both}
+.tcp-insp{transition:none}
+}
+</style>
+</helmet>
+<div class="tc tcp-root" data-theme="{{theme}}" style="width: {{vwpx}}; height: 900px; position: relative; overflow: hidden; background: var(--background); color: var(--foreground);">
+
+<!-- ============ SIGN-IN ============ -->
+<sc-if value="{{isSignin}}" hint-placeholder-val="{{no}}">
+<div class="tc-grid-bg" style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; background: var(--background);">
+<div class="holo-border holo-subtle tcp-dialog" style="width: 400px; padding: 40px 36px 32px; border-radius: 14px; background: var(--surface-raised); border: 1px solid var(--border); box-shadow: var(--shadow-modal, 0 32px 80px -20px rgba(27,26,24,0.32), 0 4px 12px rgba(27,26,24,0.08)); display: flex; flex-direction: column; gap: 24px; position: relative;">
+<x-import component-from-global-scope="Tally.Logo" size="{{n40}}" draw="{{yes}}"></x-import>
+<sc-if value="{{signinFirst}}" hint-placeholder-val="{{yes}}">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h1 class="t-display">Set your password</h1>
+<p class="t-body" style="color: var(--foreground-muted);">tally.chat runs on your server. This password unlocks it.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 14px;">
+<x-import component-from-global-scope="Tally.Input" label="Password" value="••••••••••••" focus="{{signinFocus}}"></x-import>
+<x-import component-from-global-scope="Tally.Input" label="Confirm password" value="{{confirmVal}}" error="{{confirmErr}}"></x-import>
+</div>
+<div onClick="{{signinSubmit}}" style="display: flex;">
+<x-import component-from-global-scope="Tally.Button" variant="primary" size="lg" style="flex: 1;">Set password</x-import>
+</div>
+</sc-if>
+<sc-if value="{{signinReturn}}" hint-placeholder-val="{{no}}">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h1 class="t-display">Welcome back</h1>
+<p class="t-body" style="color: var(--foreground-muted);">Enter your password to open your threads.</p>
+</div>
+<x-import component-from-global-scope="Tally.Input" label="Password" value="••••••••••" error="{{wrongErr}}" focus="{{yes}}"></x-import>
+<div onClick="{{signinSubmit}}" style="display: flex;">
+<x-import component-from-global-scope="Tally.Button" variant="primary" size="lg" style="flex: 1;">Unlock</x-import>
+</div>
+</sc-if>
+</div>
+<p class="t-caption" style="color: var(--foreground-subtle);">Chat with any model. See what every turn costs.</p>
+</div>
+</sc-if>
+
+<!-- ============ APP SHELL ============ -->
+<sc-if value="{{isApp}}" hint-placeholder-val="{{yes}}">
+<div style="display: flex; height: 100%; width: 100%;">
+
+<div style="width: 264px; flex-shrink: 0; height: 100%;">
+<dc-import name="Sidebar" d="{{side}}" hint-size="264px,900px"></dc-import>
+</div>
+
+<main style="flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; position: relative;">
+
+<!-- ---------- HOME ---------- -->
+<sc-if value="{{isHome}}" hint-placeholder-val="{{no}}">
+<div class="tc-grid-bg" style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; padding: 48px 32px;">
+<sc-if value="{{hasProvider}}" hint-placeholder-val="{{yes}}">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center;">
+<x-import component-from-global-scope="Tally.Logo" size="{{n32}}" draw="{{yes}}"></x-import>
+<h1 class="t-display" style="margin-top: 12px;">Start a thread</h1>
+<p class="t-body" style="color: var(--foreground-muted);">Pick a model and effort. The estimate below updates as you type.</p>
+</div>
+<div style="width: 100%; max-width: 760px; display: flex; flex-direction: column; gap: 8px;">
+<div onClick="{{onComposer}}">
+<x-import component-from-global-scope="Tally.Composer" focus="{{composerFocus}}" value="{{composerText}}" strip="{{no}}"></x-import>
+</div>
+<div onClick="{{noop}}" style="padding: 0 4px;">
+<x-import component-from-global-scope="Tally.CostStrip" next="{{strip.next}}" cache="cold" hit="0"></x-import>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{noProvider}}" hint-placeholder-val="{{no}}">
+<div onClick="{{goAddProvider}}">
+<x-import component-from-global-scope="Tally.EmptyState" title="Add a provider to start" description="Connect Anthropic, OpenAI, OpenRouter, Ollama or any OpenAI-compatible API with your own key. Keys stay on your server."></x-import>
+</div>
+<div onClick="{{goAddProvider}}">
+<x-import component-from-global-scope="Tally.Button" variant="primary" icon="plus">Add a provider</x-import>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<!-- ---------- THREAD ---------- -->
+<sc-if value="{{isThread}}" hint-placeholder-val="{{yes}}">
+<header style="height: 48px; flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 20px; border-bottom: 1px solid var(--border); background: var(--surface-overlay); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); position: relative; z-index: 10;">
+<button class="tcp-plain" style="padding: 4px 6px; min-width: 0;" aria-label="Rename thread">
+<span class="t-sub" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; max-width: 420px;">{{threadTitle}}</span>
+</button>
+<div onClick="{{openInsp}}" style="display: flex;">
+<x-import component-from-global-scope="Tally.CacheStatus" state="{{cache.state}}" time="{{cache.time}}"></x-import>
+</div>
+<div style="flex: 1;"></div>
+<x-import component-from-global-scope="Tally.IconButton" icon="trash" label="Delete thread"></x-import>
+<div onClick="{{toggleInsp}}" style="display: flex;">
+<x-import component-from-global-scope="Tally.IconButton" icon="layout-sidebar-right" label="Toggle inspector (⌘I)"></x-import>
+</div>
+</header>
+
+<sc-if value="{{deleted}}" hint-placeholder-val="{{no}}">
+<div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;">
+<x-import component-from-global-scope="Tally.EmptyState" title="This thread was deleted." description="It no longer exists on this server. Its spend still counts in Usage."></x-import>
+<div onClick="{{newThread}}">
+<x-import component-from-global-scope="Tally.Button" variant="primary" icon="message-plus">New thread</x-import>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{notDeleted}}" hint-placeholder-val="{{yes}}">
+<div style="flex: 1; min-height: 0; position: relative;">
+<div style="position: absolute; inset: 0; overflow-y: auto; display: flex; flex-direction: {{msgDir}};">
+<div style="width: 100%; max-width: 760px; margin: 0 auto; padding: 32px 32px 24px; display: flex; flex-direction: column; gap: 32px;">
+
+<!-- long thread -->
+<sc-if value="{{isLong}}" hint-placeholder-val="{{yes}}">
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<div onClick="{{toggleSummary}}">
+<x-import component-from-global-scope="Tally.CheckpointMarker"></x-import>
+</div>
+<sc-if value="{{summaryOpen}}" hint-placeholder-val="{{no}}">
+<div class="tcp-banner" style="background: var(--surface-sunken); border: 1px solid var(--border); border-radius: 14px; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px;">
+<div style="display: flex; align-items: center; gap: 8px;">
+<p class="t-over" style="color: var(--foreground-muted);">Summary of turns 1-14</p>
+<div style="flex: 1;"></div>
+<span class="t-mono" style="color: var(--foreground-muted);">3.1k tok · cached</span>
+</div>
+<p class="t-sm" style="color: var(--foreground);">You are building tally.chat on Next.js 16. Decisions so far: the system prompt and tool definitions go first and never change mid-thread; the condensed summary sits after them as its own cache block; only the last two turns are sent word for word. Keepalive pings 30s before the 5 minute expiry, only while the thread is open.</p>
+<div style="display: flex; align-items: center; gap: 8px;">
+<x-import component-from-global-scope="Tally.Icon" name="pin" size="{{n14}}"></x-import>
+<span class="t-sm" style="color: var(--foreground-muted);">2 pinned messages kept word for word: turn 3 (pricing table), turn 11 (cache order).</span>
+</div>
+</div>
+</sc-if>
+</div>
+
+<!-- U1 -->
+<div class="tcp-msg" style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px;">
+<sc-if value="{{u1View}}" hint-placeholder-val="{{yes}}">
+<div onClick="{{toggleBranch}}" style="display: flex; justify-content: flex-end; width: 100%;">
+<sc-if value="{{branch1}}" hint-placeholder-val="{{yes}}">
+<div class="tcp-branch" style="max-width: 85%;"><x-import component-from-global-scope="Tally.UserMessage" branch="{{u1Branch}}">Lay out the request so the system prompt and tool definitions always hit the cache. What order should the blocks go in?</x-import></div>
+</sc-if>
+<sc-if value="{{branch2}}" hint-placeholder-val="{{no}}">
+<div class="tcp-branch" style="max-width: 85%;"><x-import component-from-global-scope="Tally.UserMessage" branch="{{u1Branch}}">Same question, but for OpenRouter: what block order keeps the cache warm across providers?</x-import></div>
+</sc-if>
+</div>
+<div class="tcp-actions {{u1ActCls}}" style="display: flex; gap: 2px;">
+<x-import component-from-global-scope="Tally.IconButton" icon="copy" label="Copy" size="sm"></x-import>
+<div onClick="{{startEdit}}" style="display: flex;"><x-import component-from-global-scope="Tally.IconButton" icon="pencil" label="Edit" size="sm"></x-import></div>
+<x-import component-from-global-scope="Tally.IconButton" icon="pin" label="Pin" size="sm"></x-import>
+</div>
+</sc-if>
+<sc-if value="{{u1Editing}}" hint-placeholder-val="{{no}}">
+<div class="tcp-fade" style="width: 85%; display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: 14px; background: var(--surface-raised); border: 1px solid var(--border-strong); box-shadow: var(--shadow-raised, 0 1px 2px rgba(27,26,24,0.06));">
+<x-import component-from-global-scope="Tally.Textarea" label="Edit message" value="Same question, but for OpenRouter: what block order keeps the cache warm across providers?" focus="{{yes}}"></x-import>
+<div style="display: flex; align-items: center; gap: 8px;">
+<span class="t-mono" style="color: var(--foreground-muted);">Breaks the cache after turn 14 · ~$0.08 to rewrite</span>
+<div style="flex: 1;"></div>
+<div onClick="{{cancelEdit}}"><x-import component-from-global-scope="Tally.Button" variant="ghost" size="sm">Cancel</x-import></div>
+<div onClick="{{saveEdit}}"><x-import component-from-global-scope="Tally.Button" variant="primary" size="sm">Save and send</x-import></div>
+</div>
+</div>
+</sc-if>
+</div>
+
+<!-- A1 -->
+<div class="tcp-msg" style="display: flex; flex-direction: column; gap: 8px;">
+<sc-if value="{{branch1}}" hint-placeholder-val="{{yes}}">
+<div class="tcp-branch">
+<x-import component-from-global-scope="Tally.AssistantMessage">
+<x-import component-from-global-scope="Tally.Prose">
+<h2>Block order that keeps the cache hit</h2>
+<p>The provider caches the <strong>longest identical prefix</strong>, so anything that changes must go last. Put a breakpoint after each stable block and keep <code>ttl: 300</code>.</p>
+<ol><li>System prompt and tool definitions, never edited mid-thread.</li><li>Checkpoint summary plus pinned messages.</li><li>Turns since the checkpoint, oldest first.</li><li>Your next message, the only fresh block.</li></ol>
+<table><thead><tr><th>Block</th><th class="n">Tokens</th><th class="n">Price</th></tr></thead><tbody><tr><td>Cached prefix</td><td class="n">10,788</td><td class="n">$0.0032</td></tr><tr><td>Fresh</td><td class="n">1,612</td><td class="n">$0.0048</td></tr></tbody></table>
+<blockquote>Cache reads cost a tenth of base input; writes cost a quarter more.</blockquote>
+</x-import>
+</x-import>
+</div>
+<div style="display: flex; align-items: center; gap: 8px; position: relative;">
+<div onClick="{{brkA1.toggle}}" style="display: flex;">
+<x-import component-from-global-scope="Tally.ReplyMeta" model="Sonnet 5.5" effort="low" cost="$0.0131" input="12.4k" cached="87%" output="340"></x-import>
+</div>
+<x-import component-from-global-scope="Tally.Badge" tone="accent">Pinned</x-import>
+<div class="tcp-actions {{a1ActCls}}" style="display: flex; gap: 2px; margin-left: auto;">
+<x-import component-from-global-scope="Tally.IconButton" icon="copy" label="Copy" size="sm"></x-import>
+<x-import component-from-global-scope="Tally.IconButton" icon="refresh" label="Retry" size="sm"></x-import>
+<x-import component-from-global-scope="Tally.IconButton" icon="pin" label="Unpin" size="sm"></x-import>
+</div>
+<sc-if value="{{brkA1.open}}" hint-placeholder-val="{{no}}">
+<div class="tcp-pop" style="position: absolute; top: 30px; left: 0; z-index: 50; width: 340px;">
+<x-import component-from-global-scope="Tally.Popover" title="This reply · $0.0131">
+<div style="display: flex; flex-direction: column; gap: 6px; min-width: 300px;">
+<sc-for list="{{brkA1.rows}}" as="r" hint-placeholder-count="5">
+<div style="display: flex; align-items: center; gap: 8px; min-height: 28px;">
+<x-import component-from-global-scope="Tally.Badge" tone="{{r.tone}}">{{r.chip}}</x-import>
+<span class="t-sm" style="color: var(--foreground-muted); flex: 1;">{{r.label}}</span>
+<span class="t-mono" style="color: var(--foreground-muted);">{{r.tok}}</span>
+<span class="t-mono" style="color: var(--foreground); width: 64px; text-align: right;">{{r.price}}</span>
+</div>
+</sc-for>
+<div style="height: 1px; background: var(--border); margin: 4px 0;"></div>
+<div style="display: flex; align-items: center; gap: 8px;">
+<span class="t-label" style="flex: 1;">Total</span>
+<span class="t-mono" style="font-weight: 500;">$0.0131</span>
+</div>
+<p class="t-caption" style="color: var(--foreground-subtle);">Sonnet 5.5 · effort low · thinking is included in output, billed at the output price</p>
+</div>
+</x-import>
+</div>
+</sc-if>
+</div>
+</sc-if>
+<sc-if value="{{branch2}}" hint-placeholder-val="{{no}}">
+<div class="tcp-branch">
+<sc-if value="{{a1bStreaming}}" hint-placeholder-val="{{no}}">
+<x-import component-from-global-scope="Tally.AssistantMessage" streaming="{{yes}}"><p style="white-space: pre-line;">{{a1bShown}}</p></x-import>
+</sc-if>
+<sc-if value="{{a1bDone}}" hint-placeholder-val="{{yes}}">
+<x-import component-from-global-scope="Tally.AssistantMessage"><p style="white-space: pre-line;">{{a1bText}}</p></x-import>
+<div style="margin-top: 8px;"><x-import component-from-global-scope="Tally.ReplyMeta" model="Sonnet 5.5" effort="low" cost="$0.0327" input="12.6k" cached="41%" output="220"></x-import></div>
+</sc-if>
+</div>
+</sc-if>
+</div>
+
+<!-- U2 -->
+<div class="tcp-msg" style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px;">
+<div style="max-width: 85%;"><x-import component-from-global-scope="Tally.UserMessage">Show me the keepalive scheduler.</x-import></div>
+</div>
+
+<!-- A2 -->
+<div class="tcp-msg" style="display: flex; flex-direction: column; gap: 8px;">
+<x-import component-from-global-scope="Tally.AssistantMessage" truncated="{{a2Truncated}}">
+<x-import component-from-global-scope="Tally.Prose">
+<p>Schedule one ping 30 seconds before expiry, and only while the thread is open. Each ping re-reads the prefix at the cache price, so it costs a tenth of a fresh send.</p>
+</x-import>
+<div style="margin-top: 12px;"><x-import component-from-global-scope="Tally.CodeBlock" lang="ts" filename="keepalive.ts" code="{{codeKeepalive}}"></x-import></div>
+</x-import>
+<div style="display: flex; align-items: center; gap: 8px;">
+<x-import component-from-global-scope="Tally.ReplyMeta" model="Opus 5.5" effort="high" cost="$0.1112" input="13.1k" cached="92%" output="4.0k"></x-import>
+<sc-if value="{{a2Truncated}}" hint-placeholder-val="{{no}}">
+<x-import component-from-global-scope="Tally.Badge" tone="warning" dot="{{yes}}">Hit the output limit</x-import>
+</sc-if>
+</div>
+<sc-if value="{{a2Truncated}}" hint-placeholder-val="{{no}}">
+<div style="display: flex; align-items: center; gap: 10px;">
+<x-import component-from-global-scope="Tally.Button" variant="outline" size="sm" icon="player-play">Continue</x-import>
+<span class="t-mono" style="color: var(--foreground-muted);">~$0.0094 · reuses the cached prefix</span>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<!-- new thread opener -->
+<sc-if value="{{isNew}}" hint-placeholder-val="{{no}}">
+<div style="display: flex; justify-content: center;">
+<span class="t-caption" style="color: var(--foreground-subtle);">New thread · Sonnet 5.5 · effort low</span>
+</div>
+</sc-if>
+
+<!-- appended turns -->
+<sc-for list="{{turns}}" as="t" hint-placeholder-count="0">
+<div style="display: flex; flex-direction: column; gap: 32px;">
+<div class="tcp-msg tcp-enter" style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
+<sc-if value="{{t.img}}" hint-placeholder-val="{{no}}">
+<div style="width: 240px; height: 135px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface-sunken); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--foreground-muted);" role="img" aria-label="Attached image trace.png, 1280 by 720">
+<x-import component-from-global-scope="Tally.Icon" name="photo" size="{{n20}}"></x-import>
+<span class="t-monoxs">trace.png · 1280×720 · ~1.2k tok</span>
+</div>
+</sc-if>
+<div style="max-width: 85%;"><x-import component-from-global-scope="Tally.UserMessage">{{t.user}}</x-import></div>
+</div>
+<sc-if value="{{t.thinking}}" hint-placeholder-val="{{no}}">
+<div class="tcp-enter"><x-import component-from-global-scope="Tally.ThinkingIndicator" elapsed="1s"></x-import></div>
+</sc-if>
+<sc-if value="{{t.streaming}}" hint-placeholder-val="{{no}}">
+<div class="tcp-enter"><x-import component-from-global-scope="Tally.AssistantMessage" streaming="{{yes}}"><p style="white-space: pre-line;">{{t.shown}}</p></x-import></div>
+</sc-if>
+<sc-if value="{{t.done}}" hint-placeholder-val="{{no}}">
+<div class="tcp-msg" style="display: flex; flex-direction: column; gap: 8px;">
+<x-import component-from-global-scope="Tally.AssistantMessage"><p style="white-space: pre-line;">{{t.text}}</p></x-import>
+<div class="tcp-fade" style="display: flex; align-items: center; gap: 8px; position: relative;">
+<div onClick="{{t.toggle}}" style="display: flex;">
+<x-import component-from-global-scope="Tally.ReplyMeta" model="{{t.model}}" effort="low" cost="{{t.cost}}" input="{{t.input}}" cached="{{t.cached}}" output="{{t.output}}"></x-import>
+</div>
+<sc-if value="{{t.stopped}}" hint-placeholder-val="{{no}}"><x-import component-from-global-scope="Tally.Badge">Stopped</x-import></sc-if>
+<div class="tcp-actions" style="display: flex; gap: 2px; margin-left: auto;">
+<x-import component-from-global-scope="Tally.IconButton" icon="copy" label="Copy" size="sm"></x-import>
+<x-import component-from-global-scope="Tally.IconButton" icon="refresh" label="Retry" size="sm"></x-import>
+<x-import component-from-global-scope="Tally.IconButton" icon="pin" label="Pin" size="sm"></x-import>
+</div>
+<sc-if value="{{t.open}}" hint-placeholder-val="{{no}}">
+<div class="tcp-pop" style="position: absolute; bottom: 30px; left: 0; z-index: 50; width: 340px;">
+<x-import component-from-global-scope="Tally.Popover" title="{{t.popTitle}}">
+<div style="display: flex; flex-direction: column; gap: 6px; min-width: 300px;">
+<sc-for list="{{t.rows}}" as="r" hint-placeholder-count="5">
+<div style="display: flex; align-items: center; gap: 8px; min-height: 28px;">
+<x-import component-from-global-scope="Tally.Badge" tone="{{r.tone}}">{{r.chip}}</x-import>
+<span class="t-sm" style="color: var(--foreground-muted); flex: 1;">{{r.label}}</span>
+<span class="t-mono" style="color: var(--foreground-muted);">{{r.tok}}</span>
+<span class="t-mono" style="color: var(--foreground); width: 64px; text-align: right;">{{r.price}}</span>
+</div>
+</sc-for>
+<div style="height: 1px; background: var(--border); margin: 4px 0;"></div>
+<div style="display: flex; align-items: center; gap: 8px;">
+<span class="t-label" style="flex: 1;">Total</span>
+<span class="t-mono" style="font-weight: 500;">{{t.cost}}</span>
+</div>
+<p class="t-caption" style="color: var(--foreground-subtle);">{{t.model}} · effort low · thinking is included in output, billed at the output price</p>
+</div>
+</x-import>
+</div>
+</sc-if>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{t.sendError}}" hint-placeholder-val="{{no}}">
+<div class="tcp-enter">
+<x-import component-from-global-scope="Tally.ErrorState" title="Could not send" body="The connection dropped before the provider replied. Nothing was charged." action="Retry" secondary="Copy message"></x-import>
+</div>
+</sc-if>
+<sc-if value="{{t.providerError}}" hint-placeholder-val="{{no}}">
+<div class="tcp-enter">
+<x-import component-from-global-scope="Tally.ErrorState" title="Anthropic returned an error" body="529 overloaded. The request was rejected before any tokens were read, so nothing was charged." action="Retry" secondary="Open providers"></x-import>
+</div>
+</sc-if>
+</div>
+</sc-for>
+
+</div>
+</div>
+
+<sc-if value="{{scrolledUp}}" hint-placeholder-val="{{no}}">
+<div aria-hidden="true" style="position: absolute; right: 6px; top: 16px; bottom: 16px; width: 4px; border-radius: 9999px; background: var(--surface-sunken);">
+<div style="position: absolute; left: 0; right: 0; top: 0; height: 38%; border-radius: 9999px; background: var(--border-strong);"></div>
+</div>
+<div class="tcp-fade" onClick="{{scrollBottom}}" style="position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 10;">
+<x-import component-from-global-scope="Tally.Button" variant="secondary" size="sm" icon="arrow-down">Jump to latest</x-import>
+</div>
+</sc-if>
+</div>
+
+<!-- composer dock -->
+<div style="flex-shrink: 0; padding: 0 32px 16px; position: relative;">
+<div style="max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px;">
+<sc-if value="{{showBanner}}" hint-placeholder-val="{{no}}">
+<div class="tcp-banner" onClick="{{onBanner}}">
+<x-import component-from-global-scope="Tally.BudgetBanner" state="{{budgetState}}"></x-import>
+</div>
+</sc-if>
+<sc-if value="{{modelMenu}}" hint-placeholder-val="{{no}}">
+<div class="tcp-pop" style="position: absolute; bottom: 132px; left: 48px; z-index: 50; width: 280px;">
+<x-import component-from-global-scope="Tally.Menu" items="{{modelItems}}"></x-import>
+</div>
+</sc-if>
+<sc-if value="{{attach}}" hint-placeholder-val="{{no}}">
+<div class="tcp-fade" style="display: flex; gap: 8px;">
+<x-import component-from-global-scope="Tally.AttachmentChip" name="trace.png" meta="1280×720 · ~1.2k tok · $0.0036"></x-import>
+</div>
+</sc-if>
+<div onClick="{{onComposer}}">
+<x-import component-from-global-scope="Tally.Composer" focus="{{composerFocus}}" value="{{composerText}}" streaming="{{isStreaming}}" disabled="{{paused}}" strip="{{no}}"></x-import>
+</div>
+<div onClick="{{openInsp}}" style="padding: 0 4px; cursor: pointer;">
+<x-import component-from-global-scope="Tally.CostStrip" next="{{strip.next}}" cache="{{cache.state}}" hit="{{strip.hit}}" warning="{{strip.warning}}"></x-import>
+</div>
+</div>
+</div>
+</sc-if>
+
+<!-- 1024: inspector as bottom sheet -->
+<sc-if value="{{sheetOn}}" hint-placeholder-val="{{no}}">
+<div class="tcp-fade" onClick="{{toggleInsp}}" style="position: absolute; inset: 0; background: var(--scrim); z-index: 40;"></div>
+<div class="tcp-sheet holo-border holo-subtle" style="position: absolute; left: 0; right: 0; bottom: 0; height: 560px; z-index: 41; background: var(--surface); border: 1px solid var(--border); border-radius: 18px 18px 0 0; box-shadow: var(--shadow-modal, 0 32px 80px -20px rgba(27,26,24,0.32)); display: flex; flex-direction: column; overflow: hidden;">
+<div style="display: flex; justify-content: center; padding-top: 8px;"><div style="width: 36px; height: 4px; border-radius: 9999px; background: var(--border-strong);"></div></div>
+<div style="flex: 1; min-height: 0; width: 100%; max-width: 560px; margin: 0 auto;">
+<dc-import name="InspectorPanel" d="{{insp}}" hint-size="100%,100%"></dc-import>
+</div>
+</div>
+</sc-if>
+</sc-if>
+
+<!-- ---------- PROVIDERS ---------- -->
+<sc-if value="{{isProviders}}" hint-placeholder-val="{{no}}">
+<div style="flex: 1; overflow-y: auto; padding: 40px 48px;">
+<div style="max-width: 880px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px;">
+
+<sc-if value="{{provDetail}}" hint-placeholder-val="{{no}}">
+<div onClick="{{provBack}}" style="display: flex;"><x-import component-from-global-scope="Tally.Button" variant="ghost" size="sm" icon="arrow-left">Providers</x-import></div>
+<div style="display: flex; align-items: center; gap: 12px;">
+<h1 class="t-title">Anthropic</h1>
+<x-import component-from-global-scope="Tally.Badge" tone="success" dot="{{yes}}">Key works</x-import>
+</div>
+<div style="background: var(--surface-raised); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-raised, 0 1px 2px rgba(27,26,24,0.06)); padding: 20px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; align-items: end;">
+<div style="display: flex; flex-direction: column; gap: 4px;"><p class="t-over" style="color: var(--foreground-muted);">API style</p><p class="t-body">Anthropic</p></div>
+<div style="display: flex; flex-direction: column; gap: 4px;"><p class="t-over" style="color: var(--foreground-muted);">Base URL</p><p class="t-mono" style="font-size: 13px;">https://api.anthropic.com</p></div>
+<div style="display: flex; align-items: center; gap: 10px;"><div style="display: flex; flex-direction: column; gap: 4px; flex: 1;"><p class="t-over" style="color: var(--foreground-muted);">API key</p><p class="t-mono" style="font-size: 13px;">sk-ant-…3f9a</p></div><x-import component-from-global-scope="Tally.Button" variant="outline" size="sm" icon="key">Replace key</x-import></div>
+</div>
+<div style="display: flex; align-items: center; gap: 12px;">
+<h2 class="t-heading" style="flex: 1;">Models</h2>
+<span class="t-mono" style="color: var(--foreground-muted);">4 models · 3 shown</span>
+<x-import component-from-global-scope="Tally.Button" variant="outline" size="sm" icon="refresh">Refresh models</x-import>
+</div>
+<sc-if value="{{modelsError}}" hint-placeholder-val="{{no}}">
+<div class="tcp-banner" style="display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 10px; background: var(--danger-soft); color: var(--danger);">
+<x-import component-from-global-scope="Tally.Icon" name="alert-triangle" size="{{n16}}"></x-import>
+<span class="t-sm" style="flex: 1;"><strong>Could not refresh the models.</strong> The provider did not answer within 10s. Your list is unchanged.</span>
+</div>
+</sc-if>
+<div style="border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: var(--surface);">
+<div style="display: grid; grid-template-columns: 2fr 2fr 1fr 1fr; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--surface-sunken);">
+<span class="t-over" style="color: var(--foreground-muted);">Display name</span><span class="t-over" style="color: var(--foreground-muted);">Model id</span><span class="t-over" style="color: var(--foreground-muted);">Images</span><span class="t-over" style="color: var(--foreground-muted);">Shown</span>
+</div>
+<sc-for list="{{models}}" as="m" hint-placeholder-count="4">
+<div style="display: grid; grid-template-columns: 2fr 2fr 1fr 1fr; gap: 12px; padding: 0 16px; min-height: 48px; align-items: center; border-bottom: 1px solid var(--border-subtle);">
+<div style="display: flex; align-items: center; gap: 4px;"><span class="t-sm" style="color: var(--foreground);">{{m.label}}</span><x-import component-from-global-scope="Tally.IconButton" icon="pencil" label="Rename" size="sm"></x-import></div>
+<span class="t-mono" style="color: var(--foreground-muted);">{{m.id}}</span>
+<x-import component-from-global-scope="Tally.Switch" label="Accepts images" checked="{{m.img}}"></x-import>
+<x-import component-from-global-scope="Tally.Switch" label="Shown" checked="{{m.shown}}"></x-import>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{provMain}}" hint-placeholder-val="{{yes}}">
+<div style="display: flex; align-items: center; gap: 12px;">
+<h1 class="t-title" style="flex: 1;">Providers</h1>
+<div onClick="{{openForm}}"><x-import component-from-global-scope="Tally.Button" variant="primary" icon="plus">Add a provider</x-import></div>
+</div>
+<p class="t-body" style="color: var(--foreground-muted); margin-top: -12px;">Your own keys, stored encrypted on this server. Requests go straight from here to the provider.</p>
+
+<sc-if value="{{showForm}}" hint-placeholder-val="{{no}}">
+<div class="tcp-enter" style="background: var(--surface-raised); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-raised, 0 1px 2px rgba(27,26,24,0.06)); padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+<h2 class="t-heading">Add a provider</h2>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: end;">
+<x-import component-from-global-scope="Tally.Input" label="Name" value="Anthropic"></x-import>
+<x-import component-from-global-scope="Tally.SegmentedControl" label="API style" options="{{apiStyles}}" value="Anthropic"></x-import>
+</div>
+<x-import component-from-global-scope="Tally.Input" label="Base URL" value="https://api.anthropic.com" mono="{{yes}}"></x-import>
+<x-import component-from-global-scope="Tally.Input" label="API key" value="sk-ant-api03-••••••••••••••••3f9a" mono="{{yes}}" error="{{keyErr}}" help="Stored encrypted on this server and sent only to this provider."></x-import>
+<x-import component-from-global-scope="Tally.Switch" label="Free provider (local models): record every reply as $0"></x-import>
+<div style="display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--border); padding-top: 16px;">
+<sc-if value="{{testOk}}" hint-placeholder-val="{{no}}">
+<div class="tcp-fade"><x-import component-from-global-scope="Tally.Badge" tone="success" dot="{{yes}}">Key works · 4 models found</x-import></div>
+</sc-if>
+<sc-if value="{{testFail}}" hint-placeholder-val="{{no}}">
+<span class="t-sm tcp-fade" style="color: var(--foreground-muted);">Nothing was saved. Check the key, then test again.</span>
+</sc-if>
+<div style="flex: 1;"></div>
+<sc-if value="{{testing}}" hint-placeholder-val="{{no}}">
+<x-import component-from-global-scope="Tally.Button" variant="outline" loading="{{yes}}">Testing key...</x-import>
+</sc-if>
+<sc-if value="{{notTesting}}" hint-placeholder-val="{{yes}}">
+<div onClick="{{testKey}}"><x-import component-from-global-scope="Tally.Button" variant="outline" icon="plug-connected">Test key</x-import></div>
+</sc-if>
+<div onClick="{{saveProvider}}"><x-import component-from-global-scope="Tally.Button" variant="primary" disabled="{{saveDisabled}}">Save provider</x-import></div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{hasProvider}}" hint-placeholder-val="{{yes}}">
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;">
+<div onClick="{{openDetail}}"><x-import component-from-global-scope="Tally.ProviderCard" name="Anthropic" mono="An" url="https://api.anthropic.com" models="{{provModelsA}}" selected="{{provSel}}"></x-import></div>
+<sc-if value="{{manyProviders}}" hint-placeholder-val="{{yes}}">
+<x-import component-from-global-scope="Tally.ProviderCard" name="OpenRouter" mono="OR" url="https://openrouter.ai/api/v1" models="{{provModelsB}}"></x-import>
+<x-import component-from-global-scope="Tally.ProviderCard" name="Ollama" mono="ol" url="http://192.168.1.20:11434" status="error"></x-import>
+</sc-if>
+</div>
+</sc-if>
+<sc-if value="{{provEmpty}}" hint-placeholder-val="{{no}}">
+<p class="t-sm" style="color: var(--foreground-subtle);">No providers yet. Anthropic, OpenAI, OpenRouter, Ollama and any OpenAI-compatible API work.</p>
+</sc-if>
+</sc-if>
+</div>
+</div>
+</sc-if>
+
+<!-- ---------- USAGE ---------- -->
+<sc-if value="{{isUsage}}" hint-placeholder-val="{{no}}">
+<div class="tc-grid-bg" style="flex: 1; overflow-y: auto; padding: 40px 48px;">
+<div style="max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px;">
+<div style="display: flex; align-items: center; gap: 12px;">
+<h1 class="t-title" style="flex: 1;">Usage</h1>
+<x-import component-from-global-scope="Tally.SegmentedControl" size="sm" label="Range" options="{{ranges}}" value="30d"></x-import>
+</div>
+<sc-if value="{{usageEmpty}}" hint-placeholder-val="{{no}}">
+<div style="padding: 64px 0; display: flex; flex-direction: column; align-items: center; gap: 16px;">
+<x-import component-from-global-scope="Tally.EmptyState" title="No usage yet" description="Spend, cache savings and hit rate show up here after your first reply."></x-import>
+<div onClick="{{newThread}}"><x-import component-from-global-scope="Tally.Button" variant="primary" icon="message-plus">Start a thread</x-import></div>
+</div>
+</sc-if>
+<sc-if value="{{usageFull}}" hint-placeholder-val="{{yes}}">
+<div style="background: var(--surface-raised); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-raised, 0 1px 2px rgba(27,26,24,0.06)); padding: 16px 20px; display: flex; align-items: center; gap: 20px;">
+<div style="display: flex; flex-direction: column; gap: 2px; width: 200px;">
+<p class="t-over" style="color: var(--foreground-muted);">Today's budget</p>
+<p class="t-mono" style="font-size: 13px;">$1.84 of $5.00</p>
+</div>
+<div style="flex: 1;"><x-import component-from-global-scope="Tally.ProgressBar" value="{{n37}}" label="37% used"></x-import></div>
+<x-import component-from-global-scope="Tally.Badge" tone="success" dot="{{yes}}">Under budget</x-import>
+</div>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;">
+<x-import component-from-global-scope="Tally.StatTile" label="Spent, 30 days" value="$12.48" delta="8% vs prior 30 days" dir="up-bad"></x-import>
+<x-import component-from-global-scope="Tally.StatTile" label="Cache saved, 7 days" value="+$3.21" delta="vs sending without cache" dir="up-good" highlight="{{yes}}" tilt="{{yes}}" hero="{{yes}}"></x-import>
+<x-import component-from-global-scope="Tally.StatTile" label="Cache hit rate" value="84%" delta="+4 pts" dir="up-good"></x-import>
+<x-import component-from-global-scope="Tally.StatTile" label="Cache upkeep" value="$0.41" delta="312 keepalive pings"></x-import>
+</div>
+<div style="display: grid; grid-template-columns: 3fr 2fr; gap: 12px;">
+<div style="background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+<div style="display: flex; align-items: center;"><h2 class="t-sub" style="flex: 1;">Daily spend</h2><span class="t-mono" style="color: var(--foreground-muted);">30 days · by model</span></div>
+<x-import component-from-global-scope="Tally.BarChart"></x-import>
+<x-import component-from-global-scope="Tally.Legend" items="{{legend}}"></x-import>
+</div>
+<div style="background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+<div style="display: flex; align-items: center;"><h2 class="t-sub" style="flex: 1;">Cache hit rate</h2><span class="t-mono" style="color: var(--foreground-muted);">daily</span></div>
+<x-import component-from-global-scope="Tally.LineChart"></x-import>
+</div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;">
+<div style="background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+<h2 class="t-sub">By day</h2>
+<x-import component-from-global-scope="Tally.DataTable"></x-import>
+</div>
+<div style="background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 8px;">
+<h2 class="t-sub">By model</h2>
+<div style="overflow-x: auto;">
+<div style="min-width: 420px;">
+<div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 8px; height: 28px; align-items: center; border-bottom: 1px solid var(--border);">
+<span class="t-over" style="color: var(--foreground-muted);">Model</span><span class="t-over" style="color: var(--foreground-muted); text-align: right;">Replies</span><span class="t-over" style="color: var(--foreground-muted); text-align: right;">Spend</span><span class="t-over" style="color: var(--foreground-muted); text-align: right;">Saved</span>
+</div>
+<sc-for list="{{byModel}}" as="r" hint-placeholder-count="4">
+<div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 8px; height: 28px; align-items: center; border-bottom: 1px solid var(--border-subtle);">
+<span class="t-sm">{{r.model}}</span><span class="t-mono" style="text-align: right; color: var(--foreground-muted);">{{r.replies}}</span><span class="t-mono" style="text-align: right;">{{r.spend}}</span><span class="t-mono" style="text-align: right; color: {{r.color}};">{{r.saved}}</span>
+</div>
+</sc-for>
+<div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 8px; height: 32px; align-items: center;">
+<span class="t-label">Total</span><span class="t-mono" style="text-align: right;">624</span><span class="t-mono" style="text-align: right; font-weight: 500;">$12.48</span><span class="t-mono" style="text-align: right; color: var(--savings-positive); font-weight: 500;">+$3.33</span>
+</div>
+</div>
+</div>
+<p class="t-caption" style="color: var(--foreground-subtle);">GPT-5.2 saved -$0.02: its keepalive pings cost more than the cache hits saved.</p>
+</div>
+</div>
+</sc-if>
+</div>
+</div>
+</sc-if>
+
+<!-- ---------- SETTINGS ---------- -->
+<sc-if value="{{isSettings}}" hint-placeholder-val="{{no}}">
+<div style="flex: 1; overflow-y: auto; padding: 40px 48px;">
+<div style="max-width: 800px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px;">
+<h1 class="t-title">Settings</h1>
+<p class="t-body" style="color: var(--foreground-muted); margin-bottom: 16px;">Changes save as you make them.</p>
+
+<div style="display: grid; grid-template-columns: 5fr 4fr; gap: 24px; padding: 20px 0; border-top: 1px solid var(--border); align-items: start;">
+<div><h2 class="t-sub">Side-job model</h2><p class="t-sm" style="color: var(--foreground-muted);">A cheap model that writes thread titles and condenses long threads.</p></div>
+<x-import component-from-global-scope="Tally.Select" label="Model" value="Haiku 5.5 · Anthropic" icon="cpu"></x-import>
+</div>
+<div style="display: grid; grid-template-columns: 5fr 4fr; gap: 24px; padding: 20px 0; border-top: 1px solid var(--border); align-items: start;">
+<div><h2 class="t-sub">Cache keepalive</h2><p class="t-sm" style="color: var(--foreground-muted);">Pings the provider 30s before the cache expires, only while a thread is open.</p></div>
+<x-import component-from-global-scope="Tally.Switch" label="Keep caches warm while I'm in a thread" checked="{{yes}}"></x-import>
+</div>
+<div style="display: grid; grid-template-columns: 5fr 4fr; gap: 24px; padding: 20px 0; border-top: 1px solid var(--border); align-items: start;">
+<div><h2 class="t-sub">Condensing</h2><p class="t-sm" style="color: var(--foreground-muted);">Replaces old turns with a summary once a thread passes the threshold.</p></div>
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<x-import component-from-global-scope="Tally.Switch" label="Condense long threads automatically" checked="{{yes}}"></x-import>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;">
+<x-import component-from-global-scope="Tally.Input" label="Threshold, tokens" value="60,000" mono="{{yes}}"></x-import>
+<x-import component-from-global-scope="Tally.Input" label="Turns kept word for word" value="4" mono="{{yes}}"></x-import>
+</div>
+</div>
+</div>
+<div style="display: grid; grid-template-columns: 5fr 4fr; gap: 24px; padding: 20px 0; border-top: 1px solid var(--border); align-items: start;">
+<div><h2 class="t-sub">Cache-break confirmation</h2><p class="t-sm" style="color: var(--foreground-muted);">Asks before an edit or retry that rewrites the cache for more than this.</p></div>
+<x-import component-from-global-scope="Tally.Input" label="Confirm above" value="$0.05" mono="{{yes}}"></x-import>
+</div>
+<div style="display: grid; grid-template-columns: 5fr 4fr; gap: 24px; padding: 20px 0; border-top: 1px solid var(--border); align-items: start;">
+<div><h2 class="t-sub">Daily budget</h2><p class="t-sm" style="color: var(--foreground-muted);">In US dollars. Sending pauses when you reach it; you can override for the day.</p></div>
+<x-import component-from-global-scope="Tally.Input" label="Budget per day" value="$5.00" placeholder="No budget" mono="{{yes}}" error="{{budgetErr}}"></x-import>
+</div>
+<div style="display: grid; grid-template-columns: 5fr 4fr; gap: 24px; padding: 20px 0; border-top: 1px solid var(--border); align-items: start;">
+<div><h2 class="t-sub">Time zone</h2><p class="t-sm" style="color: var(--foreground-muted);">Decides when a day starts for budgets and usage.</p></div>
+<x-import component-from-global-scope="Tally.Select" label="Time zone" value="Asia/Jakarta (UTC+7)" icon="clock"></x-import>
+</div>
+<div style="display: grid; grid-template-columns: 5fr 4fr; gap: 24px; padding: 20px 0; border-top: 1px solid var(--border); align-items: start;">
+<div><h2 class="t-sub">Private host allowlist</h2><p class="t-sm" style="color: var(--foreground-muted);">Hosts on your network that providers may use, such as a local Ollama.</p></div>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<sc-for list="{{hosts}}" as="hst" hint-placeholder-count="2">
+<div style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 4px 0 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface);">
+<span class="t-mono" style="flex: 1; font-size: 13px;">{{hst}}</span>
+<x-import component-from-global-scope="Tally.IconButton" icon="x" label="Remove host" size="sm"></x-import>
+</div>
+</sc-for>
+<div style="display: flex; gap: 8px; align-items: end;">
+<div style="flex: 1;"><x-import component-from-global-scope="Tally.Input" label="Host and port" placeholder="192.168.1.20:11434" mono="{{yes}}"></x-import></div>
+<x-import component-from-global-scope="Tally.Button" variant="outline" icon="plus">Add host</x-import>
+</div>
+</div>
+</div>
+</div>
+</div>
+</sc-if>
+
+</main>
+
+<!-- ---------- INSPECTOR COLUMN ---------- -->
+<sc-if value="{{inspCol}}" hint-placeholder-val="{{yes}}">
+<aside class="tcp-insp" style="width: {{inspW}}; flex-shrink: 0; height: 100%; overflow: hidden; border-left: 1px solid var(--border);">
+<div style="width: 360px; height: 100%;">
+<dc-import name="InspectorPanel" d="{{insp}}" hint-size="360px,900px"></dc-import>
+</div>
+</aside>
+</sc-if>
+
+</div>
+
+<!-- cache-break dialog -->
+<sc-if value="{{cacheBreak}}" hint-placeholder-val="{{no}}">
+<div class="tcp-fade" style="position: absolute; inset: 0; background: var(--scrim); z-index: 60;"></div>
+<div style="position: absolute; inset: 0; z-index: 61; display: flex; align-items: center; justify-content: center;">
+<div class="tcp-dialog" onClick="{{onBreak}}">
+<x-import component-from-global-scope="Tally.CacheBreakDialog"></x-import>
+</div>
+</div>
+</sc-if>
+
+<!-- toast -->
+<sc-if value="{{toastOn}}" hint-placeholder-val="{{no}}">
+<div class="tcp-toast" style="position: absolute; right: 24px; bottom: 24px; z-index: 70; width: 340px;">
+<x-import component-from-global-scope="Tally.Toast" title="{{toast.title}}" body="{{toast.body}}" tone="{{toast.tone}}" action="{{toast.action}}"></x-import>
+</div>
+</sc-if>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light","section":"Prototype"},"cachespeed":{"editor":"enum","options":["1","10","30"],"default":"10","section":"Prototype"},"vw":{"editor":"enum","options":["1440","1024"],"default":"1440","section":"Prototype"},"preset":{"editor":null},"still":{"editor":null},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  componentDidMount() {
+    this._timers = []; this._iv = [];
+    if (!this.still()) this._clock = setInterval(() => this.tick(), 1000);
+  }
+  componentWillUnmount() {
+    clearInterval(this._clock);
+    (this._timers || []).forEach(clearTimeout);
+    (this._iv || []).forEach(clearInterval);
+  }
+  still() { return this.props.still === 'true' || this.props.still === true; }
+  later(fn, ms) { this._timers = this._timers || []; this._timers.push(setTimeout(fn, ms)); }
+  every(fn, ms) { this._iv = this._iv || []; const id = setInterval(() => { if (fn() === false) clearInterval(id); }, ms); this._iv.push(id); }
+  S() { return this.state || {}; }
+  presets() {
+    const done1 = [{ i: 0, phase: 'done', n: 9999 }];
+    return {
+      signinFirst: { screen: 'signin', signinMode: 'first', signinError: true },
+      signinReturn: { screen: 'signin', signinMode: 'return', signinError: true },
+      home: { screen: 'home', hasProvider: true, composerFocus: true },
+      homeNoProvider: { screen: 'home', hasProvider: false },
+      conversation: { screen: 'thread', selLayer: 2, actionsOn: true, inspOpen: true },
+      typing: { screen: 'thread', composerFocus: true, composerText: 'Does keepalive still pay off if I read for ten minutes', modelMenu: false },
+      modelMenu: { screen: 'thread', composerFocus: true, composerText: '', modelMenu: true, inspOpen: false },
+      thinking: { screen: 'thread', turnsLong: [{ i: 0, phase: 'thinking', n: 0 }] },
+      streaming: { screen: 'thread', turnsLong: [{ i: 0, phase: 'streaming', n: 210 }], longStreaming: true },
+      breakdown: { screen: 'thread', turnsLong: done1, breakdown: 'turnsLong0', cacheSecs: 291 },
+      images: { screen: 'thread', attach: true, composerFocus: true, composerText: 'Why does this trace show a cache write on turn 9?', a2Truncated: true },
+      imageSent: { screen: 'thread', turnsLong: [{ i: 0, phase: 'done', n: 9999, img: true }], a2Truncated: true },
+      checkpoint: { screen: 'thread', summaryOpen: true, scrolledUp: true, inspOpen: false },
+      sendError: { screen: 'thread', turnsLong: [{ i: 0, phase: 'senderror', n: 0 }] },
+      providerError: { screen: 'thread', turnsLong: [{ i: 0, phase: 'providererror', n: 0 }] },
+      deleted: { screen: 'thread', deleted: true, inspOpen: false },
+      cooling: { screen: 'thread', cacheSecs: 48, selLayer: 0 },
+      cold: { screen: 'thread', cacheSecs: 0, selLayer: 3 },
+      condenseError: { screen: 'thread', condense: 'error', selLayer: 1 },
+      condenseNoPay: { screen: 'thread', condense: 'nopay', selLayer: 1, repliesOnly: true },
+      search: { screen: 'thread', search: 'cache' },
+      edit: { screen: 'thread', edit: 'editing', scrolledTop: true },
+      cacheBreak: { screen: 'thread', edit: 'warn', scrolledTop: true },
+      branch: { screen: 'thread', branches: 2, branch: 2, a1b: 'done', scrolledTop: true, actionsOn: true },
+      budget80: { screen: 'thread', budget: 'near', turnsLong: done1 },
+      budget100: { screen: 'thread', budget: 'paused', turnsLong: [{ i: 0, phase: 'done', n: 9999 }, { i: 1, phase: 'done', n: 9999 }] },
+      sheet1024: { screen: 'thread', sheetOpen: true, selLayer: 2 },
+      usage: { screen: 'usage' },
+      usageEmpty: { screen: 'usage', usageEmpty: true },
+      providers: { screen: 'providers', hasProvider: true, provSel: true },
+      provTesting: { screen: 'providers', hasProvider: false, showForm: true, provTest: 'testing' },
+      provOk: { screen: 'providers', hasProvider: false, showForm: true, provTest: 'ok' },
+      provFail: { screen: 'providers', hasProvider: false, showForm: true, provTest: 'fail' },
+      provDetail: { screen: 'providers', hasProvider: true, provView: 'detail', modelsError: true },
+      settingsSaved: { screen: 'settings', toast: 'saved' },
+      settingsError: { screen: 'settings', settingsError: true }
+    };
+  }
+  base() {
+    const pr = this.props.preset;
+    return {
+      screen: 'signin', signinMode: 'first', signinError: false, hasProvider: !!pr, thread: 'long', hasNew: false,
+      inspOpen: true, selLayer: 2, repliesOnly: false, condense: 'idle', cacheSecs: 252,
+      composerText: '', composerFocus: false, typing: false, attach: false, modelMenu: false,
+      turnsLong: [], turnsNew: [], a2Truncated: false, summaryOpen: false, scrolledUp: false, scrolledTop: false,
+      edit: 'none', branch: 1, branches: 1, a1b: 'none', a1bN: 0, budget: 'ok', bannerDismissed: false,
+      deleted: false, breakdown: 'none', search: '', sheetOpen: false, toast: 'none', actionsOn: false,
+      provView: 'list', provTest: 'idle', showForm: false, provSel: false, modelsError: false, usageEmpty: false, settingsError: false,
+      tried: false
+    };
+  }
+  g(k) {
+    const s = this.S();
+    if (s[k] !== undefined) return s[k];
+    const p = this.presets()[this.props.preset] || {};
+    if (p[k] !== undefined) return p[k];
+    return this.base()[k];
+  }
+  script(th) {
+    if (th === 'new') return [{
+      user: 'How much does keeping a cache warm cost per hour?',
+      reply: 'With keepalive on, tally pings once every 4.5 minutes while the thread is open. Each ping re-reads the cached prefix at the cache price.\n\nFor a 12k-token prefix on Sonnet 5.5 that is about $0.0036 per ping, so roughly $0.048 per hour of reading. One cold send of the same prefix costs about $0.045, so keepalive pays off as soon as you would otherwise send once after the cache expired.',
+      model: 'Sonnet 5.5', cost: '$0.0084', input: '1.1k', cached: '0%', output: '286',
+      rows: [['cached', 'cached', 'Read from cache', '0', '$0.0000'], ['write', 'written', 'Written to cache', '1,064', '$0.0040'], ['fresh', 'fresh', 'Full price input', '36', '$0.0001'], ['', 'output', 'Output', '286', '$0.0043']]
+    }];
+    return [{
+      user: 'Does keepalive still pay off if I read for ten minutes?',
+      reply: 'Yes. Ten minutes is two keepalive pings at about $0.0036 each, so $0.0072 to keep 12.4k tokens warm.\n\nIf the cache went cold instead, your next send would rewrite the whole prefix for about $0.045. Keepalive wins until you read for roughly an hour and a quarter without sending.',
+      model: 'Sonnet 5.5', cost: '$0.0153', input: '14.0k', cached: '89%', output: '412',
+      rows: [['cached', 'cached', 'Read from cache', '12,460', '$0.0037'], ['write', 'written', 'Written to cache', '1,128', '$0.0042'], ['fresh', 'fresh', 'Full price input', '412', '$0.0012'], ['', 'output', 'Output, thinking included', '412', '$0.0062']]
+    }, {
+      user: 'Summarize that as one line for the settings help text.',
+      reply: 'Pings the provider 30s before the cache expires, only while a thread is open, so your next message reads the cache instead of rewriting it.',
+      model: 'Sonnet 5.5', cost: '$0.0109', input: '14.6k', cached: '92%', output: '188',
+      rows: [['cached', 'cached', 'Read from cache', '13,432', '$0.0040'], ['write', 'written', 'Written to cache', '742', '$0.0028'], ['fresh', 'fresh', 'Full price input', '426', '$0.0013'], ['', 'output', 'Output', '188', '$0.0028']]
+    }, {
+      user: 'Thanks. What should I check before condensing this thread?',
+      reply: 'Check the Inspector first. Condensing rewrites the checkpoint block once, so it only pays off when the turns since the last checkpoint are long and you plan to keep going. Right now it would pay for itself after about six more replies.',
+      model: 'Sonnet 5.5', cost: '$0.0118', input: '15.1k', cached: '91%', output: '201',
+      rows: [['cached', 'cached', 'Read from cache', '13,741', '$0.0041'], ['write', 'written', 'Written to cache', '820', '$0.0031'], ['fresh', 'fresh', 'Full price input', '539', '$0.0016'], ['', 'output', 'Output', '201', '$0.0030']]
+    }];
+  }
+  curThread() { return this.g('screen') === 'home' ? 'new' : this.g('thread'); }
+  keyOf(th) { return th === 'new' ? 'turnsNew' : 'turnsLong'; }
+  tick() {
+    const scr = this.g('screen');
+    if (scr !== 'thread') return;
+    const secs = this.g('cacheSecs');
+    if (secs <= 0) return;
+    const sp = Number(this.props.cachespeed || 10);
+    this.setState({ cacheSecs: Math.max(0, secs - sp) });
+  }
+  // ---------- actions ----------
+  signinSubmit() {
+    if (!this.g('tried')) { this.setState({ signinError: true, tried: true }); return; }
+    this.setState({ signinError: false, screen: 'home', tried: false });
+  }
+  focusComposer() {
+    if (this.g('budget') === 'paused') return;
+    const th = this.curThread();
+    const key = this.keyOf(th);
+    const turns = this.g(key) || [];
+    if (turns.some(t => t.phase === 'thinking' || t.phase === 'streaming')) return;
+    const sc = this.script(th)[turns.length];
+    if (!sc || this.g('composerText') || this.g('typing')) { this.setState({ composerFocus: true }); return; }
+    this.setState({ composerFocus: true, typing: true, composerText: '', modelMenu: false });
+    let n = 0; const full = sc.user;
+    this.every(() => {
+      n = Math.min(full.length, n + 2);
+      if (n >= full.length) { this.setState({ composerText: full, typing: false }); return false; }
+      this.setState({ composerText: full.slice(0, n) });
+      return true;
+    }, 45);
+  }
+  onComposer(e) {
+    const tgt = e && e.target;
+    const b = tgt && tgt.closest ? tgt.closest('button') : null;
+    if (b) {
+      const l = ((b.getAttribute('aria-label') || '') + ' ' + (b.textContent || '')).toLowerCase();
+      if (l.indexOf('stop') >= 0) return this.stop();
+      if (l.indexOf('send') >= 0) return this.sendNow();
+      if (l.indexOf('attach') >= 0 || l.indexOf('image') >= 0) return this.setState({ attach: true });
+      if (l.indexOf('model') >= 0 || l.indexOf('sonnet') >= 0) return this.setState({ modelMenu: !this.g('modelMenu') });
+      const all = e.currentTarget.querySelectorAll('button');
+      const key = this.keyOf(this.g('thread'));
+      const live = (this.g(key) || []).some(t => t.phase === 'streaming' || t.phase === 'thinking');
+      if (b === all[all.length - 1]) return live ? this.stop() : this.sendNow();
+      return;
+    }
+    this.focusComposer();
+  }
+  sendNow() {
+    if (this.g('typing') || !this.g('composerText')) return;
+    if (this.g('budget') === 'paused') return;
+    const fromHome = this.g('screen') === 'home';
+    const th = fromHome ? 'new' : this.g('thread');
+    const key = this.keyOf(th);
+    const turns = (this.g(key) || []).slice();
+    const i = turns.length;
+    if (i >= this.script(th).length) return;
+    turns.push({ i, phase: 'thinking', n: 0, img: !!this.g('attach') });
+    const upd = { [key]: turns, composerText: '', composerFocus: false, attach: false, modelMenu: false, breakdown: 'none' };
+    if (fromHome) { upd.screen = 'thread'; upd.thread = 'new'; upd.hasNew = true; upd.cacheSecs = 0; }
+    this.setState(upd);
+    this.later(() => this.startStream(key, th, i), 1400);
+  }
+  startStream(key, th, i) {
+    const t0 = (this.S()[key] || []).slice();
+    if (!t0[i] || t0[i].phase !== 'thinking') return;
+    t0[i] = Object.assign({}, t0[i], { phase: 'streaming' });
+    this.setState({ [key]: t0 });
+    const len = this.script(th)[i].reply.length;
+    this.every(() => {
+      const turns = (this.S()[key] || []).slice();
+      const t = Object.assign({}, turns[i]);
+      if (t.phase !== 'streaming') return false;
+      t.n = Math.min(len, t.n + 6);
+      turns[i] = t;
+      if (t.n >= len) { t.phase = 'done'; this.afterReply(key, turns); return false; }
+      this.setState({ [key]: turns });
+      return true;
+    }, 40);
+  }
+  afterReply(key, turns) {
+    const upd = { [key]: turns, cacheSecs: 300 };
+    if (key === 'turnsLong') {
+      const b = this.g('budget');
+      if (b === 'ok') { upd.budget = 'near'; upd.bannerDismissed = false; }
+      else if (b === 'near') { upd.budget = 'paused'; }
+    }
+    this.setState(upd);
+  }
+  stop() {
+    const key = this.keyOf(this.g('thread'));
+    const turns = (this.S()[key] || []).slice();
+    const i = turns.findIndex(t => t.phase === 'streaming' || t.phase === 'thinking');
+    if (i < 0) return;
+    turns[i] = Object.assign({}, turns[i], { phase: 'done', stopped: true });
+    this.setState({ [key]: turns });
+  }
+  // ---------- render ----------
+  renderVals() {
+    const g = (k) => this.g(k);
+    const theme = this.props.theme || 'light';
+    const vw = String(this.props.vw || '1440');
+    const screen = g('screen');
+    const isThread = screen === 'thread';
+    const th = g('thread');
+    const key = this.keyOf(th);
+    const script = this.script(th);
+    const secs = g('cacheSecs');
+    const cacheState = secs > 60 ? 'warm' : secs > 0 ? 'cooling' : 'cold';
+    const mm = Math.floor(secs / 60), ss = String(secs % 60).padStart(2, '0');
+    const time = cacheState === 'cold' ? undefined : mm + ':' + ss;
+    const text = g('composerText') || '';
+    const budget = g('budget');
+    const paused = budget === 'paused';
+    const turnsRaw = g(key) || [];
+    const brk = g('breakdown');
+    const streamingNow = turnsRaw.some(t => t.phase === 'streaming' || t.phase === 'thinking');
+    const turns = turnsRaw.map((t, idx) => {
+      const sc = script[t.i] || script[0];
+      const shown = sc.reply.slice(0, t.n);
+      const id = key + idx;
+      return {
+        user: sc.user, img: !!t.img,
+        thinking: t.phase === 'thinking', streaming: t.phase === 'streaming', done: t.phase === 'done',
+        sendError: t.phase === 'senderror', providerError: t.phase === 'providererror',
+        shown: shown, text: t.stopped ? shown : sc.reply, stopped: !!t.stopped,
+        model: sc.model, cost: sc.cost, input: sc.input, cached: sc.cached, output: sc.output,
+        popTitle: 'This reply · ' + sc.cost,
+        rows: sc.rows.map(r => ({ tone: r[0] || undefined, chip: r[1], label: r[2], tok: r[3], price: r[4] })),
+        open: brk === id,
+        toggle: () => this.setState({ breakdown: brk === id ? 'none' : id })
+      };
+    });
+    let base = cacheState === 'cold' ? 0.0412 : 0.0041;
+    if (screen === 'home') base = 0.0012;
+    const next = (base + text.length * 0.000016).toFixed(4);
+    const strip = {
+      next: next,
+      hit: cacheState === 'cold' ? '0' : '87',
+      warning: paused ? 'Paused at $5.00' : cacheState === 'cooling' ? 'Cache expires in ' + time : undefined
+    };
+    const layersSrc = (window.Tally && window.Tally.DEMO_LAYERS) || [];
+    const sel = g('selLayer');
+    const layers = layersSrc.map((l, i) => Object.assign({}, l, { selected: i === sel, pick: () => this.setState({ selLayer: i }) }));
+    const ro = g('repliesOnly');
+    const cond = g('condense');
+    const insp = {
+      theme: theme,
+      cacheState: cacheState, cacheTime: time,
+      keepNote: cacheState === 'cold' ? 'Cache expired. Your next message rewrites 12.4k tokens for ~$0.0412.' : 'Keepalive on · refreshes 30s before expiry',
+      layers: layers,
+      used: '18.2k of 200k',
+      spend: ro ? '$0.4511' : '$0.4821', upkeep: ro ? '$0.0000' : '$0.0310', hit: '84%', saved: ro ? '+$0.3817' : '+$0.4127',
+      repliesOnly: ro,
+      toggleReplies: () => this.setState({ repliesOnly: !ro }),
+      condIdle: cond === 'idle', condRunning: cond === 'running', condError: cond === 'error', condNoPay: cond === 'nopay',
+      condense: () => { this.setState({ condense: 'running' }); this.later(() => this.setState({ condense: 'error' }), 1600); },
+      retry: () => { this.setState({ condense: 'running' }); this.later(() => this.setState({ condense: 'nopay' }), 1400); },
+      close: () => this.setState({ inspOpen: false, sheetOpen: false })
+    };
+    const search = g('search');
+    const longStreaming = th === 'long' && streamingNow || g('longStreaming');
+    const newStreaming = th === 'new' && streamingNow;
+    const go = (s) => () => this.setState({ screen: s, modelMenu: false, breakdown: 'none', provView: 'list' });
+    const pickThread = (t) => () => this.setState({ screen: 'thread', thread: t, breakdown: 'none', cacheSecs: t === 'long' ? 252 : this.g('cacheSecs') });
+    const groups = search ? [
+      { label: 'Results', items: [
+        { title: 'Cache-aware request layout', active: isThread && th === 'long', cost: '$0.48', pick: pickThread('long') },
+        { title: 'Cache keepalive pricing', cost: '$0.12', pick: pickThread('long') },
+        { title: 'Prompt cache misses on retries', cost: '$0.07', pick: pickThread('long') }
+      ] }
+    ] : [
+      { label: 'Today', items: [].concat(
+        g('hasNew') ? [{ title: 'Keepalive cost per hour', active: isThread && th === 'new', streaming: newStreaming, cost: newStreaming ? undefined : '$0.01', pick: pickThread('new') }] : [],
+        [{ title: 'Cache-aware request layout', active: isThread && th === 'long', streaming: longStreaming, cost: longStreaming ? undefined : '$0.48', pick: pickThread('long') }]
+      ) },
+      { label: 'Yesterday', items: [
+        { title: 'Refactor billing webhooks', cost: '$0.22', pick: pickThread('long') },
+        { title: 'Tencent TKE pod restarts', unread: true, cost: '$0.09', pick: pickThread('long') }
+      ] },
+      { label: 'Last 7 days', items: [
+        { title: 'Postgres index for usage table', cost: '$0.31', pick: pickThread('long') },
+        { title: 'OpenRouter fallback order', cost: '$0.05', pick: pickThread('long') },
+        { title: 'Ollama on the home server', cost: '$0.00', pick: pickThread('long') }
+      ] },
+      { label: 'Older', items: [
+        { title: 'Go worker pool review', cost: '$1.12', pick: pickThread('long') },
+        { title: 'Next.js 16 route handlers', cost: '$0.18', pick: pickThread('long') }
+      ] }
+    ];
+    const bud = {
+      ok: { value: 37, label: '37% of $5.00', amount: '$1.84', state: 'ok' },
+      near: { value: 84, label: '84% of $5.00', amount: '$4.21', state: 'near' },
+      paused: { value: 100, label: '100% of $5.00', amount: '$5.00', state: 'paused' },
+      override: { value: 100, label: 'Override on for today', amount: '$5.02', state: 'override' }
+    }[budget];
+    const side = {
+      theme: theme, search: search, groups: groups,
+      newThread: () => this.setState({ screen: 'home', composerText: '', composerFocus: true, modelMenu: false }),
+      nav: [
+        { label: 'Usage', icon: 'chart-bar', cls: screen === 'usage' ? 'on' : '', go: go('usage') },
+        { label: 'Providers', icon: 'plug-connected', cls: screen === 'providers' ? 'on' : '', go: go('providers') },
+        { label: 'Settings', icon: 'settings', cls: screen === 'settings' ? 'on' : '', go: go('settings') }
+      ],
+      budget: bud,
+      budOk: bud.state === 'ok', budNear: bud.state === 'near', budPaused: bud.state === 'paused', budOverride: bud.state === 'override'
+    };
+    const edit = g('edit');
+    const branch = g('branch');
+    const branches = g('branches');
+    const a1bReply = 'OpenRouter passes cache_control through to Anthropic models, so the same order works: system and tools, then the checkpoint, then recent turns, then your message.\n\nFor other providers it caches automatically by prefix, so keep the stable blocks byte-identical and the cache still hits.';
+    const a1b = g('a1b');
+    const a1bN = g('a1bN');
+    const pt = g('provTest');
+    const toastKey = g('toast');
+    const toast = toastKey === 'saved' ? { title: 'Settings saved', body: 'Daily budget is now $5.00.', tone: undefined, action: undefined }
+      : toastKey === 'provider' ? { title: 'Provider connected', body: '4 models found on Anthropic.', tone: undefined, action: undefined } : null;
+    const showForm = g('showForm') || (screen === 'providers' && !g('hasProvider'));
+    const sheetOn = vw === '1024' && isThread && g('sheetOpen');
+    const msgDir = (g('scrolledUp') || g('scrolledTop')) ? 'column' : 'column-reverse';
+    return {
+      yes: true, no: false, n14: 14, n16: 16, n20: 20, n32: 32, n37: 37, n40: 40,
+      noop: () => {},
+      theme: theme, vwpx: vw + 'px',
+      isSignin: screen === 'signin', isApp: screen !== 'signin',
+      signinFirst: g('signinMode') === 'first', signinReturn: g('signinMode') === 'return',
+      signinFocus: !g('signinError'),
+      confirmVal: g('signinError') ? '•••••••••••' : '••••••••••••',
+      confirmErr: g('signinError') && g('signinMode') === 'first' ? "Passwords don't match" : undefined,
+      wrongErr: g('signinError') && g('signinMode') === 'return' ? 'Wrong password' : undefined,
+      signinSubmit: () => this.signinSubmit(),
+      side: side,
+      isHome: screen === 'home', hasProvider: g('hasProvider'), noProvider: !g('hasProvider'),
+      goAddProvider: () => this.setState({ screen: 'providers', showForm: true }),
+      composerFocus: g('composerFocus'), composerText: text,
+      onComposer: (e) => this.onComposer(e),
+      strip: strip, cache: { state: cacheState, time: time },
+      isThread: isThread, deleted: g('deleted'), notDeleted: !g('deleted'),
+      threadTitle: th === 'new' ? 'Keepalive cost per hour' : 'Cache-aware request layout',
+      isLong: th === 'long', isNew: th === 'new',
+      openInsp: () => this.setState(vw === '1024' ? { sheetOpen: true } : { inspOpen: true }),
+      toggleInsp: () => this.setState(vw === '1024' ? { sheetOpen: !g('sheetOpen') } : { inspOpen: !g('inspOpen') }),
+      newThread: side.newThread,
+      summaryOpen: g('summaryOpen'), toggleSummary: () => this.setState({ summaryOpen: !g('summaryOpen') }),
+      msgDir: msgDir,
+      u1View: edit === 'none', u1Editing: edit !== 'none',
+      branch1: branch === 1, branch2: branch === 2,
+      u1Branch: branches > 1 ? { index: branch, count: branches } : undefined,
+      toggleBranch: (e) => { const b = e && e.target && e.target.closest ? e.target.closest('button') : null; if (b && branches > 1) this.setState({ branch: branch === 1 ? 2 : 1 }); },
+      u1ActCls: g('actionsOn') ? 'on' : '', a1ActCls: g('actionsOn') ? 'on' : '',
+      startEdit: () => this.setState({ edit: 'editing' }),
+      cancelEdit: () => this.setState({ edit: 'none' }),
+      saveEdit: () => this.setState({ edit: 'warn' }),
+      cacheBreak: edit === 'warn',
+      onBreak: (e) => {
+        const b = e && e.target && e.target.closest ? e.target.closest('button') : null;
+        if (!b) return;
+        const l = (b.textContent || '').toLowerCase();
+        if (l.indexOf('anyway') >= 0 || l.indexOf('edit') >= 0) {
+          this.setState({ edit: 'none', branches: 2, branch: 2, a1b: 'streaming', a1bN: 0, cacheSecs: 300 });
+          this.every(() => { const n = Math.min(a1bReply.length, (this.S().a1bN || 0) + 6); if (n >= a1bReply.length) { this.setState({ a1bN: n, a1b: 'done' }); return false; } this.setState({ a1bN: n }); return true; }, 40);
+        } else {
+          this.setState({ edit: 'none', composerText: 'Same question, but for OpenRouter: what block order keeps the cache warm across providers?', composerFocus: true });
+        }
+      },
+      a1bStreaming: a1b === 'streaming', a1bDone: a1b === 'done' || a1b === 'none',
+      a1bShown: a1bReply.slice(0, a1bN), a1bText: a1bReply,
+      brkA1: {
+        open: brk === 'a1',
+        toggle: () => this.setState({ breakdown: brk === 'a1' ? 'none' : 'a1' }),
+        rows: [
+          { tone: 'cached', chip: 'cached', label: 'Read from cache', tok: '10,788', price: '$0.0032' },
+          { tone: 'write', chip: 'written', label: 'Written to cache', tok: '0', price: '$0.0000' },
+          { tone: 'fresh', chip: 'fresh', label: 'Full price input', tok: '1,612', price: '$0.0048' },
+          { tone: undefined, chip: 'output', label: 'Output, thinking included', tok: '340', price: '$0.0051' }
+        ]
+      },
+      a2Truncated: g('a2Truncated'),
+      codeKeepalive: "// Refresh 30s before the 5 minute expiry\nconst LEAD_MS = 30_000\n\nexport function schedule(thread: Thread) {\n  if (!thread.open || !settings.keepalive) return\n  const due = thread.cacheWrittenAt + 300_000 - LEAD_MS\n  return setTimeout(() => ping(thread.id), due - Date.now())\n}",
+      turns: turns,
+      scrolledUp: g('scrolledUp'), scrollBottom: () => this.setState({ scrolledUp: false, scrolledTop: false }),
+      showBanner: isThread && ((budget === 'near' && !g('bannerDismissed')) || budget === 'paused'),
+      budgetState: budget === 'paused' ? 'paused' : 'near',
+      onBanner: (e) => {
+        const b = e && e.target && e.target.closest ? e.target.closest('button') : null;
+        const l = b ? (b.textContent || '').toLowerCase() : '';
+        if (budget === 'paused' && (l.indexOf('override') >= 0 || !b)) this.setState({ budget: 'override' });
+        else if (budget === 'near' && (l.indexOf('dismiss') >= 0 || !b)) this.setState({ bannerDismissed: true });
+      },
+      paused: paused, isStreaming: streamingNow,
+      modelMenu: g('modelMenu'),
+      modelItems: [
+        { label: 'Anthropic', heading: true },
+        { label: 'Sonnet 5.5', icon: 'cpu', check: true, active: true, hint: '$3 / $15' },
+        { label: 'Opus 5.5', icon: 'cpu', hint: '$5 / $25' },
+        { label: 'Haiku 5.5', icon: 'cpu', hint: '$1 / $5' },
+        '-',
+        { label: 'OpenRouter', heading: true },
+        { label: 'GPT-5.2', icon: 'cpu', hint: '$1.25 / $10' },
+        '-',
+        { label: 'Ollama', heading: true },
+        { label: 'qwen3:14b', icon: 'cpu', hint: 'free' }
+      ],
+      attach: g('attach'),
+      sheetOn: sheetOn,
+      inspCol: isThread && vw === '1440',
+      inspW: g('inspOpen') ? '360px' : '0px',
+      insp: insp,
+      isProviders: screen === 'providers',
+      provDetail: g('provView') === 'detail', provMain: g('provView') !== 'detail',
+      provBack: () => this.setState({ provView: 'list' }),
+      openDetail: () => this.setState({ provView: 'detail' }),
+      openForm: () => this.setState({ showForm: true, provTest: 'idle' }),
+      showForm: showForm,
+      apiStyles: ['Anthropic', 'OpenAI-compatible'],
+      keyErr: pt === 'fail' ? 'The provider rejected this key: 401 invalid x-api-key.' : undefined,
+      testing: pt === 'testing', notTesting: pt !== 'testing', testOk: pt === 'ok', testFail: pt === 'fail',
+      saveDisabled: pt !== 'ok',
+      testKey: () => { this.setState({ provTest: 'testing' }); this.later(() => this.setState({ provTest: 'ok' }), 1500); },
+      saveProvider: () => {
+        if (this.g('provTest') !== 'ok') return;
+        this.setState({ hasProvider: true, showForm: false, provTest: 'idle', provSel: true, toast: 'provider' });
+        this.later(() => this.setState({ toast: 'none', screen: 'home', composerFocus: false }), 1800);
+      },
+      provSel: g('provSel'), manyProviders: !!this.props.preset, provEmpty: !g('hasProvider') && !showForm,
+      provModelsA: ['Sonnet 5.5', 'Opus 5.5', 'Haiku 5.5'], provModelsB: ['GPT-5.2', 'Gemini 3 Pro', '+ 212 more'],
+      modelsError: g('modelsError'),
+      models: [
+        { label: 'Sonnet 5.5', id: 'claude-sonnet-5-5', img: true, shown: true },
+        { label: 'Opus 5.5', id: 'claude-opus-5-5', img: true, shown: true },
+        { label: 'Haiku 5.5', id: 'claude-haiku-5-5', img: true, shown: true },
+        { label: 'Fable 5.2', id: 'claude-fable-5-2', img: true, shown: false }
+      ],
+      isUsage: screen === 'usage', usageEmpty: g('usageEmpty'), usageFull: !g('usageEmpty'),
+      ranges: ['7d', '30d', '90d'],
+      legend: [{ name: 'Sonnet 5.5', key: 'chart-1', value: '$7.12' }, { name: 'Opus 5.5', key: 'chart-2', value: '$3.40' }, { name: 'GPT-5.2', key: 'chart-3', value: '$1.96' }, { name: 'Other', key: 'chart-6', value: '$0.00' }],
+      byModel: [
+        { model: 'Sonnet 5.5', replies: '412', spend: '$7.12', saved: '+$2.84', color: 'var(--savings-positive)' },
+        { model: 'Opus 5.5', replies: '38', spend: '$3.40', saved: '+$0.51', color: 'var(--savings-positive)' },
+        { model: 'GPT-5.2', replies: '54', spend: '$1.96', saved: '-$0.02', color: 'var(--savings-negative)' },
+        { model: 'qwen3:14b', replies: '120', spend: '$0.00', saved: '$0.00', color: 'var(--foreground-muted)' }
+      ],
+      isSettings: screen === 'settings',
+      budgetErr: g('settingsError') ? 'Could not save. The server did not answer; your budget is still $5.00.' : undefined,
+      hosts: ['192.168.1.20:11434', 'gpu-box.local:8000'],
+      cacheBreakOn: edit === 'warn',
+      toastOn: !!toast, toast: toast || { title: '', body: '' }
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,73 @@
+{
+  "v": 3,
+  "assetGroups": {
+    "Logos": {
+      "files": {
+        "tally-app-icon.svg": {
+          "blob": "8e8c808f0a349a4eadd87109aeaf72b6",
+          "name": "tally-app-icon.svg",
+          "size": 902,
+          "type": "image/svg+xml"
+        },
+        "tally-mark-amber.svg": {
+          "blob": "099b81f11621116d13b30705a1b1296d",
+          "name": "tally-mark-amber.svg",
+          "size": 430,
+          "type": "image/svg+xml"
+        },
+        "tally-mark-dark.svg": {
+          "blob": "49e23bf7b9c79275e3d65efb10aeb857",
+          "name": "tally-mark-dark.svg",
+          "size": 818,
+          "type": "image/svg+xml"
+        },
+        "tally-mark.svg": {
+          "blob": "e4e8c2a37ebda20f9ab6e13c31511a42",
+          "name": "tally-mark.svg",
+          "size": 818,
+          "type": "image/svg+xml"
+        }
+      },
+      "name": "Logos",
+      "order": [
+        "tally-mark.svg",
+        "tally-mark-dark.svg",
+        "tally-mark-amber.svg",
+        "tally-app-icon.svg"
+      ],
+      "tile": "l"
+    }
+  },
+  "blobs": {},
+  "createdOnFiles": {
+    "at": "2026-11-15T09:57:49Z",
+    "v": 1
+  },
+  "docs": {
+    "readme": "project/README.md",
+    "sections": []
+  },
+  "groups": [
+    "Logos"
+  ],
+  "lastChange": {
+    "at": "2026-11-15T09:57:49Z",
+    "by": "Ruben Adisuryo Nugroho",
+    "note": "Holographic lines design system: tokens, holo utilities, motion, 59 components, code exports",
+    "via": "Claude"
+  },
+  "layout": "files",
+  "libraries": [
+    {
+      "name": "react",
+      "version": "18"
+    },
+    {
+      "name": "react-dom",
+      "version": "18"
+    }
+  ],
+  "namespace": "Tally",
+  "sections": {},
+  "title": "tally.chat"
+}

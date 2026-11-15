@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>tally.chat screen spec</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="tally-tokens.css">
+<link rel="stylesheet" href="ds/tally/components/bundle.css">
+<script src="ds/tally/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+.sp,.sp *{box-sizing:border-box}
+.sp{font-family:var(--font-sans,"Geist","Inter",ui-sans-serif,system-ui,sans-serif)}
+.sp h1{font-weight:600;font-size:40px;line-height:44px;letter-spacing:-0.025em;margin:0}
+.sp h2{font-weight:600;font-size:28px;line-height:34px;letter-spacing:-0.02em;margin:0}
+.sp h3{font-weight:600;font-size:18px;line-height:26px;letter-spacing:-0.01em;margin:0}
+.sp p{margin:0}
+.sp-body{font-size:15px;line-height:22px}
+.sp-sm{font-size:13px;line-height:20px}
+.sp-over{font-weight:600;font-size:11px;line-height:14px;letter-spacing:0.08em;text-transform:uppercase;color:var(--foreground-muted)}
+.sp-mono{font-family:var(--font-mono,"Geist Mono","JetBrains Mono",ui-monospace,monospace);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums;font-variant-ligatures:none}
+.sp-grid{display:grid;grid-template-columns:160px minmax(0,1fr);column-gap:24px;row-gap:10px}
+@media (max-width: 720px){.sp-grid{grid-template-columns:minmax(0,1fr);row-gap:2px}.sp-grid .sp-over{margin-top:8px}}
+</style>
+</helmet>
+<div class="tc sp" data-theme="light" style="background: var(--background); color: var(--foreground); min-height: 100vh;">
+<div style="max-width: 960px; margin: 0 auto; padding: 64px 32px 96px; display: flex; flex-direction: column; gap: 40px;">
+
+<header style="display: flex; flex-direction: column; gap: 16px;">
+<x-import component-from-global-scope="Tally.Logo" size="{{n28}}" wordmark="{{yes}}"></x-import>
+<h1>Screen spec</h1>
+<p class="sp-body" style="color: var(--foreground-muted); max-width: 70ch;">One entry per screen: layout and widths, components and tokens, where holo goes (checked against Where holo goes, max three lit things per view), motion per interaction, states, and keyboard. Every screen ships in light and dark from the same tokens; dark is set with <span class="sp-mono">data-theme="dark"</span> on the app root.</p>
+</header>
+
+<section style="display: flex; flex-direction: column; gap: 12px; padding: 20px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface);">
+<h3>Global shortcuts</h3>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 24px;">
+<sc-for list="{{keys}}" as="k" hint-placeholder-count="10">
+<div style="display: flex; align-items: center; gap: 10px; min-height: 28px; border-bottom: 1px solid var(--border-subtle);">
+<span class="sp-sm" style="flex: 1; color: var(--foreground-muted);">{{k.what}}</span>
+<x-import component-from-global-scope="Tally.Kbd">{{k.key}}</x-import>
+</div>
+</sc-for>
+</div>
+<p class="sp-sm" style="color: var(--foreground-muted);">Focus is a solid 2px <span class="sp-mono">ring</span> on every focusable thing, with the holo halo layered on top where allowed. Tab order follows reading order: sidebar, header, messages, composer, cost strip, inspector. Shortcuts appear in tooltips and menus with <span class="sp-mono">Kbd</span>.</p>
+</section>
+
+<sc-for list="{{screens}}" as="s" hint-placeholder-count="12">
+<section style="display: flex; flex-direction: column; gap: 16px; padding-top: 32px; border-top: 1px solid var(--border);">
+<div style="display: flex; align-items: baseline; gap: 12px;">
+<span class="sp-mono" style="color: var(--foreground-subtle);">{{s.n}}</span>
+<h2>{{s.title}}</h2>
+</div>
+<div class="sp-grid">
+<p class="sp-over">Layout</p><p class="sp-sm">{{s.layout}}</p>
+<p class="sp-over">Components</p><p class="sp-sm">{{s.comps}}</p>
+<p class="sp-over">Tokens</p><p class="sp-sm sp-mono" style="font-size: 12px;">{{s.tokens}}</p>
+<p class="sp-over">Holo</p><p class="sp-sm">{{s.holo}}</p>
+<p class="sp-over">Motion</p><p class="sp-sm">{{s.motion}}</p>
+<p class="sp-over">States</p><p class="sp-sm">{{s.states}}</p>
+<p class="sp-over">Keyboard</p><p class="sp-sm">{{s.keys}}</p>
+</div>
+</section>
+</sc-for>
+
+<section style="display: flex; flex-direction: column; gap: 16px; padding-top: 32px; border-top: 1px solid var(--border);">
+<h2>Proposed additions to the design system</h2>
+<p class="sp-body" style="color: var(--foreground-muted); max-width: 70ch;">Everything here was built from existing tokens and components. Nothing introduces a new color, radius, shadow, font or animation; each item is a prop or a small composition the system should own.</p>
+<sc-for list="{{adds}}" as="a" hint-placeholder-count="10">
+<div style="display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--border-subtle);">
+<p class="sp-mono" style="font-size: 13px; color: var(--foreground);">{{a.name}}</p>
+<p class="sp-sm" style="color: var(--foreground-muted);">{{a.why}}</p>
+</div>
+</sc-for>
+</section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":7200}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      yes: true, n28: 28,
+      keys: [
+        { what: 'New thread', key: '⌘⇧O' }, { what: 'Search thread titles', key: '⌘K' },
+        { what: 'Focus composer', key: '/' }, { what: 'Send', key: '↵' },
+        { what: 'New line', key: '⇧↵' }, { what: 'Stop streaming, close popover or sheet', key: 'Esc' },
+        { what: 'Toggle inspector', key: '⌘I' }, { what: 'Toggle sidebar', key: '⌘B' },
+        { what: 'Edit last message (empty composer)', key: '↑' }, { what: 'Previous / next branch', key: '⌥← ⌥→' },
+        { what: 'Copy last reply', key: '⌘⇧C' }, { what: 'Model picker', key: '⌘M' }
+      ],
+      screens: [
+        { n: '01', title: 'Sign-in',
+          layout: 'Full-bleed background with tc-grid-bg. One 400px card centered, padding 40/36/32, gap space-6. Tagline caption 24px under the card.',
+          comps: 'Logo (size 40, draw), Input, Button primary lg. SignInCard is the reference; this build adds first-run and error variants (see additions).',
+          tokens: 'background · surface-raised · border · radius-card · shadow-modal · display · body · caption · danger (inline error via Input)',
+          holo: 'Card edge holo-subtle, logo line-draw once. One lit thing. Inputs and errors stay plain.',
+          motion: 'Card enters with variants.dialog (spring.gentle). Logo pathLength 0 to 1 over duration.draw. Error text fades in with duration.fast, no shake.',
+          states: 'First run: "Set your password", password + confirm, inline "Passwords don\'t match". Returning: "Welcome back", one field, "Wrong password". Submitting: Button loading.',
+          keys: 'Autofocus first field. ↵ submits. Error moves focus to the field in error and is announced with aria-describedby.' },
+        { n: '02', title: 'Home and empty states',
+          layout: 'Sidebar 264 + center. Center column max layout-composer (760), vertically centered, tc-grid-bg behind. Display heading, body line, composer, cost strip.',
+          comps: 'Logo, Composer (focus), CostStrip, EmptyState, Button primary.',
+          tokens: 'display · body · foreground-muted · layout-composer · space-8',
+          holo: 'Focused composer (vivid shimmer) and its send button. The active thread is absent here, so two lit things.',
+          motion: 'Logo line-draw once. Cost strip digits roll with variants.digit while typing. Navigating to a thread uses variants.messageEnter for the first message.',
+          states: 'Ready: estimate for an empty message (~$0.0012, cache cold). Not set up: one step, "Add a provider to start" with a primary action to Providers. No greeting copy that invents facts.',
+          keys: '/ focuses the composer; ↵ sends and opens the new thread; ⌘M opens the model picker.' },
+        { n: '03', title: 'Thread view',
+          layout: '1440: sidebar 264 · center flex · inspector 360 (collapsible). Header 48 sticky with surface-overlay + 12px blur. Message column centered, text capped at layout-message (70ch), padding space-8, gap between turns space-8. Composer dock pinned, max 760, cost strip 8px under it. Scroll-to-bottom button centered 16px above the dock.',
+          comps: 'ThreadItem, CacheStatus, IconButton, CheckpointMarker, UserMessage, AssistantMessage, Markdown (Prose), CodeBlock, ReplyMetadata, Badge, BranchSwitcher, ThinkingIndicator, AttachmentChip, ErrorState, EmptyState, Composer, CostStrip, Menu (model picker), BudgetBanner, Popover.',
+          tokens: 'background · surface · surface-overlay · border · prose · mono-sm · radius-card (user bubble) · space-8 · z-sticky · z-popover',
+          holo: 'Reading: active thread + warm cache pill + selected inspector layer. Typing: composer edge (+ its send button) + active thread + warm cache pill. Streaming: reply rail and caret + streaming dash in the sidebar. Message actions, metadata and errors never get holo.',
+          motion: 'New messages: variants.messageEnter (y 8 to 0, spring.smooth). Streaming text appends without animation; caret blinks 1s steps. Thinking: tally ticks 1.6s. Message actions fade in on hover/focus with duration.fast. Branch switch: count slides 10px in the travel direction, message crossfades (variants.branchSlide, duration.base). Breakdown popover: variants.pop from the metadata. Cache pill: breathe 4s, ring drains; warm to cooling crossfades in duration.slow.',
+          states: 'Conversation, typing, thinking, streaming (Stop replaces Send), reply hit its limit (Badge + Continue with its own estimate), checkpoint collapsed and expanded, pinned, images attached and sent, could not send (says nothing was charged), provider error (says what was charged), deleted thread, long thread scrolled up with jump-to-latest, search results in the sidebar.',
+          keys: 'Message actions are reachable with Tab and appear on focus-within. ⌥← ⌥→ switch branches on the focused message. Esc stops a stream. ↑ in an empty composer edits your last message.' },
+        { n: '04', title: 'Composer and cost strip',
+          layout: 'Composer max 760, radius-card, inner padding space-4. Controls row: attach, model picker, effort (1-4 bars), output mode SegmentedControl, send. Cost strip is one line of mono-sm under the composer, clickable.',
+          comps: 'Composer, CostStrip, AttachmentChip, SegmentedControl, Menu, BudgetBanner, Kbd.',
+          tokens: 'surface-raised · shadow-raised · border · surface-sunken (paused) · mono-sm · foreground-muted · warning (cooling) · danger (paused)',
+          holo: 'Focused: holo-border holo-vivid holo-shimmer on the edge, the signature moment. Send: holo-default edge with holo-sweep on hover when there is text. Never on disabled.',
+          motion: 'Focus edge appears instantly, shimmer loops while focused (duration.shimmer). Cost number rolls in place (variants.digit, spring.snappy, tabular figures, fixed width). Attachment chips enter with variants.pop. Paused fades controls to disabled in duration.base.',
+          states: 'Empty, typing, focused, with images (each chip priced on attach), streaming (Stop), paused by budget (surface-sunken, controls disabled, banner above).',
+          keys: '↵ send, ⇧↵ newline, Esc stop, ⌘M model picker, ⌘U attach image. Pickers fold into one menu under 360px.' },
+        { n: '05', title: 'Reply cost breakdown',
+          layout: 'Popover anchored to the metadata line, 340 wide, padding space-4, rows at row-compact (28).',
+          comps: 'ReplyMetadata (trigger), Popover, Badge (cached / written / fresh), Divider.',
+          tokens: 'surface-overlay + blur · shadow-floating · radius-popover · cached · to-be-written · fresh · mono-sm',
+          holo: 'None. The popover holds settled numbers, not live content.',
+          motion: 'variants.pop (scale 0.97 + fade from the trigger side, duration.fast). Exit uses ease.exit.',
+          states: 'Input split into cached, written and fresh with tokens and price; output with "thinking is included in output, billed at the output price"; total; model and effort.',
+          keys: 'The metadata line is a button. ↵ or Space opens, Esc closes and returns focus to it.' },
+        { n: '06', title: 'Inspector',
+          layout: '360 column on surface, header 48, body padding space-5, sections gap space-6. Under 1200px it becomes a bottom sheet (radius-dialog top corners, 560 tall at 1024, grabber).',
+          comps: 'CacheStatus, ContextBar, LayerRow, Switch, Button outline, ThinkingIndicator, Icon.',
+          tokens: 'surface · border · row-compact · mono-sm · savings-positive / savings-negative · danger-soft (error)',
+          holo: 'Exactly one: the selected LayerRow edge and its ContextBar segment. The cache ring follows CacheStatus rules and counts toward the view.',
+          motion: 'Open/close animates the grid column width with transition.layout (spring.smooth); layer bars resize with layout. Selecting a layer moves the edge without fading.',
+          states: 'Cache warm, cooling (amber ring, "expires in 0:48"), cold (neutral dot, cost of the next rewrite), keepalive note. Totals with Replies only on/off. Condense idle with its payoff, running, disabled with "Condensing now would never pay for itself", and "Could not condense" with Retry.',
+          keys: '⌘I toggles. Layer rows are a listbox: ↑ ↓ move selection, ↵ pins the highlight.' },
+        { n: '07', title: 'Editing an old message',
+          layout: 'Edit happens in place: the user bubble becomes an 85%-wide raised card with a Textarea, a mono line with the rewrite price, Cancel and Save and send.',
+          comps: 'Textarea, Button ghost / primary, CacheBreakWarning (CacheBreakDialog), BranchSwitcher.',
+          tokens: 'surface-raised · border-strong · warning · scrim · radius-dialog · shadow-modal',
+          holo: 'Dialog frame only, subtle. The edit card stays plain so it does not compete.',
+          motion: 'Edit card crossfades in (duration.base). Warning dialog uses variants.dialog with the scrim fading. After "Edit anyway" the new branch slides in and the reply streams.',
+          states: 'Editing; above the user threshold: "Editing this message costs ~$0.08 more than continuing." with Edit anyway (primary) and Continue instead; new branch 2/2; switching back to 1/2.',
+          keys: 'Esc cancels the edit. ⌘↵ saves. In the dialog, focus starts on Continue instead (the safe choice), Esc equals Continue instead.' },
+        { n: '08', title: 'Budget',
+          layout: 'Banner sits directly above the composer inside the dock, full composer width.',
+          comps: 'BudgetBanner (near, paused), Composer disabled, ProgressBar and Badge in the sidebar meter.',
+          tokens: 'budget-ok · budget-near · budget-paused · warning-soft · danger-soft',
+          holo: 'Never on banners. The progress fill is holo under 80% only.',
+          motion: 'variants.banner: height opens, content fades (spring.gentle). Override closes it the same way.',
+          states: '80%: warning with "Dismiss for today". 100%: "Daily budget reached." composer paused, "Override for today". Sidebar meter mirrors: Near limit, Sending paused, Override on for today.',
+          keys: 'The banner action is the next Tab stop before the composer. Status is announced with role="status".' },
+        { n: '09', title: 'Usage',
+          layout: 'Page padding 40/48, content max 1040. Budget row, 4 StatTiles in a 4-column grid, charts 3fr / 2fr, tables two columns. tc-grid-bg behind.',
+          comps: 'SegmentedControl (range), ProgressBar, Badge, StatTile, BarChart, Legend, LineChart, DataTable, EmptyState.',
+          tokens: 'title · overline · mono-hero · chart-1 to chart-6 · savings-positive · savings-negative · row-compact',
+          holo: 'One highlighted StatTile ("Cache saved, 7 days") with holo-text on its value and pointer tilt, plus the hit-rate line. Bars, legend and tables use series colors only.',
+          motion: 'Bars grow from the axis staggered 25ms (variants.barGrow); line draws once (variants.lineDraw). Range change crossfades values; numbers being compared never animate.',
+          states: 'Full, empty (fresh install, one action), negative savings shown as -$0.02 in savings-negative with an explanation.',
+          keys: 'Charts expose a table alternative; range control uses arrow keys.' },
+        { n: '10', title: 'Providers',
+          layout: 'Page max 880. Title row with primary action, inline form card, ProviderCards in a 2-column grid. Detail: header, facts card in 3 columns, model table with 48px rows.',
+          comps: 'ProviderCard, ProviderForm fields (Input, SegmentedControl, Switch), Button, Badge, IconButton, Switch.',
+          tokens: 'surface-raised · shadow-raised · radius-card · mono (URLs and keys) · success · danger-soft',
+          holo: 'ProviderCard edge only while selected or editing. Form and test results stay plain.',
+          motion: 'Form enters with messageEnter. Test result Badge fades in. Toast slides up 16px after save.',
+          states: 'Testing key ("Testing key..."), works (models found), failure with the provider\'s reason and "Nothing was saved", list, detail with show/hide and images toggles, editable names, refresh error "Could not refresh the models", replace key.',
+          keys: '↵ in the form tests the key; ⌘↵ saves once the key works.' },
+        { n: '11', title: 'Settings',
+          layout: 'Page max 800. Each section is a 5fr / 4fr row: title + one sentence, then its control. Hairline between sections.',
+          comps: 'Select, Switch, Input (mono for numbers and hosts), IconButton, Button outline, Toast.',
+          tokens: 'subheading · body-sm · foreground-muted · border · mono',
+          holo: 'None. Settings is a calm page.',
+          motion: 'Saved Toast slides up (variants.toast). Inline errors fade in, never shake.',
+          states: 'Default, saved (toast), could not save (inline error under the field, value unchanged), empty budget shows "No budget".',
+          keys: 'Fields save on blur or ↵. Remove host buttons are labeled with the host.' },
+        { n: '12', title: 'Responsive and mobile',
+          layout: '1024: sidebar stays, inspector becomes a bottom sheet. Under 900: sidebar becomes a left sheet (312 wide). 390: header 52 with 44px hit areas, composer full width, pickers folded into one menu. Usage stacks to 2-column tiles and scrolling tables.',
+          comps: 'Same components; sheets are built from surface, radius-dialog, shadow-modal and scrim (see additions).',
+          tokens: 'scrim · radius-dialog · shadow-modal · z-sheet',
+          holo: 'Sheet frame subtle; inside, the same per-view rules apply.',
+          motion: 'variants.sheet: left sheet slides in from the edge, bottom sheet rises, scrim fades (spring.gentle).',
+          states: 'Thread, sidebar sheet, inspector sheet, composer focused with folded pickers, usage.',
+          keys: 'Sheets trap focus and close with Esc or a scrim tap; focus returns to the opener.' }
+      ],
+      adds: [
+        { name: 'SignInCard: mode, error', why: 'First run (password + confirm) and returning (one field) with inline errors. Built here from Logo, Input and Button inside the card frame.' },
+        { name: 'Composer: onSend, onStop, onChange', why: 'The prototype detects Send and Stop by label. The app needs explicit callbacks and a controlled value.' },
+        { name: 'Composer attachments slot in docs', why: 'Chips are rendered just above the composer here because the slot takes an element. Document it as the default placement.' },
+        { name: 'ReplyMetadata as a button with aria-expanded', why: 'Opens the breakdown popover. Needs an onClick and the expanded state.' },
+        { name: 'CostBreakdown: rows prop', why: 'Built here from Popover and Badge rows so each reply shows its own numbers. The component should take cached, written, fresh, output and model.' },
+        { name: 'InlineEditCard (UserMessage editing)', why: 'Raised card with Textarea, rewrite price line, Cancel and Save and send. Uses surface-raised, border-strong, radius-card.' },
+        { name: 'CheckpointSummary', why: 'Expanded checkpoint body: surface-sunken well, overline, summary text, pinned list. Opens with variants.banner.' },
+        { name: 'ImageThumb', why: 'Sent image in a user message: 240×135 surface-sunken frame with dimensions and token cost in mono-xs.' },
+        { name: 'ScrollIndicator + JumpToLatest', why: 'Thin track (surface-sunken) with a border-strong thumb and a secondary Button. Shown only when scrolled up.' },
+        { name: 'Sheet: side="left" with open state', why: 'Mobile sidebar and inspector sheets are composed here from surface, radius-dialog, shadow-modal and scrim with variants.sheet.' },
+        { name: 'IconButton size="touch"', why: '44px target for mobile headers. Here 44px hit boxes wrap the default IconButton.' },
+        { name: 'DataTable: columns, rows props', why: '"By model" is built in markup to show signed, colored savings; the component should accept data.' },
+        { name: 'SidebarNavItem and BudgetMeter', why: 'Nav rows (row-comfortable, surface-active when current) and the compact meter (ProgressBar + amount + status Badge).' },
+        { name: 'SettingsRow', why: 'Title, one-sentence explanation and a control in a 5fr / 4fr grid with a hairline above.' },
+        { name: 'Motion utilities for previews', why: 'CSS equivalents of variants.messageEnter, pop, banner, branchSlide, sheet, toast and dialog using the existing duration and ease tokens, for non-React previews.' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

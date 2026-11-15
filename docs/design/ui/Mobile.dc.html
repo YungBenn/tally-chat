@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>tally.chat mobile prototype</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="tally-tokens.css">
+<link rel="stylesheet" href="ds/tally/components/bundle.css">
+<script src="ds/tally/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+.tcm-root,.tcm-root *{box-sizing:border-box}
+.tcm-root{font-family:var(--font-sans,"Geist","Inter",ui-sans-serif,system-ui,sans-serif)}
+.tcm-title{font-weight:600;font-size:28px;line-height:34px;letter-spacing:-0.02em;margin:0}
+.tcm-sub{font-weight:600;font-size:15px;line-height:22px;letter-spacing:-0.005em;margin:0}
+.tcm-sm{font-weight:400;font-size:13px;line-height:20px;margin:0}
+.tcm-cap{font-weight:500;font-size:12px;line-height:16px;letter-spacing:0.01em;margin:0}
+.tcm-over{font-weight:600;font-size:11px;line-height:14px;letter-spacing:0.08em;text-transform:uppercase;margin:0;color:var(--foreground-muted)}
+.tcm-mono{font-family:var(--font-mono,"Geist Mono","JetBrains Mono",ui-monospace,monospace);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}
+.tcm-hit{width:44px;height:44px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+@keyframes tcmFade{from{opacity:0}to{opacity:1}}
+.tcm-fade{animation:tcmFade 240ms cubic-bezier(0.2,0,0,1) both}
+@keyframes tcmLeft{from{transform:translateX(-100%)}to{transform:none}}
+.tcm-left{animation:tcmLeft 400ms cubic-bezier(0.22,1,0.36,1) both}
+@keyframes tcmUp{from{transform:translateY(100%)}to{transform:none}}
+.tcm-up{animation:tcmUp 400ms cubic-bezier(0.22,1,0.36,1) both}
+@keyframes tcmIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.tcm-in{animation:tcmIn 240ms cubic-bezier(0.22,1,0.36,1) both}
+@media (prefers-reduced-motion: reduce){.tcm-left,.tcm-up,.tcm-in{animation:tcmFade 160ms linear both}}
+</style>
+</helmet>
+<div class="tc tcm-root" data-theme="{{theme}}" style="width: 390px; height: 844px; position: relative; overflow: hidden; background: var(--background); color: var(--foreground); display: flex; flex-direction: column;">
+
+<header style="height: 52px; flex-shrink: 0; display: flex; align-items: center; gap: 2px; padding: 0 4px; border-bottom: 1px solid var(--border); background: var(--surface-overlay); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); z-index: 10;">
+<div class="tcm-hit" onClick="{{openSide}}"><x-import component-from-global-scope="Tally.IconButton" icon="menu-2" label="Open threads"></x-import></div>
+<span class="tcm-sub" style="flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{title}}</span>
+<sc-if value="{{isThreadish}}" hint-placeholder-val="{{yes}}">
+<div onClick="{{openInsp}}" style="display: flex;"><x-import component-from-global-scope="Tally.CacheStatus" state="{{cacheState}}" time="{{cacheTime}}"></x-import></div>
+<div class="tcm-hit" onClick="{{openInsp}}"><x-import component-from-global-scope="Tally.IconButton" icon="layout-bottombar" label="Open inspector"></x-import></div>
+</sc-if>
+</header>
+
+<sc-if value="{{isThreadish}}" hint-placeholder-val="{{yes}}">
+<div style="flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column-reverse;">
+<div style="padding: 20px 16px; display: flex; flex-direction: column; gap: 24px;">
+<sc-if value="{{threadA}}" hint-placeholder-val="{{yes}}">
+<div class="tcm-in" style="display: flex; justify-content: flex-end;"><div style="max-width: 88%;"><x-import component-from-global-scope="Tally.UserMessage">Show me the keepalive scheduler.</x-import></div></div>
+<div class="tcm-in" style="display: flex; flex-direction: column; gap: 8px;">
+<x-import component-from-global-scope="Tally.AssistantMessage">
+<x-import component-from-global-scope="Tally.Prose"><p>Schedule one ping 30 seconds before expiry, only while the thread is open. Each ping re-reads the prefix at the cache price.</p></x-import>
+<div style="margin-top: 12px;"><x-import component-from-global-scope="Tally.CodeBlock" lang="ts" filename="keepalive.ts" code="{{code}}"></x-import></div>
+</x-import>
+<x-import component-from-global-scope="Tally.ReplyMeta" model="Opus 5.5" effort="high" cost="$0.1112" input="13.1k" cached="92%" output="4.0k"></x-import>
+</div>
+<div class="tcm-in" style="display: flex; justify-content: flex-end;"><div style="max-width: 88%;"><x-import component-from-global-scope="Tally.UserMessage">Does keepalive still pay off if I read for ten minutes?</x-import></div></div>
+<div class="tcm-in">
+<x-import component-from-global-scope="Tally.AssistantMessage" streaming="{{yes}}"><p>Yes. Ten minutes is two keepalive pings at about $0.0036 each, so $0.0072 to keep 12.4k tokens warm. If the cache went cold instead</p></x-import>
+</div>
+</sc-if>
+<sc-if value="{{threadB}}" hint-placeholder-val="{{no}}">
+<div class="tcm-in" style="display: flex; justify-content: flex-end;"><div style="max-width: 88%;"><x-import component-from-global-scope="Tally.UserMessage">The webhook handler retries forever on a 400. How do I stop that?</x-import></div></div>
+<div class="tcm-in" style="display: flex; flex-direction: column; gap: 8px;">
+<x-import component-from-global-scope="Tally.AssistantMessage">
+<x-import component-from-global-scope="Tally.Prose"><p>Treat 4xx as final. Only 5xx and timeouts go back on the queue, with a capped exponential backoff. Log the payload id so you can replay it by hand.</p></x-import>
+</x-import>
+<x-import component-from-global-scope="Tally.ReplyMeta" model="Sonnet 5.5" effort="low" cost="$0.0062" input="4.8k" cached="0%" output="96"></x-import>
+</div>
+</sc-if>
+</div>
+</div>
+<div style="flex-shrink: 0; padding: 0 12px 12px; display: flex; flex-direction: column; gap: 6px;">
+<x-import component-from-global-scope="Tally.Composer" focus="{{composerFocus}}" value="{{composerText}}" streaming="{{streaming}}" strip="{{no}}"></x-import>
+<div onClick="{{openInsp}}" style="padding: 0 4px;"><x-import component-from-global-scope="Tally.CostStrip" next="{{next}}" cache="{{cacheState}}" hit="{{hit}}"></x-import></div>
+</div>
+</sc-if>
+
+<sc-if value="{{isUsage}}" hint-placeholder-val="{{no}}">
+<div class="tc-grid-bg" style="flex: 1; min-height: 0; overflow-y: auto; padding: 20px 16px; display: flex; flex-direction: column; gap: 16px;">
+<div style="display: flex; align-items: center; gap: 8px;"><h1 class="tcm-title" style="flex: 1;">Usage</h1><x-import component-from-global-scope="Tally.SegmentedControl" size="sm" label="Range" options="{{ranges}}" value="30d"></x-import></div>
+<div style="background: var(--surface-raised); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px;">
+<div style="display: flex; align-items: center;"><p class="tcm-over" style="flex: 1;">Today's budget</p><span class="tcm-mono">$1.84 of $5.00</span></div>
+<x-import component-from-global-scope="Tally.ProgressBar" value="{{n37}}" label="37% used"></x-import>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;">
+<x-import component-from-global-scope="Tally.StatTile" label="Spent, 30 days" value="$12.48" delta="8% vs prior" dir="up-bad"></x-import>
+<x-import component-from-global-scope="Tally.StatTile" label="Cache saved, 7 days" value="+$3.21" delta="vs no cache" dir="up-good" highlight="{{yes}}" hero="{{yes}}"></x-import>
+<x-import component-from-global-scope="Tally.StatTile" label="Cache hit rate" value="84%" delta="+4 pts" dir="up-good"></x-import>
+<x-import component-from-global-scope="Tally.StatTile" label="Cache upkeep" value="$0.41" delta="312 pings"></x-import>
+</div>
+<div style="background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 10px;">
+<h2 class="tcm-sub">Daily spend</h2>
+<x-import component-from-global-scope="Tally.BarChart"></x-import>
+<x-import component-from-global-scope="Tally.Legend" items="{{legend}}"></x-import>
+</div>
+<div style="background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 10px;">
+<h2 class="tcm-sub">Cache hit rate</h2>
+<x-import component-from-global-scope="Tally.LineChart"></x-import>
+</div>
+<div style="background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 8px;">
+<h2 class="tcm-sub">By day</h2>
+<div style="overflow-x: auto;"><x-import component-from-global-scope="Tally.DataTable"></x-import></div>
+</div>
+</div>
+</sc-if>
+
+<!-- sidebar sheet -->
+<sc-if value="{{sideOpen}}" hint-placeholder-val="{{no}}">
+<div class="tcm-fade" onClick="{{closeAll}}" style="position: absolute; inset: 0; background: var(--scrim); z-index: 40;"></div>
+<div class="tcm-left" style="position: absolute; left: 0; top: 0; bottom: 0; width: 312px; z-index: 41; border-radius: 0 18px 18px 0; overflow: hidden; box-shadow: var(--shadow-modal, 0 32px 80px -20px rgba(27,26,24,0.32));">
+<dc-import name="Sidebar" d="{{side}}" hint-size="312px,844px"></dc-import>
+</div>
+</sc-if>
+
+<!-- inspector sheet -->
+<sc-if value="{{inspOpen}}" hint-placeholder-val="{{no}}">
+<div class="tcm-fade" onClick="{{closeAll}}" style="position: absolute; inset: 0; background: var(--scrim); z-index: 40;"></div>
+<div class="tcm-up holo-border holo-subtle" style="position: absolute; left: 0; right: 0; bottom: 0; height: 680px; z-index: 41; background: var(--surface); border: 1px solid var(--border); border-radius: 18px 18px 0 0; overflow: hidden; display: flex; flex-direction: column; box-shadow: var(--shadow-modal, 0 32px 80px -20px rgba(27,26,24,0.32));">
+<div style="display: flex; justify-content: center; padding-top: 8px; flex-shrink: 0;"><div style="width: 36px; height: 4px; border-radius: 9999px; background: var(--border-strong);"></div></div>
+<div style="flex: 1; min-height: 0;"><dc-import name="InspectorPanel" d="{{insp}}" hint-size="100%,100%"></dc-import></div>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"screen":{"editor":null},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  g(k, d) {
+    const s = this.state || {};
+    if (s[k] !== undefined) return s[k];
+    const scr = this.props.screen || 'thread';
+    const pre = {
+      thread: {},
+      composer: { composerFocus: true, composerText: 'Summarize that as one line for the settings help', streaming: false },
+      sidebar: { sideOpen: true },
+      inspector: { inspOpen: true },
+      usage: { view: 'usage' }
+    }[scr] || {};
+    if (pre[k] !== undefined) return pre[k];
+    return d;
+  }
+  renderVals() {
+    const theme = this.props.theme || 'light';
+    const view = this.g('view', 'thread');
+    const thread = this.g('thread', 'a');
+    const sel = this.g('sel', 2);
+    const src = (window.Tally && window.Tally.DEMO_LAYERS) || [];
+    const close = () => this.setState({ sideOpen: false, inspOpen: false });
+    const pick = (t) => () => this.setState({ thread: t, view: 'thread', sideOpen: false });
+    const go = (v) => () => this.setState({ view: v, sideOpen: false });
+    const side = {
+      theme: theme, search: '',
+      newThread: close,
+      groups: [
+        { label: 'Today', items: [{ title: 'Cache-aware request layout', active: view === 'thread' && thread === 'a', streaming: true, pick: pick('a') }] },
+        { label: 'Yesterday', items: [{ title: 'Refactor billing webhooks', active: view === 'thread' && thread === 'b', cost: '$0.22', pick: pick('b') }, { title: 'Tencent TKE pod restarts', unread: true, cost: '$0.09', pick: pick('b') }] },
+        { label: 'Last 7 days', items: [{ title: 'Postgres index for usage table', cost: '$0.31', pick: pick('b') }, { title: 'OpenRouter fallback order', cost: '$0.05', pick: pick('b') }] }
+      ],
+      nav: [
+        { label: 'Usage', icon: 'chart-bar', cls: view === 'usage' ? 'on' : '', go: go('usage') },
+        { label: 'Providers', icon: 'plug-connected', cls: '', go: close },
+        { label: 'Settings', icon: 'settings', cls: '', go: close }
+      ],
+      budget: { value: 37, label: '37% of $5.00', amount: '$1.84' },
+      budOk: true, budNear: false, budPaused: false, budOverride: false
+    };
+    const insp = {
+      theme: theme, cacheState: 'warm', cacheTime: '4:12',
+      keepNote: 'Keepalive on · refreshes 30s before expiry', used: '18.2k of 200k',
+      layers: src.map((l, i) => Object.assign({}, l, { selected: i === sel, pick: () => this.setState({ sel: i }) })),
+      spend: '$0.4821', upkeep: '$0.0310', hit: '84%', saved: '+$0.4127', repliesOnly: false,
+      toggleReplies: () => {}, condIdle: true, condRunning: false, condNoPay: false, condError: false,
+      condense: () => {}, retry: () => {}, close: close
+    };
+    const isB = thread === 'b';
+    return {
+      yes: true, no: false, n37: 37, theme: theme,
+      title: view === 'usage' ? 'Usage' : (isB ? 'Refactor billing webhooks' : 'Cache-aware request layout'),
+      isThreadish: view === 'thread', isUsage: view === 'usage',
+      threadA: !isB, threadB: isB,
+      cacheState: isB ? 'cold' : 'warm', cacheTime: isB ? undefined : '4:12',
+      next: isB ? '0.0148' : '0.0041', hit: isB ? '0' : '87',
+      streaming: !isB && !this.g('composerFocus', false),
+      composerFocus: this.g('composerFocus', false), composerText: this.g('composerText', ''),
+      sideOpen: this.g('sideOpen', false), inspOpen: this.g('inspOpen', false),
+      openSide: () => this.setState({ sideOpen: true }),
+      openInsp: () => this.setState({ inspOpen: true }),
+      closeAll: close,
+      side: side, insp: insp,
+      ranges: ['7d', '30d', '90d'],
+      legend: [{ name: 'Sonnet 5.5', key: 'chart-1', value: '$7.12' }, { name: 'Opus 5.5', key: 'chart-2', value: '$3.40' }, { name: 'GPT-5.2', key: 'chart-3', value: '$1.96' }],
+      code: "// 30s before the 5 minute expiry\nconst LEAD_MS = 30_000\nexport function schedule(t: Thread) {\n  const due = t.cacheWrittenAt + 300_000 - LEAD_MS\n  return setTimeout(() => ping(t.id), due - Date.now())\n}"
+    };
+  }
+}
+</script>
+</body>
+</html>
