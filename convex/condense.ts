@@ -9,6 +9,7 @@ import {
 } from "./_generated/server";
 import { activeBranch, sideJobModelFor } from "./chat";
 import { contextLayers } from "./inspector";
+import { warmAfterCondense } from "./keepalive";
 import { budgetReached } from "./lib/budget";
 import {
   condenseSettings,
@@ -178,6 +179,7 @@ export const save = internalMutation({
       tokens: args.usage?.outputTokens || Math.ceil(args.summary.length / 4),
     });
     await ctx.db.patch("threads", thread._id, { condenseFailure: undefined });
+    await warmAfterCondense(ctx, thread);
     return null;
   },
 });

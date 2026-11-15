@@ -53,8 +53,11 @@ function provider(summary: () => string | "fail" | "truncate") {
           ),
         );
       }
+      // Replies and keepalives write the whole request to the cache, as a real cached prefix would.
+      const usage = { input_tokens: 5, cache_creation_input_tokens: Math.max(0, input - 5), output_tokens: 1 };
+      if (body.max_tokens === 0) return Response.json({ type: "message", content: [], usage: { ...usage, output_tokens: 0 } });
       const reply = isTitleCall(body) ? "A title" : `Answer ${++n}`;
-      return new Response(sse(messageStart({ input_tokens: input, output_tokens: 1 }), textDelta(reply), messageDelta({ output_tokens: 3 }), messageStop));
+      return new Response(sse(messageStart(usage), textDelta(reply), messageDelta({ output_tokens: 3 }), messageStop));
     },
   };
 }
@@ -91,10 +94,11 @@ async function setup(condense: Partial<Doc<"settings">> = {}) {
   const setCondense = (fields: Partial<Doc<"settings">>) => t.run((ctx) => ctx.db.patch("settings", settingsId, fields));
   const bodies = () => fake!.requests.filter((r) => r.url.endsWith("/v1/messages")).map((r) => r.body as Body);
   const summaryCalls = () => bodies().filter(isSummaryCall);
-  const replyCalls = () => bodies().filter((b) => !isSummaryCall(b) && !isTitleCall(b));
+  const replyCalls = () => bodies().filter((b) => !isSummaryCall(b) && !isTitleCall(b) && b.max_tokens !== 0);
+  const keepaliveCalls = () => bodies().filter((b) => b.max_tokens === 0);
   const checkpoints = () => t.run((ctx) => ctx.db.query("checkpoints").collect());
   const inspector = () => owner.query(api.inspector.get, { threadId });
-  return { t, owner, ownerId, threadId, chat, setCondense, summaryCalls, replyCalls, checkpoints, inspector };
+  return { t, owner, ownerId, threadId, chat, setCondense, summaryCalls, replyCalls, keepaliveCalls, checkpoints, inspector };
 }
 
 // Builds `turns` turns with condensing off, then turns it back on: the next reply triggers one check.
@@ -254,6 +258,51 @@ describe("condensing after a reply", () => {
     for (let i = 1; i <= 6; i++) await s.chat(`Turn ${i} ${LONG}`);
     expect(s.summaryCalls()).toHaveLength(0);
     expect((await s.inspector())!.condense.state).toBe("off");
+  });
+});
+
+describe("after a checkpoint lands", () => {
+  test("the cache reads cold, and with the owner active a keepalive writes the new prefix right away", async () => {
+    const s = await setup();
+    fake = fakeFetch({ [ANTHROPIC]: provider(() => "Summary one") });
+    await longThread(s, 5);
+    await s.owner.mutation(api.chat.markActive, { threadId: s.threadId });
+    await s.chat(`Turn 6 ${LONG}`);
+
+    const warm = s.keepaliveCalls().at(-1)!;
+    expect(warm.messages[0]).toEqual({
+      role: "user",
+      content: [{ type: "text", text: `${SUMMARY_PREFIX}Summary one`, cache_control: { type: "ephemeral", ttl: "5m" } }],
+    });
+    // The kept turns, the latest reply marked as the breakpoint the next turn will share, then the nudge.
+    expect(warm.messages.slice(1).map((m) => text(m.content).slice(0, 6))).toEqual(["Turn 5", "Answer", "Turn 6", "Answer", "."]);
+    const rows = await s.t.run((ctx) => ctx.db.query("dailyUsage").collect());
+    expect(rows.some((r) => r.dimension === "upkeep")).toBe(true);
+    const thread = await s.t.run((ctx) => ctx.db.get("threads", s.threadId));
+    expect(thread!.cacheTouchedAt).toBeDefined(); // the warm keepalive touched the new prefix
+  });
+
+  test("with the owner away, nothing is sent and the next send pays the write", async () => {
+    const s = await setup();
+    fake = fakeFetch({ [ANTHROPIC]: provider(() => "Summary one") });
+    await longThread(s, 5);
+    const before = s.keepaliveCalls().length;
+    await s.chat(`Turn 6 ${LONG}`);
+    expect(await s.checkpoints()).toHaveLength(1);
+    expect(s.keepaliveCalls()).toHaveLength(before);
+    const thread = await s.t.run((ctx) => ctx.db.get("threads", s.threadId));
+    expect(thread!.cacheTouchedAt).toBeUndefined();
+    expect((await s.inspector())!.cache.expiresAt).toBeNull(); // cold: the cost strip prices a write
+  });
+
+  test("keepalive turned off means no warm-up either", async () => {
+    const s = await setup({ keepaliveEnabled: false });
+    fake = fakeFetch({ [ANTHROPIC]: provider(() => "Summary one") });
+    await longThread(s, 5);
+    await s.owner.mutation(api.chat.markActive, { threadId: s.threadId });
+    await s.chat(`Turn 6 ${LONG}`);
+    expect(await s.checkpoints()).toHaveLength(1);
+    expect(s.keepaliveCalls()).toHaveLength(0);
   });
 });
 

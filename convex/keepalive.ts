@@ -29,6 +29,22 @@ export const touchedCache = (usage: Usage) =>
   usage.cacheReadTokens + usage.cacheWriteTokens5m + usage.cacheWriteTokens1h >
   0;
 
+// After a condense (spec phase 6): the cached prefix no longer matches, so the thread reads cold,
+// and a keepalive writes the new prefix now if the owner is still in the thread.
+export async function warmAfterCondense(ctx: MutationCtx, thread: Doc<"threads">) {
+  if (await keepalivePending(ctx, thread))
+    await ctx.scheduler.cancel(thread.keepaliveJobId!);
+  const keepaliveJobId = await ctx.scheduler.runAfter(
+    0,
+    internal.chatActions.keepalive,
+    { threadId: thread._id, warm: true },
+  );
+  await ctx.db.patch("threads", thread._id, {
+    cacheTouchedAt: undefined,
+    keepaliveJobId,
+  });
+}
+
 // Whether this thread has a keepalive job still waiting to run.
 export async function keepalivePending(ctx: QueryCtx, thread: Doc<"threads">) {
   if (!thread.keepaliveJobId) return false;
@@ -72,9 +88,11 @@ const providerFields = v.object({
 // What the keepalive action sends, or null when any condition says it can't help:
 // keepalive is off, the owner is over their daily budget, the thread is gone, its provider isn't Anthropic style, the latest reply is streaming or
 // didn't report caching, the owner was last active over 30 minutes ago, or the cache is cold.
-// `now` comes from the action because queries must not read the clock.
+// `warm` (right after a condense changed the prefix, spec phase 6) runs on a cold cache too, so
+// the new prefix is written before the owner's next send. `now` comes from the action because
+// queries must not read the clock.
 export const input = internalQuery({
-  args: { threadId: v.id("threads"), now: v.number() },
+  args: { threadId: v.id("threads"), now: v.number(), warm: v.optional(v.boolean()) },
   returns: v.union(
     v.null(),
     v.object({
@@ -96,7 +114,7 @@ export const input = internalQuery({
       allowlist: v.array(v.string()),
     }),
   ),
-  handler: async (ctx, { threadId, now }) => {
+  handler: async (ctx, { threadId, now, warm }) => {
     const thread = await ctx.db.get("threads", threadId);
     if (!thread?.activeLeafId) return null;
     const provider = await ctx.db.get("providers", thread.providerId);
@@ -115,7 +133,8 @@ export const input = internalQuery({
       now - thread.lastActiveAt > ACTIVE_WINDOW_MS
     )
       return null;
-    if (cacheState(cacheExpiresAt(thread), now).state !== "warm") return null;
+    if (!warm && cacheState(cacheExpiresAt(thread), now).state !== "warm")
+      return null;
 
     const settings = await ctx.db
       .query("settings")

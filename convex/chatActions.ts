@@ -288,13 +288,14 @@ export const condense = internalAction({
 // (see sendAnthropicKeepalive) with max_tokens 0, so the cache stays warm while the owner is in the thread. Runs only when
 // keepalive.input says it can help; any failure just ends the cycle until the next reply.
 export const keepalive = internalAction({
-  args: { threadId: v.id("threads") },
+  args: { threadId: v.id("threads"), warm: v.optional(v.boolean()) },
   returns: v.null(),
-  handler: async (ctx, { threadId }) => {
+  handler: async (ctx, { threadId, warm }) => {
     const startedAt = Date.now();
     const input = await ctx.runQuery(internal.keepalive.input, {
       threadId,
       now: startedAt,
+      warm,
     });
     if (!input) return null;
     let usage: NormalizedUsage | undefined;
