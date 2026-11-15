@@ -1,12 +1,7 @@
 import type { TestProject } from "vitest/node";
 import { exportJWK, exportPKCS8, generateKeyPair } from "jose";
 
-declare module "vitest" {
-  export interface ProvidedContext {
-    authEnv: Record<string, string>;
-  }
-}
-
+import "./authEnv"; // declares the provided authEnv type
 // Convex Auth needs signing keys and the vault a master key. RSA key generation is slow, so it
 // runs once here instead of in every test file (doing it per file timed out under load).
 export default async function setup(project: TestProject) {
