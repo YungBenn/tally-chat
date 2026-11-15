@@ -1,17 +1,15 @@
 "use client";
 
 import {
-  IconArrowDown,
-  IconChevronLeft,
-  IconChevronRight,
   IconLayoutSidebarRight,
+  IconMessagePlus,
+  IconPlayerPlay,
   IconPencil,
   IconPin,
   IconPinFilled,
   IconRefresh,
   IconArrowsExchange,
   IconTrash,
-  IconUser,
 } from "@tabler/icons-react";
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
@@ -28,10 +26,22 @@ import EffortControl from "@/components/EffortControl";
 import ModeControl from "@/components/ModeControl";
 import ModelMenu, { sameModel, type ModelChoice } from "@/components/ModelMenu";
 import { Button as UiButton, IconButton } from "@/components/ui/button";
-import { Badge } from "@/components/ui/feedback";
+import { Badge, EmptyState, ErrorState } from "@/components/ui/feedback";
+import { Textarea as UiTextarea } from "@/components/ui/fields";
+import {
+  BranchSwitcher,
+  CheckpointMarker,
+  ImageThumb,
+  JumpToLatest,
+  MessageActions,
+  ReplyMeta,
+  StreamRail,
+  ThinkingIndicator,
+} from "@/components/Messages";
 import { Dialog, Tooltip } from "@/components/ui/overlay";
 import { SHORTCUTS } from "@/lib/shortcuts";
-import { useShortcutLabel } from "@/lib/useShortcut";
+import { useShortcut, useShortcutLabel } from "@/lib/useShortcut";
+import { toast } from "@/components/ui/toast";
 import { imageTokens } from "@/convex/lib/images";
 import type { Effort } from "@/convex/lib/effort";
 import type { MessageImage } from "@/convex/lib/images";
@@ -41,96 +51,16 @@ import {
   type OutputMode,
 } from "@/convex/lib/outputModes";
 import Markdown, { CopyButton } from "@/components/Markdown";
-import { Button } from "@/components/wensity/button";
-import { Textarea } from "@/components/wensity/text-area";
 import { api } from "@/convex/_generated/api";
-import { estimateTokens, metaLine, tokens, usd } from "@/lib/format";
+import { estimateTokens, tokens, usd } from "@/lib/format";
 import { useStoredChoice, useStoredFlag } from "@/lib/storedFlag";
 import { useCacheState } from "@/lib/useCacheState";
 import { usePresence } from "@/lib/usePresence";
 import { cn } from "@/lib/utils";
 import type { Id } from "@/convex/_generated/dataModel";
 
-// The muted, always-visible metadata line under a reply (cost layer: monospace, tabular).
-const meta = "font-mono text-xs leading-5 text-muted-foreground tabular-nums";
-
-// "‹ 2/3 ›" between versions of a message (retries or edits), shown only when there are several.
-function Versions({
-  ids,
-  current,
-}: {
-  ids: Id<"messages">[];
-  current: Id<"messages">;
-}) {
-  const switchBranch = useMutation(api.chat.switchBranch);
-  if (ids.length < 2) return null;
-  const i = ids.indexOf(current);
-  const go = (j: number) => void switchBranch({ messageId: ids[j] });
-  return (
-    <span className="inline-flex items-center font-mono text-xs text-muted-foreground tabular-nums">
-      <button
-        className="icon-action"
-        disabled={i === 0}
-        onClick={() => go(i - 1)}
-        aria-label="Previous version"
-        title="Previous version"
-      >
-        <IconChevronLeft />
-      </button>
-      {i + 1}/{ids.length}
-      <button
-        className="icon-action"
-        disabled={i === ids.length - 1}
-        onClick={() => go(i + 1)}
-        aria-label="Next version"
-        title="Next version"
-      >
-        <IconChevronRight />
-      </button>
-    </span>
-  );
-}
-
-// One message row: avatar, author, body, and an action bar that shows on hover (always on the latest reply).
-function MessageRow({
-  id,
-  avatar,
-  author,
-  actions,
-  latest,
-  highlighted,
-  children,
-}: {
-  id: Id<"messages">;
-  avatar: React.ReactNode;
-  author: string;
-  actions?: React.ReactNode;
-  latest?: boolean;
-  highlighted?: boolean; // just opened from a search hit
-  children: React.ReactNode;
-}) {
-  return (
-    <article
-      id={`m-${id}`}
-      className={`group flex scroll-mt-4 gap-4 rounded-[var(--primitive-radius-item)] transition-[background-color,box-shadow] duration-700 ${highlighted ? "bg-primitive-surface-selected shadow-[0_0_0_8px_var(--primitive-surface-selected)]" : "shadow-[0_0_0_8px_transparent]"}`}
-    >
-      <div className="grid size-7 shrink-0 place-items-center rounded-full border border-border bg-surface text-xs font-semibold [&_svg]:size-4">
-        {avatar}
-      </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <h3 className="text-sm font-semibold leading-7">{author}</h3>
-        {children}
-        {actions && (
-          <div
-            className={`-ml-1.5 flex min-h-7 flex-wrap items-center gap-0.5 transition-opacity ${latest ? "" : "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"}`}
-          >
-            {actions}
-          </div>
-        )}
-      </div>
-    </article>
-  );
-}
+// Provider errors arrive without a final period; the charge note follows them.
+const sentence = (s: string) => (/[.!?]$/.test(s.trim()) ? s.trim() : `${s.trim()}.`);
 
 // Pin a message so it's never folded into a summary (spec phase 6). Once condensed, fixed.
 function PinButton({
@@ -151,16 +81,14 @@ function PinButton({
       ? "Unpin"
       : "Pin: never fold into a summary";
   return (
-    <button
-      className="icon-action"
+    <IconButton
+      icon={pinned ? <IconPinFilled /> : <IconPin />}
+      label={label}
+      size="sm"
       disabled={locked}
-      aria-label={label}
       aria-pressed={pinned}
-      title={label}
       onClick={() => void setPinned({ messageId: id, pinned: !pinned })}
-    >
-      {pinned ? <IconPinFilled /> : <IconPin />}
-    </button>
+    />
   );
 }
 
@@ -196,20 +124,70 @@ function UserMessage({
   const [draft, setDraft] = useState(text);
 
   return (
-    <MessageRow
-      id={id}
-      highlighted={highlighted}
-      avatar={<IconUser />}
-      author="You"
-      actions={
-        !editing && (
-          <>
-            <CopyButton text={text} className="icon-action" />
-            <button
-              className="icon-action"
+    <article
+      id={`m-${id}`}
+      className={cn("tc-turn tc-turn-user", highlighted && "tc-hl")}
+    >
+      {editing ? (
+        <form
+          className="tc-edit-card"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void edit({ messageId: id, content: draft, mode }).then(() =>
+              setEditing(false),
+            );
+          }}
+        >
+          <UiTextarea
+            label="Edit message"
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              onType();
+            }}
+            rows={3}
+            autoFocus
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            {breakCost !== null && (
+              <span className="tc-mono text-mono-sm text-foreground-muted">
+                Breaks the cache · ~{usd(breakCost)} to rewrite
+              </span>
+            )}
+            <span className="flex-1" />
+            <UiButton variant="ghost" size="sm" onClick={() => setEditing(false)}>
+              Cancel
+            </UiButton>
+            <UiButton type="submit" variant="primary" size="sm" disabled={!draft.trim()}>
+              Save and send
+            </UiButton>
+          </div>
+        </form>
+      ) : (
+        <>
+          {images && images.length > 0 && (
+            <div className="flex flex-wrap justify-end gap-2">
+              {images.map((image, i) => (
+                <ImageThumb key={i} index={i} {...image} />
+              ))}
+            </div>
+          )}
+          <div className="tc-user-bubble">{text}</div>
+          <MessageActions>
+            <BranchSwitcher ids={siblingIds} current={id} />
+            {breakCost !== null && (
+              <Tooltip content="Editing forks the thread here, so everything after the system prompt is written to the cache again">
+                <span className="tc-mono px-1 text-mono-xs text-foreground-subtle">
+                  breaks cache · +{usd(breakCost)}
+                </span>
+              </Tooltip>
+            )}
+            <CopyButton text={text} />
+            <IconButton
+              icon={<IconPencil />}
+              label="Edit"
+              size="sm"
               disabled={busy}
-              aria-label="Edit"
-              title="Edit"
               onClick={() => {
                 if (
                   breakCost !== null &&
@@ -222,86 +200,12 @@ function UserMessage({
                 setDraft(text);
                 setEditing(true);
               }}
-            >
-              <IconPencil />
-            </button>
+            />
             <PinButton id={id} pinned={pinned} locked={pinLocked} />
-            {breakCost !== null && (
-              <span
-                className="font-mono text-xs text-muted-foreground"
-                title="Editing forks the thread here, so everything after the system prompt is written to the cache again"
-              >
-                breaks cache · +{usd(breakCost)}
-              </span>
-            )}
-            <Versions ids={siblingIds} current={id} />
-          </>
-        )
-      }
-    >
-      {editing ? (
-        <form
-          className="flex flex-col gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void edit({ messageId: id, content: draft, mode }).then(() =>
-              setEditing(false),
-            );
-          }}
-        >
-          <Textarea
-            value={draft}
-            onChange={(e) => {
-              setDraft(e.target.value);
-              onType();
-            }}
-            autoResize
-            minRows={2}
-            autoFocus
-            aria-label="Edit message"
-            textareaClassName="text-[15px]"
-          />
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" size="sm" disabled={!draft.trim()}>
-              Save & send
-            </Button>
-          </div>
-        </form>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {images && images.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {images.map((image, i) =>
-                image.url ? (
-                  <a
-                    key={i}
-                    href={image.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    title="Open full size"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element -- a stored upload, already downscaled */}
-                    <img
-                      src={image.url}
-                      alt={`Attached image ${i + 1}`}
-                      width={image.width}
-                      height={image.height}
-                      className="max-h-60 w-auto rounded-lg border border-border object-contain"
-                    />
-                  </a>
-                ) : null,
-              )}
-            </div>
-          )}
-          <div className="text-[15px] leading-7 whitespace-pre-wrap [overflow-wrap:anywhere]">
-            {text}
-          </div>
-        </div>
+          </MessageActions>
+        </>
       )}
-    </MessageRow>
+    </article>
   );
 }
 
@@ -323,6 +227,9 @@ function Condensed<M extends { _id: Id<"messages">; pinned: boolean }>({
   const covered = checkpoint
     ? messages.slice(0, checkpoint.coveredCount).filter((m) => !m.pinned)
     : [];
+  const pinnedCount = checkpoint
+    ? messages.slice(0, checkpoint.coveredCount).filter((m) => m.pinned).length
+    : 0;
   // Opened during render, so the hit's row exists by the time the page scrolls to it.
   const [revealed, setRevealed] = useState<Id<"messages"> | null>(null);
   if (revealId !== revealed) {
@@ -331,31 +238,21 @@ function Condensed<M extends { _id: Id<"messages">; pinned: boolean }>({
   }
   if (!checkpoint) return null;
   return (
-    <section
-      aria-label="Condensed turns"
-      className="flex flex-col gap-3 rounded-[var(--primitive-radius-item)] border border-border bg-surface px-4 py-3"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="font-mono text-xs text-muted-foreground">
-          {checkpoint.turns === 1
-            ? "Turn 1 condensed"
-            : `Turns 1–${checkpoint.turns} condensed`}
-        </h3>
-        <button
-          type="button"
-          className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-          aria-expanded={open}
-          onClick={() => setOpen((o) => !o)}
-        >
-          {open ? "Hide the original turns" : "Show the original turns"}
-        </button>
-      </div>
-      <div className="text-sm text-muted-foreground">
-        <Markdown text={checkpoint.summary} />
-      </div>
+    <section aria-label="Condensed turns" className="flex flex-col gap-4">
+      <CheckpointMarker turns={checkpoint.turns} open={open} onToggle={() => setOpen((o) => !o)} />
       {open && (
-        <div className="flex flex-col gap-5 border-t border-border pt-4">
-          {covered.map(render)}
+        <div className="tc-summary tc-banner-in">
+          <p className="text-overline text-foreground-muted uppercase">Summary</p>
+          <Markdown text={checkpoint.summary} className="tc-prose tc-prose-sm" />
+          {pinnedCount > 0 && (
+            <p className="flex items-center gap-2 text-body-sm text-foreground-muted">
+              <IconPin size={14} stroke={1.5} />
+              {pinnedCount === 1
+                ? "1 pinned message kept word for word, shown below."
+                : `${pinnedCount} pinned messages kept word for word, shown below.`}
+            </p>
+          )}
+          <div className="tc-col-msg mt-2 border-t border-border pt-6">{covered.map(render)}</div>
         </div>
       )}
     </section>
@@ -517,6 +414,12 @@ export default function ThreadPage() {
   const last = thread?.messages.at(-1);
   const streaming = last?.status === "streaming";
 
+  // ⌘⇧C copies the last finished reply on this branch.
+  useShortcut(SHORTCUTS.copyLastReply, () => {
+    const reply = thread?.messages.findLast((m) => m.role === "assistant" && m.status !== "streaming" && m.text);
+    if (reply)
+      void navigator.clipboard.writeText(reply.text).then(() => toast({ title: "Copied the last reply" }));
+  });
   const toBottom = () =>
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
   // Follow new text only while the reader is at the bottom, so scrolling up to read isn't yanked back.
@@ -565,16 +468,18 @@ export default function ThreadPage() {
   if (thread === null) {
     return (
       <ChatShell>
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4">
-          <p className="text-xl font-semibold tracking-[-0.02em] text-muted-foreground">
-            This thread was deleted.
-          </p>
-          <Link
-            href="/"
-            className="text-sm underline underline-offset-2 hover:text-foreground"
-          >
-            Start a new thread
-          </Link>
+        <div className="flex flex-1 flex-col items-center justify-center px-4">
+          <EmptyState
+            className="w-full max-w-md"
+            title="This thread was deleted."
+            description="It no longer exists on this server. Its spend still counts in Usage."
+            action={
+              <Link href="/" className="tc-btn tc-btn-primary holo-border holo-sweep">
+                <IconMessagePlus size={16} stroke={1.5} />
+                New thread
+              </Link>
+            }
+          />
         </div>
       </ChatShell>
     );
@@ -599,26 +504,68 @@ export default function ThreadPage() {
         highlighted={highlighted === m._id}
       />
     ) : (
-      <MessageRow
+      <article
         key={m._id}
-        id={m._id}
-        highlighted={highlighted === m._id}
-        avatar={<span className="font-mono">t</span>}
-        author={m.modelName ?? m.model ?? "Assistant"}
-        latest={m._id === last?._id}
-        actions={
-          m.status !== "streaming" && (
-            <>
-              <CopyButton text={m.text} className="icon-action" />
-              <button
-                className="icon-action"
+        id={`m-${m._id}`}
+        className={cn("tc-turn tc-assistant", highlighted === m._id && "tc-hl")}
+        data-streaming={m.status === "streaming" ? "true" : undefined}
+      >
+        {m.status === "streaming" && m.text && <StreamRail />}
+        {m.status === "streaming" && !m.text && <ThinkingIndicator />}
+        {m.text && <Markdown text={m.text} />}
+        {m.status === "error" && (
+          <ErrorState
+            title="Reply failed"
+            actions={
+              <UiButton
+                size="sm"
+                icon={<IconRefresh />}
                 disabled={streaming}
                 onClick={() => void retry({ messageId: m._id, mode })}
-                aria-label="Retry"
-                title="Retry"
               >
-                <IconRefresh />
-              </button>
+                Retry
+              </UiButton>
+            }
+          >
+            {sentence(m.error ?? "Something went wrong")}
+            {!m.usage && " Nothing was charged."}
+          </ErrorState>
+        )}
+        {m.status === "streaming" ? (
+          m.text && (
+            <p className="tc-mono text-mono-sm text-foreground-subtle">
+              ~{tokens(estimateTokens(m.text))} out
+            </p>
+          )
+        ) : (
+          <div className="tc-msg-foot">
+            <BranchSwitcher ids={m.siblingIds} current={m._id} />
+            {m.usage && (
+              <ReplyMeta
+                messageId={m._id}
+                model={m.modelName ?? m.model ?? ""}
+                effort={m.effort}
+                costMicroUsd={m.costMicroUsd}
+                usage={m.usage}
+              />
+            )}
+            {m.status === "stopped" && <Badge>Stopped</Badge>}
+            {m.truncated && (
+              <Badge tone="warning" dot>
+                Hit the output limit
+              </Badge>
+            )}
+            {m.pinned && <Badge tone="accent">Pinned</Badge>}
+            <span className="flex-1" />
+            <MessageActions shown={m._id === last?._id}>
+              <CopyButton text={m.text} />
+              <IconButton
+                icon={<IconRefresh />}
+                label="Retry"
+                size="sm"
+                disabled={streaming}
+                onClick={() => void retry({ messageId: m._id, mode })}
+              />
               <ModelMenu
                 title="Retry with"
                 threadId={threadId}
@@ -635,83 +582,30 @@ export default function ThreadPage() {
                   })
                 }
                 trigger={
-                  <button
-                    className="icon-action"
+                  <UiButton
+                    variant="ghost"
+                    size="sm"
+                    iconOnly
+                    icon={<IconArrowsExchange />}
                     disabled={streaming}
-                    aria-label="Retry with…"
+                    aria-label="Retry with another model"
                     title="Retry with another model"
-                  >
-                    <IconArrowsExchange />
-                  </button>
+                  />
                 }
               />
               <PinButton id={m._id} pinned={m.pinned} locked={m.pinLocked} />
-              <Versions ids={m.siblingIds} current={m._id} />
-            </>
-          )
-        }
-      >
-        {m.text ? (
-          <Markdown text={m.text} />
-        ) : (
-          m.status === "streaming" && (
-            <span className="leading-7 text-muted-foreground">Thinking…</span>
-          )
+            </MessageActions>
+          </div>
         )}
-        {m.status === "streaming" && m.text && (
-          <span
-            aria-hidden
-            className="mt-1 inline-block size-2.5 animate-pulse rounded-full bg-foreground"
-          />
+        {m.truncated && m._id === last?._id && (
+          <div className="flex items-center gap-2.5">
+            <UiButton variant="outline" size="sm" icon={<IconPlayerPlay />} onClick={() => void continueReply()}>
+              Continue
+            </UiButton>
+            <span className="tc-mono text-mono-sm text-foreground-muted">reuses the cached prefix</span>
+          </div>
         )}
-        {m.status === "stopped" && (
-          <p className="font-mono text-xs text-muted-foreground">stopped</p>
-        )}
-        {m.status === "error" && (
-          <p
-            role="alert"
-            className="rounded-[var(--primitive-radius-item)] border border-[var(--primitive-destructive-border)] px-3 py-2 text-sm text-primitive-destructive"
-          >
-            {m.error ?? "Something went wrong"}
-          </p>
-        )}
-        {m.status === "streaming"
-          ? m.text && (
-              <p className={meta}>~{tokens(estimateTokens(m.text))} out</p>
-            )
-          : m.usage && (
-              <button
-                type="button"
-                className={`${meta} self-start text-left hover:text-foreground`}
-                title="Open this reply in the inspector"
-                onClick={() => {
-                  setTurnId(m._id);
-                  openInspector();
-                }}
-              >
-                {metaLine(
-                  m.modelName ?? m.model ?? "",
-                  m.costMicroUsd,
-                  m.usage,
-                  m.effort,
-                )}
-              </button>
-            )}
-        {m.truncated && (
-          <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-            Cut off at the length limit.
-            {m._id === last?._id && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void continueReply()}
-              >
-                Continue
-              </Button>
-            )}
-          </p>
-        )}
-      </MessageRow>
+      </article>
     );
 
   return (
@@ -787,7 +681,7 @@ export default function ThreadPage() {
                 );
               }}
             >
-              <div className="mx-auto flex max-w-3xl flex-col gap-5 px-4 pt-4 pb-10">
+              <div className="tc-col-msg tc-thread-col">
                 {thread && (
                   <Condensed
                     checkpoint={thread.checkpoint}
@@ -805,18 +699,7 @@ export default function ThreadPage() {
                   .map(renderMessage)}
               </div>
             </div>
-            {!atBottom && (
-              <Button
-                variant="outline"
-                size="icon"
-                className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full shadow-md [--surface-face:var(--surface)]"
-                aria-label="Scroll to bottom"
-                title="Scroll to bottom"
-                onClick={toBottom}
-              >
-                <IconArrowDown />
-              </Button>
-            )}
+            {!atBottom && <JumpToLatest onClick={toBottom} />}
           </div>
           <Composer
             streaming={streaming}
