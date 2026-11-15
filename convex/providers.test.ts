@@ -145,4 +145,22 @@ describe("managing a provider", () => {
     await owner.mutation(api.providers.remove, { providerId });
     expect(await owner.query(api.providers.list, {})).toEqual([]);
   });
+
+  test("the free flag can be turned off, and the provider's models are priced again", async () => {
+    const { t, owner } = await setup();
+    fake = fakeFetch({ [MODELS_URL]: modelsOk });
+    const providerId = await owner.action(api.providerActions.add, { ...input, free: true });
+    const priced = () => owner.query(api.inspector.newThread, { providerId, modelId: "claude-sonnet-5-5" });
+    expect((await priced())!.prices).toMatchObject({ input: 0, output: 0 });
+
+    await owner.mutation(api.providers.setFree, { providerId, free: false });
+    expect((await owner.query(api.providers.list, {}))[0].free).toBe(false);
+    expect((await priced())!.prices!.input).toBeGreaterThan(0);
+
+    // Someone else's session can't change it.
+    const otherId = await t.run((ctx) => ctx.db.insert("users", { email: "other" }));
+    await expect(
+      t.withIdentity({ subject: `${otherId}|session` }).mutation(api.providers.setFree, { providerId, free: true }),
+    ).rejects.toThrow();
+  });
 });

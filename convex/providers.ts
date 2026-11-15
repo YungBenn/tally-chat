@@ -92,6 +92,21 @@ export const updateModel = mutation({
   },
 });
 
+// Whether calls through this provider cost nothing (local models). Changing it applies to calls
+// from now on; recorded costs stay as they were.
+export const setFree = mutation({
+  args: { providerId: v.id("providers"), free: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, { providerId, free }) => {
+    const ownerId = await requireOwner(ctx);
+    const provider = await ctx.db.get("providers", providerId);
+    if (!provider || provider.ownerId !== ownerId)
+      throw new ConvexError("Provider not found");
+    await ctx.db.patch("providers", providerId, { free });
+    return null;
+  },
+});
+
 export const remove = mutation({
   args: { providerId: v.id("providers") },
   returns: v.null(),

@@ -232,6 +232,7 @@ function AddProvider({ onDone, canCancel }: { onDone: () => void; canCancel: boo
 function ProviderDetail({ provider, onBack }: { provider: Provider; onBack: () => void }) {
   const updateModel = useMutation(api.providers.updateModel);
   const remove = useMutation(api.providers.remove);
+  const setFree = useMutation(api.providers.setFree);
   const refreshModels = useAction(api.providerActions.refreshModels);
   const [refresh, setRefresh] = useState<"idle" | "busy" | string>("idle");
   const [replacing, setReplacing] = useState(false);
@@ -282,6 +283,22 @@ function ProviderDetail({ provider, onBack }: { provider: Provider; onBack: () =
         {replacing && (
           <ReplaceKey providerId={provider._id} onDone={() => setReplacing(false)} />
         )}
+      </div>
+
+      <div className="tc-card flex flex-col gap-1.5 p-5">
+        <Switch
+          checked={provider.free}
+          onCheckedChange={(free) =>
+            void setFree({ providerId: provider._id, free }).then(() =>
+              toast({ title: free ? "Calls are now recorded as $0" : "Calls are priced again" }),
+            )
+          }
+          label="Free provider: record every call through it as $0"
+        />
+        <p className="pl-[38px] text-body-sm text-foreground-muted">
+          For local models you don&apos;t pay for. Leave it off for anything that bills you, including a proxy in front
+          of a paid API. Changes apply to calls from now on.
+        </p>
       </div>
 
       <div className="flex items-center gap-3">
