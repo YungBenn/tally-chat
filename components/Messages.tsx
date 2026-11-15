@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  IconAlertTriangle,
   IconArrowDown,
   IconArrowsMinimize,
   IconChevronLeft,
@@ -8,10 +9,10 @@ import {
   IconPhoto,
 } from "@tabler/icons-react";
 import { useMutation, useQuery } from "convex/react";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge, HoloGradient } from "@/components/ui/feedback";
-import { Popover } from "@/components/ui/overlay";
+import { Dialog, Popover } from "@/components/ui/overlay";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { tokens, totalInput, usd } from "@/lib/format";
@@ -51,12 +52,15 @@ export function MessageActions({
 export function BranchSwitcher({ ids, current }: { ids: Id<"messages">[]; current: Id<"messages"> }) {
   const switchBranch = useMutation(api.chat.switchBranch);
   const [dir, setDir] = useState<"next" | "prev" | undefined>();
+  // The slide follows the version actually shown, so ⌥←/⌥→ animate too.
+  const [shown, setShown] = useState(current);
+  if (shown !== current) {
+    setShown(current);
+    setDir(ids.indexOf(current) > ids.indexOf(shown) ? "next" : "prev");
+  }
   if (ids.length < 2) return null;
   const i = ids.indexOf(current);
-  const go = (d: 1 | -1) => {
-    setDir(d > 0 ? "next" : "prev");
-    void switchBranch({ messageId: ids[i + d] });
-  };
+  const go = (d: 1 | -1) => void switchBranch({ messageId: ids[i + d] });
   return (
     <span className="tc-branch" role="group" aria-label={`Version ${i + 1} of ${ids.length}`}>
       <button type="button" aria-label="Previous version" disabled={i <= 0} onClick={() => go(-1)}>
@@ -219,6 +223,48 @@ export function CheckpointMarker({
         <span className="tc-num">{open ? "hide" : "show"}</span>
       </button>
     </div>
+  );
+}
+
+/**
+ * Before an edit or effort change that rewrites the cache (design system: CacheBreakWarning).
+ * States the extra cost first; focus starts on the cheaper path, and Esc takes it.
+ */
+export function CacheBreakDialog({
+  open,
+  extraMicroUsd,
+  action,
+  body,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  extraMicroUsd: number;
+  action: { verb: string; confirm: string }; // "Editing this message", "Edit anyway"
+  body: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const safe = useRef<HTMLButtonElement>(null);
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => !o && onCancel()}
+      icon={<IconAlertTriangle size={18} stroke={1.5} />}
+      title={`${action.verb} costs ~${usd(extraMicroUsd)} more than continuing.`}
+      description={body}
+      initialFocus={safe}
+      actions={
+        <>
+          <Button ref={safe} onClick={onCancel}>
+            Continue instead
+          </Button>
+          <Button variant="primary" onClick={onConfirm}>
+            {action.confirm}
+          </Button>
+        </>
+      }
+    />
   );
 }
 

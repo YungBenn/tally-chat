@@ -37,6 +37,7 @@ import {
   ReplyMeta,
   StreamRail,
   ThinkingIndicator,
+  CacheBreakDialog,
 } from "@/components/Messages";
 import { Dialog, Tooltip } from "@/components/ui/overlay";
 import { SHORTCUTS } from "@/lib/shortcuts";
@@ -105,7 +106,9 @@ function UserMessage({
   confirmAbove,
   mode,
   highlighted,
+  editRequest,
 }: {
+  editRequest: number | null; // bumped when ↑ in an empty composer asks to edit this message
   mode: OutputMode;
   highlighted: boolean;
   id: Id<"messages">;
@@ -122,6 +125,22 @@ function UserMessage({
   const edit = useMutation(api.chat.edit);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(text);
+  const [confirming, setConfirming] = useState(false);
+  const begin = () => {
+    setConfirming(false);
+    setDraft(text);
+    setEditing(true);
+  };
+  // Above the owner's threshold, editing asks first (spec phase 3, cache-break warning).
+  const requestEdit = () =>
+    breakCost !== null && breakCost > confirmAbove ? setConfirming(true) : begin();
+  const [seenRequest, setSeenRequest] = useState(editRequest);
+  if (editRequest !== seenRequest) {
+    setSeenRequest(editRequest);
+    if (editRequest !== null && !busy && !editing) requestEdit();
+  }
+  const save = () =>
+    draft.trim() && void edit({ messageId: id, content: draft, mode }).then(() => setEditing(false));
 
   return (
     <article
@@ -133,9 +152,16 @@ function UserMessage({
           className="tc-edit-card"
           onSubmit={(e) => {
             e.preventDefault();
-            void edit({ messageId: id, content: draft, mode }).then(() =>
-              setEditing(false),
-            );
+            save();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              setEditing(false);
+            } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              save();
+            }
           }}
         >
           <UiTextarea
@@ -188,22 +214,21 @@ function UserMessage({
               label="Edit"
               size="sm"
               disabled={busy}
-              onClick={() => {
-                if (
-                  breakCost !== null &&
-                  breakCost > confirmAbove &&
-                  !confirm(
-                    `Editing here breaks the prompt cache: the next send costs about ${usd(breakCost)} more than continuing. Edit anyway?`,
-                  )
-                )
-                  return;
-                setDraft(text);
-                setEditing(true);
-              }}
+              onClick={requestEdit}
             />
             <PinButton id={id} pinned={pinned} locked={pinLocked} />
           </MessageActions>
         </>
+      )}
+      {breakCost !== null && (
+        <CacheBreakDialog
+          open={confirming}
+          extraMicroUsd={breakCost}
+          action={{ verb: "Editing this message", confirm: "Edit anyway" }}
+          body="Editing forks the thread here, so everything after the system prompt is written to the cache again. Continuing keeps the cache."
+          onConfirm={begin}
+          onCancel={() => setConfirming(false)}
+        />
       )}
     </article>
   );
@@ -339,14 +364,30 @@ export default function ThreadPage() {
           )
         : 0;
     const threshold = settings?.cacheBreakConfirmMicroUsd ?? 100_000;
-    if (
-      extra > threshold &&
-      !confirm(
-        `Changing effort on this model breaks the prompt cache: the next send costs about ${usd(extra)} more. Change it anyway?`,
-      )
-    )
-      return;
-    await setThreadEffort({ threadId, effort: level });
+    if (extra > threshold) setEffortBreak({ level, extra });
+    else await setThreadEffort({ threadId, effort: level });
+  };
+  // An effort change waiting on the cache-break dialog.
+  const [effortBreak, setEffortBreak] = useState<{ level: Effort; extra: number } | null>(null);
+  // ↑ in an empty composer: edit the last message you sent on this branch.
+  const [editTarget, setEditTarget] = useState<{ id: Id<"messages">; n: number } | null>(null);
+  const editLast = () => {
+    const mine = thread?.messages.findLast((m) => m.role === "user");
+    if (mine) {
+      setEditTarget({ id: mine._id, n: (editTarget?.n ?? 0) + 1 });
+      document.getElementById(`m-${mine._id}`)?.scrollIntoView({ block: "nearest" });
+    }
+  };
+  // ⌥← / ⌥→ with focus inside a message: its previous or next version.
+  const onBranchKeys = (e: React.KeyboardEvent) => {
+    if (!e.altKey || e.metaKey || e.ctrlKey || e.target instanceof HTMLTextAreaElement) return;
+    const d = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0;
+    const id = (e.target as HTMLElement).closest("article[id^='m-']")?.id.slice(2);
+    const m = d && id ? thread?.messages.find((x) => x._id === id) : undefined;
+    const next = m?.siblingIds[m.siblingIds.indexOf(m._id) + d];
+    if (!next) return;
+    e.preventDefault();
+    void switchBranch({ messageId: next });
   };
 
   // Continue a cut-off reply: an ordinary next turn (5.5 models don't allow prefill).
@@ -503,6 +544,7 @@ export default function ThreadPage() {
         confirmAbove={settings?.cacheBreakConfirmMicroUsd ?? 100_000}
         mode={mode}
         highlighted={highlighted === m._id}
+        editRequest={editTarget?.id === m._id ? editTarget.n : null}
       />
     ) : (
       <article
@@ -642,6 +684,19 @@ export default function ThreadPage() {
             aria-pressed={inspectorOpen || sheetOpen}
             onClick={toggleInspector}
           />
+          {effortBreak && (
+            <CacheBreakDialog
+              open
+              extraMicroUsd={effortBreak.extra}
+              action={{ verb: "Changing effort on this model", confirm: "Change anyway" }}
+              body="This model can't change effort per message, so the thread's history is written to the cache again on the next send."
+              onConfirm={() => {
+                void setThreadEffort({ threadId, effort: effortBreak.level });
+                setEffortBreak(null);
+              }}
+              onCancel={() => setEffortBreak(null)}
+            />
+          )}
           <Dialog
             open={confirmDelete}
             onOpenChange={setConfirmDelete}
@@ -682,7 +737,7 @@ export default function ThreadPage() {
                 );
               }}
             >
-              <div className="tc-col-msg tc-thread-col">
+              <div className="tc-col-msg tc-thread-col" onKeyDown={onBranchKeys}>
                 {thread && (
                   <Condensed
                     checkpoint={thread.checkpoint}
@@ -707,6 +762,7 @@ export default function ThreadPage() {
             onStop={() => last && void stop({ messageId: last._id })}
             onType={markActive}
             onDraftChange={setDraft}
+            onEditLast={streaming ? undefined : editLast}
             banner={<BudgetBanner />}
             footer={
               <CostStrip
