@@ -11,3 +11,7 @@ Each thread stores its messages as a tree (every message points at its parent) r
 
 - Walking `parentId` would cost one read per ancestor, so every message stores its `ancestorIds` and a branch is built in one read.
 - Single messages are never deleted or dropped from context; a fork makes them unreachable. Only a whole thread can be deleted, and that is a hard delete. Cost rollups keep the deleted thread's spend.
+
+## Amendment (phase 6): pins
+
+A message's `pinned` flag is the one change a message can get after it's written, besides the move out of "streaming". Pinning is safe for the cache because the flag changes no request bytes while the message is still sent verbatim; it matters only once a checkpoint covers the message, when pinned messages are sent verbatim after the summary instead of being folded into it. So a pin can change only until a checkpoint covers the message, and is fixed from then on: changing it later would change the checkpoint layer of every request without a new summary to match. See the [phase 6 spec](../specs/phase-6-background-condenser.md).

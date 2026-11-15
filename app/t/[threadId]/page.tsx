@@ -6,6 +6,8 @@ import {
   IconChevronRight,
   IconLayoutSidebarRight,
   IconPencil,
+  IconPin,
+  IconPinFilled,
   IconRefresh,
   IconTrash,
   IconUser,
@@ -110,10 +112,44 @@ function MessageRow({
   );
 }
 
+// Pin a message so it's never folded into a summary (spec phase 6). Once condensed, fixed.
+function PinButton({
+  id,
+  pinned,
+  locked,
+}: {
+  id: Id<"messages">;
+  pinned: boolean;
+  locked: boolean;
+}) {
+  const setPinned = useMutation(api.condense.setPinned);
+  const label = locked
+    ? pinned
+      ? "Pinned: kept verbatim after the summary"
+      : "Condensed: folded into the summary"
+    : pinned
+      ? "Unpin"
+      : "Pin: never fold into a summary";
+  return (
+    <button
+      className="icon-action"
+      disabled={locked}
+      aria-label={label}
+      aria-pressed={pinned}
+      title={label}
+      onClick={() => void setPinned({ messageId: id, pinned: !pinned })}
+    >
+      {pinned ? <IconPinFilled /> : <IconPin />}
+    </button>
+  );
+}
+
 function UserMessage({
   id,
   text,
   images,
+  pinned,
+  pinLocked,
   siblingIds,
   busy,
   onType,
@@ -124,6 +160,8 @@ function UserMessage({
   mode: OutputMode;
   id: Id<"messages">;
   text: string;
+  pinned: boolean;
+  pinLocked: boolean;
   images?: { url: string | null; width: number; height: number }[];
   siblingIds: Id<"messages">[];
   busy: boolean;
@@ -163,6 +201,7 @@ function UserMessage({
             >
               <IconPencil />
             </button>
+            <PinButton id={id} pinned={pinned} locked={pinLocked} />
             {breakCost !== null && (
               <span
                 className="font-mono text-xs text-muted-foreground"
@@ -244,7 +283,7 @@ function UserMessage({
 
 // The turns a checkpoint covers, folded behind its summary (spec phase 6): the thread shows what
 // the model sees, and the original turns are one click away.
-function Condensed<M extends { _id: Id<"messages"> }>({
+function Condensed<M extends { _id: Id<"messages">; pinned: boolean }>({
   checkpoint,
   messages,
   render,
@@ -255,7 +294,10 @@ function Condensed<M extends { _id: Id<"messages"> }>({
 }) {
   const [open, setOpen] = useState(false);
   if (!checkpoint) return null;
-  const covered = messages.slice(0, checkpoint.coveredCount);
+  // Covered pinned messages are still sent verbatim, so the thread shows them after the fold.
+  const covered = messages
+    .slice(0, checkpoint.coveredCount)
+    .filter((m) => !m.pinned);
   return (
     <section
       aria-label="Condensed turns"
@@ -449,6 +491,8 @@ export default function ThreadPage() {
         id={m._id}
         text={m.text}
         images={m.images}
+        pinned={m.pinned}
+        pinLocked={m.pinLocked}
         siblingIds={m.siblingIds}
         busy={streaming}
         onType={markActive}
@@ -475,6 +519,7 @@ export default function ThreadPage() {
               >
                 <IconRefresh />
               </button>
+              <PinButton id={m._id} pinned={m.pinned} locked={m.pinLocked} />
               <Versions ids={m.siblingIds} current={m._id} />
             </>
           )
@@ -613,6 +658,10 @@ export default function ThreadPage() {
                     render={renderMessage}
                   />
                 )}
+                {thread?.messages
+                  .slice(0, thread.checkpoint?.coveredCount ?? 0)
+                  .filter((m) => m.pinned)
+                  .map(renderMessage)}
                 {thread?.messages
                   .slice(thread.checkpoint?.coveredCount ?? 0)
                   .map(renderMessage)}

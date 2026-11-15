@@ -1,9 +1,10 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   internalMutation,
   internalQuery,
+  mutation,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
@@ -23,6 +24,7 @@ import {
 import { assembleHistory } from "./lib/context";
 import { meterCall } from "./lib/metering";
 import { priceFor, usageValidator } from "./lib/usage";
+import { requireOwner } from "./owner";
 
 // Condensing (spec phase 6). After a reply, a scheduled side job folds every turn but the most
 // recent ones into a checkpoint summary. Messages are never touched (ADR 0001).
@@ -32,6 +34,42 @@ const settingsFor = (ctx: QueryCtx, ownerId: Id<"users">) =>
     .query("settings")
     .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
     .unique();
+
+// Every message some checkpoint of the thread covers (on any branch): their pin state is fixed,
+// because the summary was written around it.
+export async function coveredIds(ctx: QueryCtx, threadId: Id<"threads">) {
+  const checkpoints = await ctx.db
+    .query("checkpoints")
+    .withIndex("by_threadId", (q) => q.eq("threadId", threadId))
+    .take(100);
+  const covered = new Set<Id<"messages">>();
+  for (const c of checkpoints) {
+    const last = await ctx.db.get("messages", c.coversUpToId);
+    if (!last) continue;
+    covered.add(last._id);
+    for (const id of last.ancestorIds) covered.add(id);
+  }
+  return covered;
+}
+
+// Pins a message so the condenser never folds it into a summary (spec phase 6), or unpins it.
+// Only until a checkpoint covers it. The flag changes no request bytes until then (ADR 0001).
+export const setPinned = mutation({
+  args: { messageId: v.id("messages"), pinned: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, { messageId, pinned }) => {
+    const ownerId = await requireOwner(ctx);
+    const message = await ctx.db.get("messages", messageId);
+    if (!message || message.ownerId !== ownerId)
+      throw new ConvexError("Message not found");
+    if ((await coveredIds(ctx, message.threadId)).has(messageId))
+      throw new ConvexError(
+        "This message is already condensed, so its pin can't change",
+      );
+    await ctx.db.patch("messages", messageId, { pinned });
+    return null;
+  },
+});
 
 // Whether the thread already has a condense waiting or running.
 export async function condensePending(ctx: QueryCtx, thread: Doc<"threads">) {

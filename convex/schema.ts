@@ -58,8 +58,9 @@ export default defineSchema({
       searchField: "title",
       filterFields: ["ownerId"],
     }),
-  // Append-only tree (ADR 0001). The only update a message ever gets is
-  // streaming -> final status (plus the stop flag before that).
+  // Append-only tree (ADR 0001). The only updates a message ever gets are
+  // streaming -> final status (plus the stop flag before that) and its pin,
+  // which can change only until a checkpoint covers it.
   messages: defineTable({
     ownerId: v.id("users"),
     threadId: v.id("threads"),

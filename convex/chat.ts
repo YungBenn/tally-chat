@@ -12,7 +12,7 @@ import {
 import { CURRENT_SYSTEM_PROMPT_VERSION } from "./lib/systemPrompts";
 import { cacheExpiresAt, cacheTtlValidator } from "./lib/cacheStatus";
 import { keepalivePending, restartKeepalive, touchedCache } from "./keepalive";
-import { scheduleCondense } from "./condense";
+import { coveredIds, scheduleCondense } from "./condense";
 import { assertWithinBudget, budgetReached } from "./lib/budget";
 import { assembleHistory } from "./lib/context";
 import {
@@ -147,6 +147,8 @@ const messageView = v.object({
   _id: v.id("messages"),
   siblingIds: v.array(v.id("messages")), // this message's versions (itself included), oldest first
   role: v.union(v.literal("user"), v.literal("assistant")),
+  pinned: v.boolean(), // never folded into a summary (spec phase 6)
+  pinLocked: v.boolean(), // a checkpoint covers it, so its pin can't change
   status: v.union(
     v.literal("streaming"),
     v.literal("done"),
@@ -217,9 +219,12 @@ export const getThread = query({
             (x) => x.id === m.model,
           )?.displayName
         : undefined;
+    const covered = await coveredIds(ctx, thread._id);
     const messages = await Promise.all(
       branch.map(async (m) => ({
         _id: m._id,
+        pinned: m.pinned,
+        pinLocked: covered.has(m._id),
         siblingIds: (
           await ctx.db
             .query("messages")

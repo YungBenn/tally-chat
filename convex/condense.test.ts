@@ -326,6 +326,66 @@ describe("after a checkpoint lands", () => {
   });
 });
 
+describe("pinned messages", () => {
+  test("a pinned message stays out of the summary and is sent verbatim after it, in order", async () => {
+    const s = await setup();
+    fake = fakeFetch({ [ANTHROPIC]: provider(() => "Summary one") });
+    await longThread(s, 5);
+    const [, firstReply, secondUser] = (await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!.messages;
+    await s.owner.mutation(api.condense.setPinned, { messageId: secondUser._id, pinned: true });
+    await s.owner.mutation(api.condense.setPinned, { messageId: firstReply._id, pinned: true });
+    await s.chat(`Turn 6 ${LONG}`);
+
+    const request = text(s.summaryCalls()[0].messages[0].content);
+    expect(request).toContain("User: Turn 1");
+    expect(request).not.toContain("Answer 1");
+    expect(request).not.toContain("Turn 2");
+
+    await s.chat("Turn 7");
+    const next = s.replyCalls().at(-1)!;
+    // Summary, then the covered pins in their original order (with the layer breakpoint on the last
+    // one), then the kept turns.
+    expect(next.messages.slice(0, 3).map((m) => text(m.content).slice(0, 8))).toEqual(["Summary ", "Answer 1", "Turn 2 x"]);
+    expect((next.messages[2].content as Block[])[0].cache_control).toEqual({ type: "ephemeral", ttl: "5m" });
+
+    const view = (await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!;
+    expect(view.messages.filter((m) => m.pinned).map((m) => m._id)).toEqual([firstReply._id, secondUser._id]);
+    expect(view.messages.slice(0, 8).every((m) => m.pinLocked)).toBe(true);
+    expect(view.messages.slice(8).some((m) => m.pinLocked)).toBe(false);
+    const label = (await s.inspector())!.layers.find((l) => l.kind === "checkpoint")!.label;
+    expect(label).toContain("+ 2\u00a0pinned");
+  });
+
+  test("pins can change until a checkpoint covers the message, then they're fixed", async () => {
+    const s = await setup();
+    fake = fakeFetch({ [ANTHROPIC]: provider(() => "Summary one") });
+    await longThread(s, 5);
+    const [first] = (await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!.messages;
+    await s.owner.mutation(api.condense.setPinned, { messageId: first._id, pinned: true });
+    await s.owner.mutation(api.condense.setPinned, { messageId: first._id, pinned: false }); // a mistake, corrected
+    await s.chat(`Turn 6 ${LONG}`);
+    await expect(s.owner.mutation(api.condense.setPinned, { messageId: first._id, pinned: true })).rejects.toThrow(
+      "already condensed",
+    );
+    const kept = (await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!.messages.at(-1)!;
+    await s.owner.mutation(api.condense.setPinned, { messageId: kept._id, pinned: true }); // not covered: fine
+  });
+
+  test("pinning a recent message doesn't change what the next request sends", async () => {
+    const s = await setup();
+    fake = fakeFetch({ [ANTHROPIC]: provider(() => "unused") });
+    await s.chat("Hello");
+    const [user, reply] = (await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!.messages;
+    await s.owner.mutation(api.chat.retry, { messageId: reply._id });
+    await s.t.finishAllScheduledFunctions(() => {});
+    const before = JSON.stringify(s.replyCalls().at(-1)!.messages);
+    await s.owner.mutation(api.condense.setPinned, { messageId: user._id, pinned: true });
+    await s.owner.mutation(api.chat.retry, { messageId: reply._id });
+    await s.t.finishAllScheduledFunctions(() => {});
+    expect(JSON.stringify(s.replyCalls().at(-1)!.messages)).toBe(before);
+  });
+});
+
 describe("the cache veto", () => {
   test("payback: a cached thread needs several turns to recover a condense, an uncached one less than one", () => {
     // 30k tokens folded out of a 36k prefix on Sonnet 5.5, summarized by Haiku 5.5.
