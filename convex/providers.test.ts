@@ -128,14 +128,13 @@ describe("managing a provider", () => {
     const { owner } = await setup();
     fake = fakeFetch({ [MODELS_URL]: modelsOk });
     const providerId = await owner.action(api.providerActions.add, input);
-    const original = process.env.TALLY_MASTER_KEY;
-    process.env.TALLY_MASTER_KEY = btoa(String.fromCharCode(...new Uint8Array(32))); // e.g. restored without its secrets file
+    vi.stubEnv("TALLY_MASTER_KEY", btoa(String.fromCharCode(...new Uint8Array(32)))); // e.g. restored without its secrets file
     try {
       await expect(owner.action(api.providerActions.refreshModels, { providerId })).rejects.toThrow("can't be decrypted");
       await owner.action(api.providerActions.replaceKey, { providerId, apiKey: KEY });
       await owner.action(api.providerActions.refreshModels, { providerId });
     } finally {
-      process.env.TALLY_MASTER_KEY = original;
+      vi.unstubAllEnvs();
     }
   });
 

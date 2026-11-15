@@ -5,7 +5,7 @@ const REPLY = "Smoke test reply";
 const chunk = (o: object) => `data: ${JSON.stringify({ id: "c", object: "chat.completion.chunk", created: 0, model: "gpt-5-mini", ...o })}\n\n`;
 
 // Bun serves a default export that has `fetch`.
-export default {
+const server = {
   port: 8080,
   async fetch(req: Request) {
     const { pathname } = new URL(req.url);
@@ -26,3 +26,4 @@ export default {
     );
   },
 };
+export default server;
