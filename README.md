@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="app/apple-icon.png" width="72" height="72" alt="tally.chat logo" />
+<img src="public/icons/icon-512.png" width="72" height="72" alt="tally.chat logo" />
 
 # tally.chat
 
