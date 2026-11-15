@@ -22,7 +22,7 @@ import { Dialog, Sheet } from "@/components/ui/overlay";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { imageTokens } from "@/convex/lib/images";
-import { ctxScale } from "@/lib/ctxScale";
+import { ctxScale } from "@/lib/scale";
 import { estimateTokens, tokens, usd } from "@/lib/format";
 import { transition } from "@/lib/motion";
 import { cn } from "@/lib/utils";
