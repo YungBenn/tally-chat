@@ -4,7 +4,11 @@ import { query, type QueryCtx } from "./_generated/server";
 import { activeBranch, effortFor, isCheaperReply } from "./chat";
 import { supportsPerMessageEffort } from "./lib/anthropic";
 import { effortValidator } from "./lib/effort";
-import { cacheExpiresAt, cacheTtlValidator } from "./lib/cacheStatus";
+import {
+  cacheExpiresAt,
+  cacheState,
+  cacheTtlValidator,
+} from "./lib/cacheStatus";
 import { assembleHistory } from "./lib/context";
 import { condensePending, condensePlan } from "./condense";
 import { imageTokens } from "./lib/images";
@@ -507,5 +511,114 @@ export const turn = query({
           ? savedFor(free, model, m.usage)
           : null,
     };
+  },
+});
+
+// What one send (or a retry of `retryOf`) would cost on each of the owner's visible models, for
+// the "reply with" and "Retry with…" lists (spec phase 7). The thread's model is priced at its
+// cache state at `now` (the client's clock, taken when the list opens); any other model starts
+// cold: the whole prefix at the cache-write price on Anthropic-style providers (they get cache
+// breakpoints too) or the input price elsewhere. The new message is fresh input and the reply
+// the thread's usual length, capped by the output mode. Cheapest first, unpriced (null) last.
+export const modelEstimates = query({
+  args: {
+    threadId: v.id("threads"),
+    now: v.number(),
+    draftTokens: v.number(), // the draft and its images, estimated by the client (sends only)
+    maxOutputTokens: v.number(), // the output mode's limit
+    retryOf: v.optional(v.id("messages")),
+  },
+  returns: v.array(
+    v.object({
+      providerId: v.id("providers"),
+      modelId: v.string(),
+      name: v.string(),
+      thread: v.boolean(),
+      costMicroUsd: v.union(v.null(), v.number()),
+    }),
+  ),
+  handler: async (
+    ctx,
+    { threadId, now, draftTokens, maxOutputTokens, retryOf },
+  ) => {
+    const ownerId = await requireOwner(ctx);
+    const thread = await ctx.db.get("threads", threadId);
+    if (!thread || thread.ownerId !== ownerId) return [];
+    let branch = await activeBranch(ctx, thread);
+    let fresh = draftTokens;
+    if (retryOf) {
+      // A retry repeats the branch before the reply's question, then the question itself.
+      const reply = await ctx.db.get("messages", retryOf);
+      if (!reply || reply.threadId !== threadId || !reply.parentId) return [];
+      const ids = reply.ancestorIds.slice(0, -1);
+      branch = (
+        await Promise.all(ids.map((id) => ctx.db.get("messages", id)))
+      ).filter((m): m is Doc<"messages"> => m !== null);
+      const question = await ctx.db.get("messages", reply.parentId);
+      fresh = question ? estimateMessage(question) : 0;
+    }
+    const prefix = (await contextLayers(ctx, thread, branch)).reduce(
+      (sum, l) => sum + l.tokens,
+      0,
+    );
+    const replies = branch
+      .filter((m) => m.role === "assistant" && m.usage)
+      .slice(-RECENT_REPLIES);
+    const output = replies.length
+      ? Math.min(
+          maxOutputTokens,
+          Math.round(
+            replies.reduce((sum, m) => sum + m.usage!.outputTokens, 0) /
+              replies.length,
+          ),
+        )
+      : 0;
+    const warm = cacheState(cacheExpiresAt(thread), now).state !== "cold";
+
+    const providers = await ctx.db
+      .query("providers")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+      .take(100);
+    const rows = providers.flatMap((provider) =>
+      provider.models
+        .filter((m) => !m.hidden)
+        .map((m) => {
+          const own =
+            provider._id === thread.providerId && m.id === thread.modelId;
+          const anthropic = provider.apiStyle === "anthropic";
+          const p = nextPrices(
+            provider,
+            m.id,
+            own ? (thread.cacheTtl ?? "5m") : "5m",
+          );
+          const historyPrice = !p
+            ? 0
+            : !anthropic
+              ? p.input
+              : own && warm
+                ? p.cacheRead
+                : p.cacheWrite;
+          return {
+            providerId: provider._id,
+            modelId: m.id,
+            name: `${provider.name} · ${m.displayName}`,
+            thread: own,
+            costMicroUsd: p
+              ? Math.round(
+                  (prefix * historyPrice +
+                    fresh * p.input +
+                    output * p.output) *
+                    1e6,
+                )
+              : null,
+          };
+        }),
+    );
+    // Unpriced last; Infinity - Infinity would be NaN, so compare them apart.
+    return rows.sort((a, b) =>
+      a.costMicroUsd === null || b.costMicroUsd === null
+        ? Number(a.costMicroUsd === null) - Number(b.costMicroUsd === null)
+        : a.costMicroUsd - b.costMicroUsd,
+    );
   },
 });

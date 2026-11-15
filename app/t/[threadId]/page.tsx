@@ -26,14 +26,15 @@ import Composer from "@/components/Composer";
 import Inspector from "@/components/Inspector";
 import EffortControl from "@/components/EffortControl";
 import ModeControl from "@/components/ModeControl";
-import ModelMenu, {
-  sameModel,
-  type ModelChoice,
-  type ModelEntry,
-} from "@/components/ModelMenu";
+import ModelMenu, { sameModel, type ModelChoice } from "@/components/ModelMenu";
+import { imageTokens } from "@/convex/lib/images";
 import type { Effort } from "@/convex/lib/effort";
 import type { MessageImage } from "@/convex/lib/images";
-import { OUTPUT_MODES, type OutputMode } from "@/convex/lib/outputModes";
+import {
+  MODE_MAX_TOKENS,
+  OUTPUT_MODES,
+  type OutputMode,
+} from "@/convex/lib/outputModes";
 import Markdown, { CopyButton } from "@/components/Markdown";
 import { Button } from "@/components/wensity/button";
 import { Textarea } from "@/components/wensity/text-area";
@@ -392,18 +393,6 @@ export default function ThreadPage() {
     !sameModel(replyWith.model, threadModel)
       ? replyWith.model
       : null;
-  const modelEntries: ModelEntry[] = (providers ?? []).flatMap((p) =>
-    p.models
-      .filter((m) => !m.hidden)
-      .map((m) => ({
-        providerId: p._id,
-        modelId: m.id,
-        name: `${p.name} · ${m.displayName}`,
-        thread:
-          !!threadModel &&
-          sameModel(threadModel, { providerId: p._id, modelId: m.id }),
-      })),
-  );
   const modelName = (c: ModelChoice) =>
     providers
       ?.find((p) => p._id === c.providerId)
@@ -560,7 +549,9 @@ export default function ThreadPage() {
               </button>
               <ModelMenu
                 title="Retry with"
-                entries={modelEntries}
+                threadId={threadId}
+                maxOutputTokens={MODE_MAX_TOKENS[mode]}
+                retryOf={m._id}
                 onPick={(model) =>
                   void retry({
                     messageId: m._id,
@@ -764,7 +755,12 @@ export default function ThreadPage() {
                 {threadModel && (
                   <ModelMenu
                     title="Reply with, for this message only"
-                    entries={modelEntries}
+                    threadId={threadId}
+                    draftTokens={
+                      estimateTokens(draft) +
+                      draftImages.reduce((sum, i) => sum + imageTokens(i), 0)
+                    }
+                    maxOutputTokens={MODE_MAX_TOKENS[mode]}
                     selected={oneOff ?? threadModel}
                     onPick={(model) => setReplyWith({ threadId, model })}
                     trigger={

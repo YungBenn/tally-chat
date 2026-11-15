@@ -41,7 +41,13 @@ async function setup() {
   const openaiId = await t.run((ctx) =>
     ctx.db.insert("providers", {
       ...base, name: "OpenAI", apiStyle: "openai-compatible", baseUrl: "https://api.openai.com/v1",
-      models: [{ id: "gpt-5", displayName: "GPT-5", hidden: false }],
+      models: [{ id: "gpt-5", displayName: "GPT-5", hidden: false }, { id: "mystery", displayName: "Mystery", hidden: false }],
+    }),
+  );
+  await t.run((ctx) =>
+    ctx.db.insert("providers", {
+      ...base, name: "Local", apiStyle: "openai-compatible", baseUrl: "http://127.0.0.1:11434/v1", free: true,
+      models: [{ id: "llama3", displayName: "Llama", hidden: false }],
     }),
   );
   const owner = t.withIdentity({ subject: `${ownerId}|session` });
@@ -117,5 +123,47 @@ describe("reply with another model, once", () => {
     expect(retried.siblingIds).toEqual([first._id, retried._id]);
     await s.owner.mutation(api.chat.switchBranch, { messageId: first._id });
     expect((await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!.messages.at(-1)!.model).toBe("claude-opus-5-5");
+  });
+});
+
+describe("per-model cost estimates", () => {
+  test("the thread's model at its cache state, others cold, free at $0, unpriced last", async () => {
+    const s = await setup();
+    await s.send("First");
+    const info = (await s.owner.query(api.inspector.get, { threadId: s.threadId }))!;
+    const prefix = info.next.prefixTokens;
+    const out = info.next.expectedOutputTokens!;
+    const touched = (await s.thread())!.cacheTouchedAt!;
+    const estimate = (now: number) =>
+      s.owner.query(api.inspector.modelEstimates, { threadId: s.threadId, now, draftTokens: 10, maxOutputTokens: 4000 });
+    const micro = (prefixPrice: number, input: number, output: number) =>
+      Math.round((prefix * prefixPrice + 10 * input + out * output) * 1e6);
+
+    const warm = await estimate(touched + 1000);
+    const cost = (id: string) => warm.find((r) => r.modelId === id)!.costMicroUsd;
+    expect(cost("claude-opus-5-5")).toBe(micro(2e-7, 4e-6, 2e-5)); // cache read
+    expect(cost("claude-haiku-5-5")).toBe(micro(1.25e-7, 1e-7, 5e-7)); // cold: cache write
+    expect(cost("gpt-5")).toBe(micro(1.25e-6, 1.25e-6, 1e-5)); // cold: input
+    expect(cost("llama3")).toBe(0);
+    expect(cost("mystery")).toBeNull();
+    expect(warm.map((r) => r.modelId)).toEqual(["llama3", "claude-haiku-5-5", "claude-opus-5-5", "gpt-5", "mystery"]);
+    expect(warm.filter((r) => r.thread).map((r) => r.modelId)).toEqual(["claude-opus-5-5"]);
+
+    // Once the cache has expired, the thread's own model pays the cache write too.
+    const cold = await estimate(touched + 60 * 60_000);
+    expect(cold.find((r) => r.thread)!.costMicroUsd).toBe(micro(5e-6, 4e-6, 2e-5));
+  });
+
+  test("a retry prices the reply's question as the new message", async () => {
+    const s = await setup();
+    await s.send("First");
+    await s.send("Second question here");
+    const reply = (await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!.messages.at(-1)!;
+    const rows = await s.owner.query(api.inspector.modelEstimates, {
+      threadId: s.threadId, now: 0, draftTokens: 999, maxOutputTokens: 4000, retryOf: reply._id,
+    });
+    const send = await s.owner.query(api.inspector.modelEstimates, { threadId: s.threadId, now: 0, draftTokens: 999, maxOutputTokens: 4000 });
+    const haiku = (r: typeof rows) => r.find((x) => x.modelId === "claude-haiku-5-5")!.costMicroUsd!;
+    expect(haiku(rows)).toBeLessThan(haiku(send)); // shorter prefix, and the 999-token draft is ignored
   });
 });
