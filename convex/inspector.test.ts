@@ -283,7 +283,7 @@ describe("the next send's prices", () => {
         providerId: s.providerId,
         modelId: "claude-sonnet-5-5",
       }),
-    ).toEqual({
+    ).toMatchObject({
       systemTokens: SYSTEM,
       prices: {
         input: 2e-6,
@@ -291,6 +291,7 @@ describe("the next send's prices", () => {
         cacheRead: 1e-7,
         cacheWrite: 2.5e-6,
       },
+      cheapest: { modelId: "claude-sonnet-5-5" }, // the provider's only priced model
     });
     expect(
       (

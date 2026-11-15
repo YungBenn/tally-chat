@@ -1,5 +1,6 @@
 "use client";
 
+import { IconX } from "@tabler/icons-react";
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import Link from "next/link";
@@ -18,8 +19,83 @@ import type { MessageImage } from "@/convex/lib/images";
 import type { OutputMode } from "@/convex/lib/outputModes";
 import { NewThreadCostStrip } from "@/components/CostStrip";
 import { NativeSelect } from "@/components/wensity/native-select";
+import { Button } from "@/components/wensity/button";
+import { estimateTokens, usd } from "@/lib/format";
+import { looksSimple, worthSuggesting } from "@/lib/modelSuggestion";
+import { nextSendMicroUsd } from "@/lib/nextSend";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+
+// A first message that looks simple, on a model several times the price of its provider's
+// cheapest: offer the cheaper start (spec phase 7). Switch changes the picker; nothing is sent.
+function StartCheaper({
+  providerId,
+  modelId,
+  draft,
+  imageCount,
+  onSwitch,
+}: {
+  providerId: Id<"providers">;
+  modelId: string;
+  draft: string;
+  imageCount: number;
+  onSwitch: (modelId: string) => void;
+}) {
+  const data = useQuery(api.inspector.newThread, { providerId, modelId });
+  // Dismissed for this draft: it comes back once the box is cleared.
+  const [dismissed, setDismissed] = useState(false);
+  if (dismissed && !draft.trim()) setDismissed(false);
+  const cheapest = data?.cheapest;
+  if (
+    dismissed ||
+    !data ||
+    !cheapest ||
+    cheapest.modelId === modelId ||
+    !looksSimple(draft, imageCount) ||
+    !worthSuggesting(data.prices, cheapest.prices)
+  )
+    return null;
+  const firstTurn = (prices: typeof data.prices) =>
+    nextSendMicroUsd({
+      prices,
+      history: "cold",
+      prefixTokens: 0,
+      draftTokens: data.systemTokens + estimateTokens(draft),
+      expectedOutputTokens: null,
+    });
+  const cheap = firstTurn(cheapest.prices);
+  const current = firstTurn(data.prices);
+  return (
+    <div
+      role="status"
+      className="mb-2 flex items-center gap-2 rounded-[var(--primitive-radius-item)] border border-border bg-surface py-1.5 pr-1.5 pl-3 text-sm"
+    >
+      <span className="min-w-0 flex-1 text-muted-foreground">
+        Looks simple: start on{" "}
+        <span className="font-medium text-foreground">{cheapest.name}</span>?{" "}
+        <span className="font-mono text-xs tabular-nums">
+          ~{usd(cheap ?? 0)} instead of ~{usd(current ?? 0)}
+        </span>{" "}
+        for this turn
+      </span>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => onSwitch(cheapest.modelId)}
+      >
+        Switch
+      </Button>
+      <button
+        className="icon-action"
+        aria-label="Dismiss suggestion"
+        title="Dismiss"
+        onClick={() => setDismissed(true)}
+      >
+        <IconX />
+      </button>
+    </div>
+  );
+}
 
 export default function NewThread() {
   const providers = useQuery(api.providers.list);
@@ -58,6 +134,8 @@ export default function NewThread() {
               aria-label="Model"
               selectSize="sm"
               fullWidth={false}
+              // Leaves room for the effort picker on phones; the select's own text truncates.
+              selectClassName="max-w-[36vw] md:max-w-none"
               value={selected ?? ""}
               onChange={(e) => setChoice(e.target.value)}
               options={options}
@@ -104,7 +182,22 @@ export default function NewThread() {
           disabled={!selected}
           onDraftChange={setDraft}
           controls={<ModeControl value={mode} onChange={setMode} />}
-          banner={<BudgetBanner />}
+          banner={
+            <>
+              <BudgetBanner />
+              {selected && (
+                <StartCheaper
+                  providerId={selected.split("|")[0] as Id<"providers">}
+                  modelId={selected.split("|")[1]}
+                  draft={draft}
+                  imageCount={draftImages.length}
+                  onSwitch={(modelId) =>
+                    setChoice(`${selected.split("|")[0]}|${modelId}`)
+                  }
+                />
+              )}
+            </>
+          }
           footer={
             selected && (
               <NewThreadCostStrip

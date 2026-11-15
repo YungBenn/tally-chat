@@ -966,6 +966,20 @@ export const finalize = internalMutation({
   },
 });
 
+// A provider's cheapest visible model with input and output prices (by their sum), if any.
+export function cheapestPricedModel(provider: Doc<"providers">) {
+  return provider.models
+    .filter((m) => !m.hidden)
+    .map((m) => ({ ...m, price: priceFor(m.id) }))
+    .filter((m) => m.price?.input !== undefined && m.price.output !== undefined)
+    .sort(
+      (a, b) =>
+        a.price!.input! +
+        a.price!.output! -
+        (b.price!.input! + b.price!.output!),
+    )[0];
+}
+
 // The side-job model for a thread: the owner's choice if it still exists and is visible,
 // otherwise the cheapest priced visible model of the thread's provider, else the thread's model.
 export async function sideJobModelFor(ctx: QueryCtx, thread: Doc<"threads">) {
@@ -985,17 +999,10 @@ export async function sideJobModelFor(ctx: QueryCtx, thread: Doc<"threads">) {
   }
   const provider = await ctx.db.get("providers", thread.providerId);
   if (!provider) return null;
-  const priced = provider.models
-    .filter((m) => !m.hidden)
-    .map((m) => ({ id: m.id, price: priceFor(m.id) }))
-    .filter((m) => m.price?.input !== undefined && m.price.output !== undefined)
-    .sort(
-      (a, b) =>
-        a.price!.input! +
-        a.price!.output! -
-        (b.price!.input! + b.price!.output!),
-    );
-  return { provider, model: priced[0]?.id ?? thread.modelId };
+  return {
+    provider,
+    model: cheapestPricedModel(provider)?.id ?? thread.modelId,
+  };
 }
 
 export const titleJobInput = internalQuery({

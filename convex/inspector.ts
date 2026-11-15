@@ -1,7 +1,12 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { query, type QueryCtx } from "./_generated/server";
-import { activeBranch, effortFor, isCheaperReply } from "./chat";
+import {
+  activeBranch,
+  cheapestPricedModel,
+  effortFor,
+  isCheaperReply,
+} from "./chat";
 import { supportsPerMessageEffort } from "./lib/anthropic";
 import { effortValidator } from "./lib/effort";
 import {
@@ -83,20 +88,40 @@ export function nextPrices(
   };
 }
 
-// The cost strip on a new thread: the system prompt and the draft go out as fresh input.
+// The cost strip on a new thread: the system prompt and the draft go out as fresh input. Also
+// the provider's cheapest priced model, for the starting-model suggestion (spec phase 7).
 export const newThread = query({
   args: { providerId: v.id("providers"), modelId: v.string() },
-  returns: v.object({ systemTokens: v.number(), prices: pricesValidator }),
+  returns: v.object({
+    systemTokens: v.number(),
+    prices: pricesValidator,
+    cheapest: v.union(
+      v.null(),
+      v.object({
+        modelId: v.string(),
+        name: v.string(),
+        prices: pricesValidator,
+      }),
+    ),
+  }),
   handler: async (ctx, { providerId, modelId }) => {
     const ownerId = await requireOwner(ctx);
     const provider = await ctx.db.get("providers", providerId);
     if (!provider || provider.ownerId !== ownerId)
-      return { systemTokens: 0, prices: null };
+      return { systemTokens: 0, prices: null, cheapest: null };
+    const cheapest = cheapestPricedModel(provider);
     return {
       systemTokens: estimateTokens(
         SYSTEM_PROMPTS[CURRENT_SYSTEM_PROMPT_VERSION],
       ),
       prices: nextPrices(provider, modelId, "5m"),
+      cheapest: cheapest
+        ? {
+            modelId: cheapest.id,
+            name: cheapest.displayName,
+            prices: nextPrices(provider, cheapest.id, "5m"),
+          }
+        : null,
     };
   },
 });
