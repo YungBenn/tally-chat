@@ -4,12 +4,23 @@ import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { useRef, useState } from "react";
 import ChatShell from "@/components/ChatShell";
-import { Button } from "@/components/wensity/button";
-import { NativeSelect } from "@/components/wensity/native-select";
+import { IconFileUpload } from "@tabler/icons-react";
+import { Button } from "@/components/ui/button";
+import { Badge, ProgressBar, type BadgeTone } from "@/components/ui/feedback";
+import { Select } from "@/components/ui/fields";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
 const SOURCE = { chatgpt: "ChatGPT", claude: "Claude" } as const;
+const TONE: Record<
+  "queued" | "running" | "done" | "failed",
+  BadgeTone | undefined
+> = {
+  queued: undefined,
+  running: "info",
+  done: "success",
+  failed: "danger",
+};
 const STATUS = {
   queued: "Queued",
   running: "Importing",
@@ -34,7 +45,8 @@ export default function ImportPage() {
       .filter((m) => !m.hidden)
       .map((m) => ({
         value: `${p._id}|${m.id}`,
-        label: `${p.name} · ${m.displayName}`,
+        label: m.displayName,
+        group: p.name,
       })),
   );
   const selected = choice ?? options[0]?.value;
@@ -78,97 +90,117 @@ export default function ImportPage() {
 
   return (
     <ChatShell>
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 py-8">
+      <div className="tc-page">
+        <div className="tc-page-col max-w-[800px]">
           <div>
-            <h1 className="text-2xl font-semibold tracking-[-0.02em]">
-              Import
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <h1 className="text-title">Import</h1>
+            <p className="mt-2 text-body text-foreground-muted">
               Bring your conversations from ChatGPT or Claude. Each one becomes
               a thread with its title, date and branches, and costs nothing:
               imported messages never count as spend.
             </p>
           </div>
           <form
-            data-surface="panel"
-            className="flex flex-col gap-5 rounded-[var(--primitive-radius-surface)] p-5"
+            className="tc-card flex flex-col gap-5 p-5"
             onSubmit={(e) => void onImport(e)}
           >
             <div className="flex flex-col gap-2">
-              <label
-                htmlFor="import-file"
-                className="text-[13px] font-medium leading-none"
-              >
-                Conversations file
-              </label>
-              <input
-                ref={fileInput}
-                id="import-file"
-                type="file"
-                accept=".json,application/json"
-                required
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                className="text-sm file:mr-3 file:cursor-pointer file:rounded-[var(--primitive-radius-control)] file:border file:border-border file:bg-surface file:px-3 file:py-1.5 file:text-sm file:text-foreground hover:file:bg-primitive-surface-hover"
-              />
-              <ul className="list-disc pl-5 text-xs leading-5 text-muted-foreground">
+              <span className="tc-field-label">Conversations file</span>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  icon={<IconFileUpload />}
+                  onClick={() => fileInput.current?.click()}
+                >
+                  Choose file
+                </Button>
+                <span
+                  className={
+                    file
+                      ? "tc-mono text-mono-sm"
+                      : "text-body-sm text-foreground-subtle"
+                  }
+                >
+                  {file ? file.name : "No file chosen"}
+                </span>
+                <input
+                  ref={fileInput}
+                  id="import-file"
+                  type="file"
+                  accept=".json,application/json"
+                  hidden
+                  aria-label="Conversations file"
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                />
+              </div>
+              <ul className="list-disc pl-5 text-caption leading-5 text-foreground-muted">
                 <li>
                   ChatGPT: Settings → Data controls → Export data. Unzip the
-                  download and pick <code>conversations.json</code>.
+                  download and pick{" "}
+                  <code className="tc-mono">conversations.json</code>.
                 </li>
                 <li>
                   Claude: Settings → Privacy → Export data. Unzip the download
-                  and pick <code>conversations.json</code>.
+                  and pick <code className="tc-mono">conversations.json</code>.
                 </li>
               </ul>
             </div>
-            <NativeSelect
+            <Select
               label="Continue on"
-              hint="Imported threads reply on this model. Images and files in the export become placeholders."
-              value={selected ?? ""}
-              onChange={(e) => setChoice(e.target.value)}
+              help="Imported threads reply on this model. Images and files in the export become placeholders."
+              value={selected ?? null}
+              onValueChange={setChoice}
               options={options}
               disabled={options.length === 0}
             />
             {error && (
-              <p role="alert" className="text-sm text-primitive-destructive">
+              <p role="alert" className="tc-inline-error tc-fade-in">
                 {error}
               </p>
             )}
             <div>
-              <Button type="submit" disabled={!file || !selected || busy}>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={!file || !selected || busy}
+                loading={busy}
+              >
                 {busy ? "Uploading…" : "Import"}
               </Button>
             </div>
           </form>
           {imports && imports.length > 0 && (
-            <section className="flex flex-col gap-2">
-              <h2 className="font-semibold tracking-[-0.01em]">
-                Recent imports
-              </h2>
-              <ul className="flex flex-col">
+            <section className="flex flex-col gap-3">
+              <h2 className="text-heading">Recent imports</h2>
+              <ul className="tc-card flex flex-col px-4">
                 {imports.map((i) => (
                   <li
                     key={i._id}
-                    className="flex flex-col gap-0.5 border-t border-border py-3"
+                    className="flex flex-col gap-1 border-b border-border-subtle py-3 last:border-0"
                   >
-                    <div className="flex items-baseline justify-between gap-3">
-                      <span className="min-w-0 truncate text-sm font-medium">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="min-w-0 truncate text-label">
                         {i.fileName}
                         {i.source && (
-                          <span className="font-normal text-muted-foreground">
+                          <span className="font-normal text-foreground-muted">
                             {" "}
                             · {SOURCE[i.source]}
                           </span>
                         )}
                       </span>
-                      <span
-                        className={`shrink-0 text-xs ${i.status === "failed" ? "text-primitive-destructive" : "text-muted-foreground"}`}
-                      >
+                      <Badge tone={TONE[i.status]} dot>
                         {STATUS[i.status]}
-                      </span>
+                      </Badge>
                     </div>
-                    <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                    {i.status === "running" &&
+                      i.total !== undefined &&
+                      i.total > 0 && (
+                        <ProgressBar
+                          plain
+                          value={((i.imported + i.skipped) / i.total) * 100}
+                          label={`${i.imported + i.skipped} of ${i.total} conversations`}
+                        />
+                      )}
+                    <span className="tc-mono text-mono-sm text-foreground-muted">
                       {[
                         i.status === "running" && i.total !== undefined
                           ? `${i.imported + i.skipped} of ${i.total}`
@@ -180,7 +212,7 @@ export default function ImportPage() {
                         .join(" · ")}
                     </span>
                     {i.error && (
-                      <span className="text-xs text-primitive-destructive">
+                      <span className="text-body-sm text-danger">
                         {i.error}
                       </span>
                     )}

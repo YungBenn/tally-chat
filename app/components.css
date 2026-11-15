@@ -672,3 +672,10 @@ button.tc-provider:hover { border-color: var(--border-strong); }
 .tc-rename input { min-width: 0; flex: 0 1 auto; field-sizing: content; max-width: 100%; font: 400 13px/20px var(--font-sans); color: var(--foreground); background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 3px 6px; margin-left: -7px; outline: none; }
 .tc-rename input:hover { background: var(--surface-hover); }
 .tc-rename input:focus { border-color: transparent; outline: 2px solid var(--ring); outline-offset: 0; background: var(--surface-raised); }
+.tc-settings-row-x { display: grid; grid-template-columns: 5fr 4fr; gap: 24px; padding: 20px 0; border-top: 1px solid var(--border); align-items: start; }
+@media (max-width: 719.98px) { .tc-settings-row-x { grid-template-columns: minmax(0, 1fr); gap: 12px; } }
+.tc-number-field { position: relative; }
+.tc-number-prefix { position: absolute; left: 12px; top: 8px; font: 400 13px/18px var(--font-mono); color: var(--foreground-subtle); pointer-events: none; z-index: 1; }
+.tc-hosts { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-control); }
+.tc-hosts li { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: var(--row-compact); padding: 2px 4px 2px 12px; border-bottom: 1px solid var(--border-subtle); }
+.tc-hosts li:last-child { border-bottom: 0; }

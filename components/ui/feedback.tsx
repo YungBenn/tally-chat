@@ -96,19 +96,24 @@ export function Kbd({ children }: { children: React.ReactNode }) {
   return <kbd className="tc-kbd">{children}</kbd>;
 }
 
-/** Determinate meter: holo fill under 80%, budget-near at 80%, budget-paused at 100%. */
+/**
+ * Determinate meter: holo fill under 80%, budget-near at 80%, budget-paused at 100%. `plain` is
+ * ordinary progress (an import), holo all the way.
+ */
 export function ProgressBar({
   value = 0,
   indeterminate,
+  plain,
   label,
   className,
 }: {
   value?: number;
   indeterminate?: boolean;
+  plain?: boolean;
   label?: string;
   className?: string;
 }) {
-  const tone = value >= 100 ? "paused" : value >= 80 ? "near" : undefined;
+  const tone = plain ? undefined : value >= 100 ? "paused" : value >= 80 ? "near" : undefined;
   return (
     <div
       className={cn("tc-progress", indeterminate && "tc-progress-indeterminate", className)}
