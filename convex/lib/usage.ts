@@ -85,9 +85,15 @@ export function normalizeOpenAIUsage(raw: OpenAIUsage): NormalizedUsage {
 type Price = { input?: number; output?: number; cacheRead?: number; cacheWrite5m?: number; cacheWrite1h?: number; contextWindow?: number };
 type PriceTable = { models: Record<string, Price> };
 
+// A router or proxy may prefix the upstream model id ("cc/claude-sonnet-5-5"); when the full id
+// isn't in the table, the id after the last "/" is priced instead.
 export function priceFor(model: string, tables: PriceTable[] = [generated, overrides]): Price | null {
-  const found = tables.map((t) => t.models[model]).filter((p) => p !== undefined);
-  return found.length ? Object.assign({}, ...found) : null;
+  const lookup = (id: string) => {
+    const found = tables.map((t) => t.models[id]).filter((p) => p !== undefined);
+    return found.length ? (Object.assign({}, ...found) as Price) : null;
+  };
+  const base = model.slice(model.lastIndexOf("/") + 1);
+  return lookup(model) ?? (base && base !== model ? lookup(base) : null);
 }
 
 // Integer micro-dollars, or null when any billed token class has no price: never a guess.

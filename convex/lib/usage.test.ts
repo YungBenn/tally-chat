@@ -21,6 +21,15 @@ describe("prices and cost", () => {
     expect(priceFor("missing", tables)).toBeNull();
   });
 
+  test("a router's prefixed id is priced as its upstream model when the full id isn't listed", () => {
+    const tables = [{ models: { m: { input: 1e-6 }, "azure/m": { input: 2e-6 } } }];
+    expect(priceFor("cc/m", tables)).toEqual({ input: 1e-6 });
+    expect(priceFor("azure/m", tables)).toEqual({ input: 2e-6 }); // a listed full id wins
+    expect(priceFor("cc/missing", tables)).toBeNull();
+    expect(priceFor("m/", tables)).toBeNull();
+    expect(priceFor("cc/claude-sonnet-5-5")).toEqual(priceFor("claude-sonnet-5-5"));
+  });
+
   test("cost is unknown when a billed token class has no price", () => {
     const usage = { inputTokens: 10, cacheReadTokens: 5, cacheWriteTokens5m: 0, cacheWriteTokens1h: 0, outputTokens: 1, reasoningTokens: 0 };
     expect(costMicroUsd(usage, { input: 1e-6, output: 1e-6 })).toBeNull();
