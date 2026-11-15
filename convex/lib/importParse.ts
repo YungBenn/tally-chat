@@ -41,6 +41,11 @@ export function parseExport(data: unknown): {
         source: "chatgpt",
         conversations: nonEmpty(objects.map(chatgptConversation)),
       };
+    if (objects.every((c) => Array.isArray(c.chat_messages)))
+      return {
+        source: "claude",
+        conversations: nonEmpty(objects.map(claudeConversation)),
+      };
   }
   throw new Error(NOT_AN_EXPORT);
 }
@@ -54,75 +59,39 @@ const titleFrom = (title: string | undefined, messages: ImportedMessage[]) =>
   messages[0]?.content.replace(/\s+/g, " ").slice(0, TITLE_CHARS) ||
   "Imported conversation";
 
-// ChatGPT: a node map with parent and children links and a current node. User and assistant
-// text is kept; image and file parts become placeholders; system, tool, hidden and empty nodes
-// are dropped, their children attaching to the nearest kept ancestor; consecutive same-role
-// messages on a path merge into one.
-function chatgptConversation(c: Json): ImportedConversation {
-  const mapping = c.mapping as Record<string, Json>;
-  type Node = {
-    id: string;
-    parent?: string;
-    children: string[];
-    message?: Json;
-  };
-  const nodes = new Map<string, Node>();
-  for (const [id, raw] of Object.entries(mapping)) {
-    if (!isObject(raw)) continue;
-    nodes.set(id, {
-      id,
-      parent: str(raw.parent) ?? undefined,
-      children: Array.isArray(raw.children)
-        ? raw.children.filter((x): x is string => typeof x === "string")
-        : [],
-      message: isObject(raw.message) ? raw.message : undefined,
-    });
-  }
+type Kept = { role: "user" | "assistant"; content: string; model?: string };
+type RawNode = { parent?: string; kept?: Kept }; // no `kept`: dropped, its children move up
 
-  const kept = new Map<
-    string,
-    { role: "user" | "assistant"; content: string; model?: string }
-  >();
-  for (const node of nodes.values()) {
-    const m = node.message;
-    if (!m) continue;
-    const role = isObject(m.author) ? m.author.role : undefined;
-    if (role !== "user" && role !== "assistant") continue;
-    const meta = isObject(m.metadata) ? m.metadata : {};
-    if (meta.is_visually_hidden_from_conversation === true) continue;
-    if (str(m.recipient) && m.recipient !== "all") continue; // a tool call
-    const content = chatgptText(m.content, meta);
-    if (!content) continue;
-    kept.set(node.id, {
-      role,
-      content,
-      model: role === "assistant" ? str(meta.model_slug) : undefined,
-    });
-  }
-
-  // Kept tree: each kept node under its nearest kept ancestor.
+// Turns an export's message tree into messages to write, root first. Dropped nodes' children
+// attach to their nearest kept ancestor. A kept node whose kept children all share its role is
+// folded into them (its text leads theirs); otherwise it's written, and same-role children
+// still fold it in as siblings, so every path reads as alternating turns. The thread opens on
+// `current`'s nearest kept ancestor, or the newest message.
+function assembleTree(
+  nodes: Map<string, RawNode>,
+  current: string | undefined,
+) {
   const keptParent = (id: string | undefined): string | undefined => {
     const seen = new Set<string>();
     while (id !== undefined && !seen.has(id)) {
       seen.add(id);
-      if (kept.has(id)) return id;
+      if (nodes.get(id)?.kept) return id;
       id = nodes.get(id)?.parent;
     }
     return undefined;
   };
+  const kept = new Map(
+    [...nodes].flatMap(([id, n]) => (n.kept ? [[id, n.kept] as const] : [])),
+  );
   const children = new Map<string | undefined, string[]>();
   for (const id of kept.keys()) {
     const parent = keptParent(nodes.get(id)?.parent);
     children.set(parent, [...(children.get(parent) ?? []), id]);
   }
-  const current = str(c.current_node);
   const activeKept = current !== undefined ? keptParent(current) : undefined;
 
-  // Emit root first. A node whose kept children all share its role is folded into them (its
-  // text leads theirs); otherwise it's written, and same-role children still fold it in as
-  // siblings, so every path reads as alternating turns.
   const messages: ImportedMessage[] = [];
-  const keyOf = new Map<string, string>(); // kept node -> the written message holding its text
+  const written = new Set<string>();
   const emit = (
     id: string,
     parentKey: string | undefined,
@@ -143,17 +112,32 @@ function chatgptConversation(c: Json): ImportedConversation {
         content,
         ...(model ? { model } : {}),
       });
-      keyOf.set(id, id);
+      written.add(id);
       for (const k of other) emit(k, id, undefined);
     }
     for (const k of same) emit(k, parentKey, content, model);
   };
   for (const root of children.get(undefined) ?? [])
     emit(root, undefined, undefined);
-
-  // The thread opens on the current node's nearest kept ancestor; without one, the newest leaf.
   const activeKey =
-    (activeKept && keyOf.get(activeKept)) ?? messages.at(-1)?.key;
+    activeKept && written.has(activeKept) ? activeKept : messages.at(-1)?.key;
+  return { messages, activeKey };
+}
+
+// ChatGPT: a node map with parent links and a current node. User and assistant text is kept;
+// image and file parts become placeholders; system, tool, hidden and empty nodes are dropped.
+function chatgptConversation(c: Json): ImportedConversation {
+  const nodes = new Map<string, RawNode>();
+  for (const [id, raw] of Object.entries(
+    c.mapping as Record<string, unknown>,
+  )) {
+    if (!isObject(raw)) continue;
+    nodes.set(id, {
+      parent: str(raw.parent),
+      kept: chatgptMessage(raw.message),
+    });
+  }
+  const { messages, activeKey } = assembleTree(nodes, str(c.current_node));
   const created =
     typeof c.create_time === "number" ? c.create_time * 1000 : Date.now();
   return {
@@ -163,6 +147,85 @@ function chatgptConversation(c: Json): ImportedConversation {
     messages,
     activeKey,
   };
+}
+
+function chatgptMessage(m: unknown): Kept | undefined {
+  if (!isObject(m)) return undefined;
+  const role = isObject(m.author) ? m.author.role : undefined;
+  if (role !== "user" && role !== "assistant") return undefined;
+  const meta = isObject(m.metadata) ? m.metadata : {};
+  if (meta.is_visually_hidden_from_conversation === true) return undefined;
+  if (str(m.recipient) && m.recipient !== "all") return undefined; // a tool call
+  const content = chatgptText(m.content, meta);
+  if (!content) return undefined;
+  const model = role === "assistant" ? str(meta.model_slug) : undefined;
+  return { role, content, ...(model ? { model } : {}) };
+}
+
+// Claude: a list of human and assistant messages. Text blocks are joined; attachments and files
+// become placeholders; tool use and results are left out. Messages with a parent reference form
+// a tree, others follow the one before. The latest message is active.
+const CLAUDE_ROOT = "00000000-0000-4000-8000-000000000000";
+function claudeConversation(c: Json): ImportedConversation {
+  const list = (c.chat_messages as unknown[]).filter(isObject);
+  const ids = new Set(list.map((m) => str(m.uuid)).filter(Boolean));
+  const nodes = new Map<string, RawNode>();
+  let previous: string | undefined;
+  let latest: { id: string; at: number } | undefined;
+  list.forEach((m, i) => {
+    const id = str(m.uuid) ?? `message-${i}`;
+    const ref = str(m.parent_message_uuid);
+    const parent =
+      ref === undefined
+        ? previous
+        : ref !== CLAUDE_ROOT && ids.has(ref)
+          ? ref
+          : undefined;
+    nodes.set(id, { parent, kept: claudeMessage(m) });
+    previous = id;
+    const at = Date.parse(str(m.created_at) ?? "") || i;
+    if (!latest || at >= latest.at) latest = { id, at };
+  });
+  const { messages, activeKey } = assembleTree(nodes, latest?.id);
+  const created = Date.parse(str(c.created_at) ?? "") || Date.now();
+  return {
+    externalId: str(c.uuid) ?? `${created}`,
+    title: titleFrom(str(c.name), messages),
+    startedAt: created,
+    messages,
+    activeKey,
+  };
+}
+
+function claudeMessage(m: Json): Kept | undefined {
+  const role =
+    m.sender === "human"
+      ? "user"
+      : m.sender === "assistant"
+        ? "assistant"
+        : undefined;
+  if (!role) return undefined;
+  const blocks = Array.isArray(m.content) ? m.content.filter(isObject) : null;
+  const pieces = blocks
+    ? blocks.flatMap((b) =>
+        b.type === "text" && str(b.text)?.trim() ? [str(b.text)!] : [],
+      )
+    : str(m.text)?.trim()
+      ? [str(m.text)!]
+      : [];
+  for (const a of Array.isArray(m.attachments)
+    ? m.attachments.filter(isObject)
+    : [])
+    pieces.push(filePlaceholder(str(a.file_name)));
+  for (const f of Array.isArray(m.files) ? m.files.filter(isObject) : [])
+    pieces.push(
+      f.file_kind === "image" ||
+        /\.(png|jpe?g|gif|webp)$/i.test(str(f.file_name) ?? "")
+        ? IMAGE_PLACEHOLDER
+        : filePlaceholder(str(f.file_name)),
+    );
+  const content = pieces.join("\n\n").trim();
+  return content ? { role, content } : undefined;
 }
 
 // Text parts joined; image parts and attachments as placeholders. Code, tool output and other

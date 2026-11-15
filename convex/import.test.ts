@@ -3,6 +3,7 @@ import persistentTextStreaming from "@convex-dev/persistent-text-streaming/test"
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import chatgptExport from "../test/fixtures/chatgpt-conversations.json";
+import claudeExport from "../test/fixtures/claude-conversations.json";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
 import {
@@ -260,5 +261,39 @@ describe("importing a ChatGPT export", () => {
       summary: "Imported summary",
       turns: 2,
     });
+  });
+});
+
+describe("importing a Claude export", () => {
+  test("is detected on its own; text joins, tools drop, attachments become placeholders", async () => {
+    const s = await setup();
+    await s.upload(claudeExport);
+    const [job] = await s.owner.query(api.imports.list, {});
+    expect(job).toMatchObject({ source: "claude", status: "done", total: 2, imported: 2 }); // the empty one is left out
+    const threads = await s.all("threads");
+    const lisbon = threads.find((th) => th.importedFrom?.externalId === "c-lin")!;
+    expect(lisbon).toMatchObject({ title: "Lisbon weekend", startedAt: Date.parse("2024-03-01T10:00:00Z"), importedFrom: { source: "claude" } });
+    expect((await s.view(lisbon._id))!.messages.map((m) => [m.role, m.text])).toEqual([
+      ["user", "Plan a weekend in Lisbon\n\n[file: notes.txt]"],
+      ["assistant", "Let me check the weather.\n\nHere's a plan: Alfama, then Belem."],
+      ["user", "Is this the tram?\n\n[image]"],
+      ["assistant", "Yes, that's tram 28."],
+    ]);
+    expect((await s.all("messages")).every((m) => m.usage === undefined)).toBe(true);
+    expect(await s.all("dailyUsage")).toEqual([]);
+  });
+
+  test("parent references build branches, with the latest message active", async () => {
+    const s = await setup();
+    await s.upload(claudeExport);
+    const tree = (await s.all("threads")).find((th) => th.importedFrom?.externalId === "c-tree")!;
+    expect(tree.title).toBe("What is a monad?"); // untitled: the first message's start
+    const branch = (await s.view(tree._id))!.messages;
+    expect(branch.map((m) => m.text)).toEqual(["What is a monad?", "A monad wraps values with bind.", "Example?", "Maybe and List."]);
+    expect(branch[0].siblingIds).toHaveLength(2); // the functor question is another root
+    expect(branch[1].siblingIds).toHaveLength(2); // the retried answer
+
+    await s.upload(claudeExport);
+    expect((await s.owner.query(api.imports.list, {}))[0]).toMatchObject({ imported: 0, skipped: 2 });
   });
 });

@@ -1,0 +1,179 @@
+[
+ {
+  "uuid": "c-lin",
+  "name": "Lisbon weekend",
+  "created_at": "2024-03-01T10:00:00Z",
+  "updated_at": "2024-03-01T10:01:05Z",
+  "account": {
+   "uuid": "acc"
+  },
+  "chat_messages": [
+   {
+    "uuid": "l1",
+    "sender": "human",
+    "created_at": "2024-03-01T10:00:00Z",
+    "updated_at": "2024-03-01T10:00:00Z",
+    "text": "Plan a weekend in Lisbon",
+    "attachments": [
+     {
+      "file_name": "notes.txt",
+      "file_type": "txt",
+      "extracted_content": "..."
+     }
+    ],
+    "files": [],
+    "content": [
+     {
+      "type": "text",
+      "text": "Plan a weekend in Lisbon"
+     }
+    ]
+   },
+   {
+    "uuid": "l2",
+    "sender": "assistant",
+    "created_at": "2024-03-01T10:00:05Z",
+    "updated_at": "2024-03-01T10:00:05Z",
+    "text": "",
+    "attachments": [],
+    "files": [],
+    "content": [
+     {
+      "type": "text",
+      "text": "Let me check the weather."
+     },
+     {
+      "type": "tool_use",
+      "name": "web_search",
+      "input": {
+       "q": "lisbon weather"
+      }
+     },
+     {
+      "type": "tool_result",
+      "content": [
+       {
+        "type": "text",
+        "text": "sunny tool result"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": "Here's a plan: Alfama, then Belem."
+     }
+    ]
+   },
+   {
+    "uuid": "l3",
+    "sender": "human",
+    "created_at": "2024-03-01T10:01:00Z",
+    "updated_at": "2024-03-01T10:01:00Z",
+    "text": "Is this the tram?",
+    "attachments": [],
+    "files": [
+     {
+      "file_name": "photo.png",
+      "file_kind": "image"
+     }
+    ]
+   },
+   {
+    "uuid": "l4",
+    "sender": "assistant",
+    "created_at": "2024-03-01T10:01:05Z",
+    "updated_at": "2024-03-01T10:01:05Z",
+    "text": "Yes, that's tram 28.",
+    "attachments": [],
+    "files": []
+   }
+  ]
+ },
+ {
+  "uuid": "c-tree",
+  "name": "",
+  "created_at": "2024-05-01T09:00:00Z",
+  "updated_at": "2024-05-01T09:03:05Z",
+  "account": {
+   "uuid": "acc"
+  },
+  "chat_messages": [
+   {
+    "uuid": "t1",
+    "sender": "human",
+    "created_at": "2024-05-01T09:00:00Z",
+    "updated_at": "2024-05-01T09:00:00Z",
+    "text": "What is a monad?",
+    "attachments": [],
+    "files": [],
+    "parent_message_uuid": "00000000-0000-4000-8000-000000000000"
+   },
+   {
+    "uuid": "t2",
+    "sender": "assistant",
+    "created_at": "2024-05-01T09:00:05Z",
+    "updated_at": "2024-05-01T09:00:05Z",
+    "text": "A monad is a monoid.",
+    "attachments": [],
+    "files": [],
+    "parent_message_uuid": "t1"
+   },
+   {
+    "uuid": "t3",
+    "sender": "assistant",
+    "created_at": "2024-05-01T09:02:00Z",
+    "updated_at": "2024-05-01T09:02:00Z",
+    "text": "A monad wraps values with bind.",
+    "attachments": [],
+    "files": [],
+    "parent_message_uuid": "t1"
+   },
+   {
+    "uuid": "t4",
+    "sender": "human",
+    "created_at": "2024-05-01T09:03:00Z",
+    "updated_at": "2024-05-01T09:03:00Z",
+    "text": "Example?",
+    "attachments": [],
+    "files": [],
+    "parent_message_uuid": "t3"
+   },
+   {
+    "uuid": "t6",
+    "sender": "human",
+    "created_at": "2024-05-01T09:01:00Z",
+    "updated_at": "2024-05-01T09:01:00Z",
+    "text": "What is a functor?",
+    "attachments": [],
+    "files": [],
+    "parent_message_uuid": "00000000-0000-4000-8000-000000000000"
+   },
+   {
+    "uuid": "t7",
+    "sender": "assistant",
+    "created_at": "2024-05-01T09:01:05Z",
+    "updated_at": "2024-05-01T09:01:05Z",
+    "text": "Something you can map over.",
+    "attachments": [],
+    "files": [],
+    "parent_message_uuid": "t6"
+   },
+   {
+    "uuid": "t5",
+    "sender": "assistant",
+    "created_at": "2024-05-01T09:03:05Z",
+    "updated_at": "2024-05-01T09:03:05Z",
+    "text": "Maybe and List.",
+    "attachments": [],
+    "files": [],
+    "parent_message_uuid": "t4"
+   }
+  ]
+ },
+ {
+  "uuid": "c-empty",
+  "name": "Nothing",
+  "created_at": "2024-06-01T09:00:00Z",
+  "chat_messages": []
+ }
+]
