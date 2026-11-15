@@ -24,7 +24,7 @@ import Composer from "@/components/Composer";
 import Inspector from "@/components/Inspector";
 import EffortControl from "@/components/EffortControl";
 import ModeControl from "@/components/ModeControl";
-import ModelMenu, { sameModel, type ModelChoice } from "@/components/ModelMenu";
+import ModelMenu, { ModelPickerButton, sameModel, type ModelChoice } from "@/components/ModelMenu";
 import { Button as UiButton, IconButton } from "@/components/ui/button";
 import { Badge, EmptyState, ErrorState } from "@/components/ui/feedback";
 import { Textarea as UiTextarea } from "@/components/ui/fields";
@@ -356,6 +356,7 @@ export default function ThreadPage() {
   };
   const [confirmDelete, setConfirmDelete] = useState(false);
   const inspectorKbd = useShortcutLabel(SHORTCUTS.toggleInspector);
+  const modelKbd = useShortcutLabel(SHORTCUTS.modelPicker);
   const [inspectorOpen, setInspectorOpen] = useStoredFlag(
     "tally.inspectorOpen",
     false,
@@ -718,11 +719,11 @@ export default function ThreadPage() {
             }
             controls={
               <>
-                <ModeControl value={mode} onChange={setMode} />
                 {threadModel && (
                   <ModelMenu
                     title="Reply with, for this message only"
                     threadId={threadId}
+                    hotkey
                     draftTokens={
                       estimateTokens(draft) +
                       draftImages.reduce((sum, i) => sum + imageTokens(i), 0)
@@ -731,25 +732,15 @@ export default function ThreadPage() {
                     selected={oneOff ?? threadModel}
                     onPick={(model) => setReplyWith({ threadId, model })}
                     trigger={
-                      <button
-                        type="button"
-                        className={cn(
-                          "inline-flex max-w-48 items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs focus-visible:ring-2 focus-visible:ring-[var(--primitive-ring)] focus-visible:outline-none",
-                          oneOff
-                            ? "border-foreground text-foreground"
-                            : "border-border text-muted-foreground hover:text-foreground",
-                        )}
+                      <ModelPickerButton
+                        name={modelName(oneOff ?? threadModel)}
+                        oneOff={!!oneOff}
                         title={
                           oneOff
                             ? "This message goes to another model once; the thread keeps its model and cache"
-                            : "Reply with another model, for this message only"
+                            : `Reply with another model, for this message only (${modelKbd})`
                         }
-                      >
-                        <span>reply with</span>
-                        <span className="truncate font-medium text-foreground">
-                          {modelName(oneOff ?? threadModel)}
-                        </span>
-                      </button>
+                      />
                     }
                   />
                 )}
@@ -761,6 +752,7 @@ export default function ThreadPage() {
                     onChange={(level) => void changeEffort(level)}
                   />
                 )}
+                <ModeControl value={mode} onChange={setMode} />
               </>
             }
             canAttach={thread?.vision ?? false}

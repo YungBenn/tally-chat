@@ -129,6 +129,7 @@ export function MenuItem({
   icon?: React.ReactNode;
   /** Shortcut or a number, right-aligned in mono. */
   hint?: React.ReactNode;
+  /** true: selected; false: unselected but keeps the check column aligned. */
   check?: boolean;
   danger?: boolean;
   disabled?: boolean;
@@ -145,11 +146,20 @@ export function MenuItem({
     >
       {icon}
       <span className="tc-menu-text">{children}</span>
-      {check ? (
-        <IconCheck size={14} stroke={1.5} className="tc-menu-check" aria-label="Selected" />
-      ) : hint != null ? (
-        <span className="tc-menu-hint">{hint}</span>
-      ) : null}
+      {(check || hint != null) && (
+        <span className="tc-menu-end">
+          {hint != null && <span className="tc-menu-hint">{hint}</span>}
+          {check !== undefined && (
+            <IconCheck
+              size={14}
+              stroke={1.5}
+              className="tc-menu-check"
+              aria-label={check ? "Selected" : undefined}
+              style={check ? undefined : { visibility: "hidden" }}
+            />
+          )}
+        </span>
+      )}
     </BaseMenu.Item>
   );
 }

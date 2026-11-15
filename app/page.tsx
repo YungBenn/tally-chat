@@ -10,16 +10,16 @@ import BudgetBanner from "@/components/BudgetBanner";
 import ChatShell from "@/components/ChatShell";
 import Composer from "@/components/Composer";
 import ModeControl from "@/components/ModeControl";
-import {
-  DEFAULT_EFFORT,
-  EFFORT_LEVELS,
-  type Effort,
-} from "@/convex/lib/effort";
+import { DEFAULT_EFFORT, type Effort } from "@/convex/lib/effort";
 import type { MessageImage } from "@/convex/lib/images";
 import type { OutputMode } from "@/convex/lib/outputModes";
 import { NewThreadCostStrip } from "@/components/CostStrip";
-import { NativeSelect } from "@/components/wensity/native-select";
-import { Button } from "@/components/wensity/button";
+import EffortControl from "@/components/EffortControl";
+import { ModelPickerButton } from "@/components/ModelMenu";
+import { Button as UiButton, IconButton } from "@/components/ui/button";
+import { Menu, MenuItem, MenuLabel } from "@/components/ui/overlay";
+import { SHORTCUTS } from "@/lib/shortcuts";
+import { useShortcut } from "@/lib/useShortcut";
 import { estimateTokens, usd } from "@/lib/format";
 import { looksSimple, worthSuggesting } from "@/lib/modelSuggestion";
 import { nextSendMicroUsd } from "@/lib/nextSend";
@@ -66,34 +66,59 @@ function StartCheaper({
   const cheap = firstTurn(cheapest.prices);
   const current = firstTurn(data.prices);
   return (
-    <div
-      role="status"
-      className="mb-2 flex items-center gap-2 rounded-[var(--primitive-radius-item)] border border-border bg-surface py-1.5 pr-1.5 pl-3 text-sm"
-    >
-      <span className="min-w-0 flex-1 text-muted-foreground">
-        Looks simple: start on{" "}
-        <span className="font-medium text-foreground">{cheapest.name}</span>?{" "}
-        <span className="font-mono text-xs tabular-nums">
+    <div role="status" className="tc-suggest">
+      <span className="min-w-0 flex-1">
+        Looks simple: start on <span className="font-medium text-foreground">{cheapest.name}</span>?{" "}
+        <span className="tc-mono text-mono-sm">
           ~{usd(cheap ?? 0)} instead of ~{usd(current ?? 0)}
         </span>{" "}
         for this turn
       </span>
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={() => onSwitch(cheapest.modelId)}
-      >
+      <UiButton size="sm" variant="outline" onClick={() => onSwitch(cheapest.modelId)}>
         Switch
-      </Button>
-      <button
-        className="icon-action"
-        aria-label="Dismiss suggestion"
-        title="Dismiss"
-        onClick={() => setDismissed(true)}
-      >
-        <IconX />
-      </button>
+      </UiButton>
+      <IconButton icon={<IconX />} label="Dismiss suggestion" size="sm" onClick={() => setDismissed(true)} />
     </div>
+  );
+}
+
+// The new thread's model: grouped by provider, ⌘M opens it.
+function NewThreadModelMenu({
+  providers,
+  selected,
+  onPick,
+}: {
+  providers: { _id: Id<"providers">; name: string; models: { id: string; displayName: string; hidden?: boolean }[] }[];
+  selected: string;
+  onPick: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  useShortcut(SHORTCUTS.modelPicker, () => setOpen((o) => !o));
+  const [pid, mid] = selected.split("|");
+  const name = providers.find((p) => p._id === pid)?.models.find((m) => m.id === mid)?.displayName ?? mid;
+  const shown = providers.filter((p) => p.models.some((m) => !m.hidden));
+  return (
+    <Menu
+      side="top"
+      open={open}
+      onOpenChange={setOpen}
+      trigger={<ModelPickerButton name={name} aria-label={`Model: ${name}`} />}
+      className="w-[min(20rem,calc(100vw-2rem))]"
+    >
+      <MenuLabel>Model for this thread</MenuLabel>
+      {shown.map((p) => (
+        <div key={p._id} role="group" aria-label={p.name}>
+          {shown.length > 1 && <div className="tc-menu-group">{p.name}</div>}
+          {p.models
+            .filter((m) => !m.hidden)
+            .map((m) => (
+              <MenuItem key={m.id} check={selected === `${p._id}|${m.id}`} onClick={() => onPick(`${p._id}|${m.id}`)}>
+                {m.displayName}
+              </MenuItem>
+            ))}
+        </div>
+      ))}
+    </Menu>
   );
 }
 
@@ -127,36 +152,6 @@ export default function NewThread() {
 
   return (
     <ChatShell
-      header={
-        options.length > 0 && (
-          <>
-            <NativeSelect
-              aria-label="Model"
-              selectSize="sm"
-              fullWidth={false}
-              // Leaves room for the effort picker on phones; the select's own text truncates.
-              selectClassName="max-w-[36vw] md:max-w-none"
-              value={selected ?? ""}
-              onChange={(e) => setChoice(e.target.value)}
-              options={options}
-            />
-            {anthropic && (
-              <NativeSelect
-                aria-label="Effort"
-                title="How hard the model thinks. Fixed for the thread; higher costs more."
-                selectSize="sm"
-                fullWidth={false}
-                value={effort}
-                onChange={(e) => setEffort(e.target.value as Effort)}
-                options={EFFORT_LEVELS.map((level) => ({
-                  value: level,
-                  label: `${level} effort`,
-                }))}
-              />
-            )}
-          </>
-        )
-      }
     >
       <div className="flex flex-1 flex-col justify-center overflow-y-auto pb-[10vh]">
         <div className="mb-6 flex flex-col items-center gap-4 px-4 text-center">
@@ -181,7 +176,16 @@ export default function NewThread() {
         <Composer
           disabled={!selected}
           onDraftChange={setDraft}
-          controls={<ModeControl value={mode} onChange={setMode} />}
+          controls={
+            selected &&
+            providers && (
+              <>
+                <NewThreadModelMenu providers={providers} selected={selected} onPick={setChoice} />
+                {anthropic && <EffortControl value={effort} onChange={setEffort} />}
+                <ModeControl value={mode} onChange={setMode} />
+              </>
+            )
+          }
           banner={
             <>
               <BudgetBanner />

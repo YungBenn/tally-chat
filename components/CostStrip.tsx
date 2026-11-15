@@ -2,19 +2,17 @@
 
 import { useQuery } from "convex/react";
 import { useEffect, useState } from "react";
+import { CacheGlyph, useCacheTemp } from "@/components/CacheStatus";
+import { Kbd } from "@/components/ui/feedback";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { MODE_MAX_TOKENS, type OutputMode } from "@/convex/lib/outputModes";
 import { imageTokens } from "@/convex/lib/images";
 import { estimateTokens, usd } from "@/lib/format";
 import { nextSendMicroUsd } from "@/lib/nextSend";
-import { useCacheState } from "@/lib/useCacheState";
+import { rollCells } from "@/lib/rolling";
 
-const NO_CACHE = {
-  expiresAt: null,
-  keepaliveScheduled: false,
-  lastActiveAt: null,
-};
+const NO_CACHE = { expiresAt: null, keepaliveScheduled: false, lastActiveAt: null };
 
 // The draft, settled for a moment, so the estimate doesn't recompute on every keystroke.
 function useDebounced<T>(value: T, ms = 200) {
@@ -29,24 +27,92 @@ function useDebounced<T>(value: T, ms = 200) {
 const imagesTokens = (images?: { width: number; height: number }[]) =>
   (images ?? []).reduce((sum, i) => sum + imageTokens(i), 0);
 
-const money = (micro: number | null) =>
-  micro === null ? "cost unknown" : `~${usd(micro)} next`;
+const DIGITS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
-function Strip({ parts, onOpen }: { parts: string[]; onOpen?: () => void }) {
-  const text = parts.join(" · ");
-  const className =
-    "mt-1.5 block w-full truncate px-3 text-left font-mono text-xs leading-5 text-muted-foreground tabular-nums";
+/** Each digit rolls to its value in a fixed-width column (tabular figures), so nothing jitters. */
+export function RollingNumber({ value }: { value: string }) {
+  return (
+    <span className="tc-roll" role="text" aria-label={value}>
+      {rollCells(value).map((c) =>
+        "digit" in c ? (
+          <span key={c.key} className="tc-roll-d" aria-hidden>
+            <span style={{ transform: `translateY(${-c.digit * 1.5}em)` }}>
+              {DIGITS.map((d) => (
+                <b key={d}>{d}</b>
+              ))}
+            </span>
+          </span>
+        ) : (
+          <span key={c.key} aria-hidden>
+            {c.char}
+          </span>
+        ),
+      )}
+    </span>
+  );
+}
+
+function Strip({
+  cost,
+  cache,
+  hit,
+  onOpen,
+}: {
+  cost: number | null;
+  cache: React.ReactNode;
+  hit?: number | null;
+  onOpen?: () => void;
+}) {
+  const body = (
+    <>
+      <span className="tc-cost-left">
+        {cost === null ? (
+          <span>cost unknown</span>
+        ) : (
+          <>
+            <strong>
+              ~<RollingNumber value={usd(cost)} />
+            </strong>
+            <span>next</span>
+          </>
+        )}
+        <span className="sep">·</span>
+        {cache}
+        {hit != null && (
+          <>
+            <span className="sep">·</span>
+            <span className={hit > 0 ? "hit" : undefined}>{Math.round(hit * 100)}% hit</span>
+          </>
+        )}
+      </span>
+      <span className="tc-cost-keys">
+        <Kbd>↵</Kbd> send <Kbd>⇧↵</Kbd> newline
+      </span>
+    </>
+  );
   return onOpen ? (
-    <button
-      type="button"
-      className={`${className} hover:text-foreground`}
-      title="Open the inspector"
-      onClick={onOpen}
-    >
-      {text}
+    <button type="button" className="tc-cost" aria-live="polite" title="Open the inspector" onClick={onOpen}>
+      {body}
     </button>
   ) : (
-    <p className={className}>{text}</p>
+    <div className="tc-cost" aria-live="polite">
+      {body}
+    </div>
+  );
+}
+
+function CacheLabel({
+  cache,
+}: {
+  cache: { managed: boolean; expiresAt: number | null; keepaliveScheduled: boolean; lastActiveAt: number | null };
+}) {
+  const { temp, remaining, keptAlive } = useCacheTemp(cache.managed ? cache : NO_CACHE);
+  if (!cache.managed) return <span>provider caches</span>;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <CacheGlyph temp={temp} remaining={remaining} />
+      {keptAlive ? "cache kept alive" : `cache ${temp}`}
+    </span>
   );
 }
 
@@ -66,34 +132,20 @@ export default function CostStrip({
   onOpen: () => void;
 }) {
   const data = useQuery(api.inspector.get, { threadId });
-  const state = useCacheState(data?.cache ?? NO_CACHE);
+  const { temp } = useCacheTemp(data?.cache ?? NO_CACHE);
   const settled = useDebounced(draft);
-  if (!data) return null;
+  if (!data) return <div className="tc-cost" aria-hidden />;
   const { cache, next, thread } = data;
-  const history = !cache.managed
-    ? "provider"
-    : state.state === "cold"
-      ? "cold"
-      : "warm";
   const cost = nextSendMicroUsd({
     prices: next.prices,
-    history,
+    history: !cache.managed ? "provider" : temp === "cold" ? "cold" : "warm",
     prefixTokens: next.prefixTokens,
     draftTokens: estimateTokens(settled) + imagesTokens(draftImages),
     // A reply can't run past the chosen mode's limit.
     expectedOutputTokens:
-      next.expectedOutputTokens === null
-        ? null
-        : Math.min(next.expectedOutputTokens, MODE_MAX_TOKENS[mode]),
+      next.expectedOutputTokens === null ? null : Math.min(next.expectedOutputTokens, MODE_MAX_TOKENS[mode]),
   });
-  const cacheLabel = !cache.managed
-    ? "provider caches"
-    : state.state === "keepalive"
-      ? "cache kept alive"
-      : `cache ${state.state}`;
-  const hit =
-    thread.hitRate === null ? [] : [`${Math.round(thread.hitRate * 100)}% hit`];
-  return <Strip parts={[money(cost), cacheLabel, ...hit]} onOpen={onOpen} />;
+  return <Strip cost={cost} cache={<CacheLabel cache={cache} />} hit={thread.hitRate} onOpen={onOpen} />;
 }
 
 // On a new thread there's no history yet: the system prompt and the draft go out as fresh input.
@@ -110,14 +162,13 @@ export function NewThreadCostStrip({
 }) {
   const data = useQuery(api.inspector.newThread, { providerId, modelId });
   const settled = useDebounced(draft);
-  if (!data) return null;
+  if (!data) return <div className="tc-cost" aria-hidden />;
   const cost = nextSendMicroUsd({
     prices: data.prices,
     history: "cold",
     prefixTokens: 0,
-    draftTokens:
-      data.systemTokens + estimateTokens(settled) + imagesTokens(draftImages),
+    draftTokens: data.systemTokens + estimateTokens(settled) + imagesTokens(draftImages),
     expectedOutputTokens: null,
   });
-  return <Strip parts={[money(cost), "new thread"]} />;
+  return <Strip cost={cost} cache={<span>new thread</span>} />;
 }
