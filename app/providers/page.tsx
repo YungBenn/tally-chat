@@ -296,6 +296,30 @@ function ProviderCard({ provider }: { provider: Provider }) {
               <span className="hidden font-mono text-xs text-muted-foreground sm:inline">
                 {m.id}
               </span>
+              {provider.apiStyle === "openai-compatible" ? (
+                <Checkbox
+                  checked={m.vision === true}
+                  fullWidth={false}
+                  label="images"
+                  aria-label={`${m.displayName} accepts images`}
+                  onCheckedChange={(checked) =>
+                    void updateModel({
+                      providerId: provider._id,
+                      modelId: m.id,
+                      vision: checked === true,
+                    })
+                  }
+                />
+              ) : (
+                m.vision && (
+                  <span
+                    className="text-xs text-muted-foreground"
+                    title="Accepts images (from the provider)"
+                  >
+                    images
+                  </span>
+                )
+              )}
             </li>
           ))}
         </ul>

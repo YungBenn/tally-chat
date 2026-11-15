@@ -8,6 +8,9 @@ import {
   messageDelta,
   messageStart,
   messageStop,
+  oaiDelta,
+  oaiDone,
+  oaiFinish,
   sse,
   textDelta,
 } from "../test/sse";
@@ -272,5 +275,51 @@ describe("images in Anthropic threads", () => {
         vision: false,
       },
     ]);
+  });
+});
+
+describe("images on OpenAI-compatible providers", () => {
+  async function openai() {
+    const s = await setup();
+    const apiKeyEncrypted = await s.t.run(() => encryptSecret("sk"));
+    const providerId = await s.t.run((ctx) =>
+      ctx.db.insert("providers", {
+        ownerId: s.ownerId, name: "OpenAI", apiStyle: "openai-compatible", baseUrl: "https://api.openai.com/v1", apiKeyEncrypted,
+        detected: "", keyCheckedAt: 0, models: [{ id: "gpt-5", displayName: "GPT-5", hidden: false }],
+      }),
+    );
+    fake!.restore();
+    fake = fakeFetch({
+      "POST https://api.openai.com/v1/chat/completions": { body: oaiDelta("A cat") + oaiFinish({ prompt_tokens: 5, completion_tokens: 2 }) + oaiDone },
+      "GET https://api.openai.com/v1/models": { body: { data: [{ id: "gpt-5" }] } },
+    });
+    const threadId = await s.owner.mutation(api.chat.createThread, { providerId, modelId: "gpt-5" });
+    return { ...s, providerId, threadId };
+  }
+
+  test("marked models send images as image parts before the text", async () => {
+    const s = await openai();
+    await s.owner.mutation(api.providers.updateModel, { providerId: s.providerId, modelId: "gpt-5", vision: true });
+    const storageId = await s.store(PNG);
+    await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "What is this?", images: [s.image(storageId)] });
+    await s.t.finishAllScheduledFunctions(() => {});
+    const body = fake!.requests.find((r) => r.url.endsWith("/chat/completions"))!.body as { messages: { role: string; content: unknown }[] };
+    const user = body.messages.find((m) => m.role === "user")!;
+    expect(user.content).toEqual([
+      { type: "image_url", image_url: { url: `data:image/png;base64,${PNG_BASE64}` } },
+      { type: "text", text: "What is this?" },
+    ]);
+  });
+
+  test("unmarked models refuse images; refreshing the list keeps the owner's toggle", async () => {
+    const s = await openai();
+    const storageId = await s.store(PNG);
+    await expect(
+      s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Hi", images: [s.image(storageId)] }),
+    ).rejects.toThrow("doesn't accept images");
+    await s.owner.mutation(api.providers.updateModel, { providerId: s.providerId, modelId: "gpt-5", vision: true });
+    await s.owner.action(api.providerActions.refreshModels, { providerId: s.providerId });
+    const provider = (await s.owner.query(api.providers.list, {})).find((p) => p._id === s.providerId)!;
+    expect(provider.models[0]).toMatchObject({ id: "gpt-5", vision: true });
   });
 });

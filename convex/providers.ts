@@ -66,9 +66,13 @@ export const updateModel = mutation({
     modelId: v.string(),
     hidden: v.optional(v.boolean()),
     displayName: v.optional(v.string()),
+    vision: v.optional(v.boolean()), // "accepts images", set by the owner for OpenAI-compatible models
   },
   returns: v.null(),
-  handler: async (ctx, { providerId, modelId, hidden, displayName }) => {
+  handler: async (
+    ctx,
+    { providerId, modelId, hidden, displayName, vision },
+  ) => {
     const ownerId = await requireOwner(ctx);
     const provider = await ctx.db.get("providers", providerId);
     if (!provider || provider.ownerId !== ownerId)
@@ -80,6 +84,7 @@ export const updateModel = mutation({
             ...m,
             hidden: hidden ?? m.hidden,
             displayName: displayName?.trim() || m.displayName,
+            vision: vision ?? m.vision,
           },
     );
     await ctx.db.patch("providers", providerId, { models });
@@ -119,8 +124,14 @@ export const mergeModels = internalMutation({
     await ctx.db.patch("providers", providerId, {
       models: models.map((m) => {
         const before = known.get(m.id);
+        // OpenAI-compatible lists report no image support, so the owner's toggle stays.
         return before
-          ? { ...m, displayName: before.displayName, hidden: before.hidden }
+          ? {
+              ...m,
+              displayName: before.displayName,
+              hidden: before.hidden,
+              vision: m.vision ?? before.vision,
+            }
           : m;
       }),
     });

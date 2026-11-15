@@ -66,7 +66,22 @@ export async function* streamOpenAICompatible(
   const result = streamText({
     model: provider.chatModel(req.model),
     system: req.system,
-    messages: req.messages,
+    // Only role and content go to the SDK; images become image parts before the text.
+    messages: req.messages.map((m) =>
+      m.role === "user" && m.imageData?.length
+        ? {
+            role: "user" as const,
+            content: [
+              ...m.imageData.map((d) => ({
+                type: "image" as const,
+                image: d.data,
+                mediaType: d.mediaType,
+              })),
+              { type: "text" as const, text: m.content },
+            ],
+          }
+        : { role: m.role, content: m.content },
+    ),
     maxOutputTokens: req.maxTokens,
     maxRetries: 0, // a silent retry is a second bill the user never sees
     abortSignal: signal,
