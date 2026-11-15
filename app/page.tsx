@@ -193,7 +193,7 @@ export default function NewThread() {
           />
         ) : (
           <div className="flex flex-col items-center gap-2 text-center">
-            <BrandMark size={32} draw />
+            <BrandMark size={48} draw />
             <h1 className="mt-3 text-display">Start a thread</h1>
             <p className="text-body text-foreground-muted">
               Pick a model and effort. The estimate below updates as you type.

@@ -134,7 +134,7 @@ function Sidebar({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
-      <div className="flex h-14 shrink-0 items-center gap-2 pr-2.5 pl-2.5">
+      <div className="flex h-14 shrink-0 items-center gap-2 px-3">
         <Link
           href="/"
           onClick={onNavigate}
@@ -147,7 +147,6 @@ function Sidebar({
           icon={<IconLayoutSidebarLeftCollapse />}
           label={closeLabel}
           kbd={closeKbd}
-          size="sm"
           onClick={close}
         />
       </div>
@@ -164,7 +163,7 @@ function Sidebar({
         </Button>
         <label className="tc-input tc-search">
           <IconSearch
-            size={14}
+            size={16}
             stroke={1.5}
             className="shrink-0 text-foreground-subtle"
           />
@@ -244,7 +243,7 @@ function Sidebar({
               <p className="tc-sidebar-note">No threads yet.</p>
             )}
       </nav>
-      <div className="flex shrink-0 flex-col gap-0.5 border-t border-border px-3 pt-2 pb-3">
+      <div className="flex shrink-0 flex-col border-t border-border px-1.5 pt-1.5 pb-2">
         {NAV.map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
@@ -364,7 +363,6 @@ export default function ChatShell({
                   icon={<IconLayoutSidebarLeftExpand />}
                   label="Open sidebar"
                   kbd={sidebarKbd}
-                  size="sm"
                   onClick={() => setSidebarOpen(true)}
                 />
               )
