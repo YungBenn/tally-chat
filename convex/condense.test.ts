@@ -7,13 +7,22 @@ import { fakeFetch } from "../test/fakeFetch";
 import { messageDelta, messageStart, messageStop, sse, textDelta } from "../test/sse";
 import { api } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { planFold } from "./lib/condense";
+import { paybackTurns, planFold } from "./lib/condense";
 import { SUMMARY_PREFIX } from "./lib/context";
 import { encryptSecret } from "./lib/vault";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 vi.mock("node:dns/promises", () => ({ lookup: async () => [{ address: "160.79.104.10", family: 4 }] }));
+// A priced model with a 1,000-token context window, for the context-window override.
+vi.mock("./lib/usage", async (original) => {
+  const actual = await original<typeof import("./lib/usage")>();
+  return {
+    ...actual,
+    priceFor: (model: string, ...rest: Parameters<typeof actual.priceFor> extends [string, ...infer R] ? R : never) =>
+      model === "claude-tiny" ? { ...actual.priceFor("claude-sonnet-5-5"), contextWindow: 1000 } : actual.priceFor(model, ...rest),
+  };
+});
 const ANTHROPIC = "POST https://api.anthropic.com/v1/messages";
 
 beforeAll(setAuthEnv);
@@ -34,7 +43,7 @@ const isTitleCall = (b: Body) => b.max_tokens === 30;
 
 // A fake Anthropic API whose usage grows with the request (characters / 4), so the inspector's
 // measured layer sizes behave like the real thing. Summary calls answer `summary` (or fail).
-function provider(summary: () => string | "fail" | "truncate") {
+function provider(summary: () => string | "fail" | "truncate", { caching = true } = {}) {
   let n = 0;
   return {
     respond: (init: RequestInit | undefined) => {
@@ -54,7 +63,9 @@ function provider(summary: () => string | "fail" | "truncate") {
         );
       }
       // Replies and keepalives write the whole request to the cache, as a real cached prefix would.
-      const usage = { input_tokens: 5, cache_creation_input_tokens: Math.max(0, input - 5), output_tokens: 1 };
+      const usage = caching
+        ? { input_tokens: 5, cache_creation_input_tokens: Math.max(0, input - 5), output_tokens: 1 }
+        : { input_tokens: input, output_tokens: 1 };
       if (body.max_tokens === 0) return Response.json({ type: "message", content: [], usage: { ...usage, output_tokens: 0 } });
       const reply = isTitleCall(body) ? "A title" : `Answer ${++n}`;
       return new Response(sse(messageStart(usage), textDelta(reply), messageDelta({ output_tokens: 3 }), messageStop));
@@ -64,7 +75,7 @@ function provider(summary: () => string | "fail" | "truncate") {
 
 const LONG = "x".repeat(400); // ~100 tokens per user message
 
-async function setup(condense: Partial<Doc<"settings">> = {}) {
+async function setup(condense: Partial<Doc<"settings">> = {}, { modelId = "claude-sonnet-5-5", free = false } = {}) {
   const t = convexTest(schema, modules);
   persistentTextStreaming.register(t);
   const ownerId = await t.run((ctx) => ctx.db.insert("users", { email: "owner" }));
@@ -75,18 +86,21 @@ async function setup(condense: Partial<Doc<"settings">> = {}) {
       models: [
         { id: "claude-sonnet-5-5", displayName: "Sonnet", hidden: false },
         { id: "claude-haiku-5-5", displayName: "Haiku", hidden: false },
+        { id: "claude-tiny", displayName: "Tiny", hidden: false },
       ],
+      free,
     }),
   );
   // Small thresholds so a few turns cross them: condense past 500 tokens of turns, keep 2 turns.
+  // The cache veto is out of the way unless a test sets its own payback limit.
   const settingsId = await t.run((ctx) =>
     ctx.db.insert("settings", {
       ownerId, allowlistedHosts: [],
-      condenseAtTokens: 500, condenseMinThreadTokens: 200, condenseKeepTurns: 2, ...condense,
+      condenseAtTokens: 500, condenseMinThreadTokens: 200, condenseKeepTurns: 2, condensePaybackTurns: 1e9, ...condense,
     }),
   );
   const owner = t.withIdentity({ subject: `${ownerId}|session` });
-  const threadId = await owner.mutation(api.chat.createThread, { providerId, modelId: "claude-sonnet-5-5" });
+  const threadId = await owner.mutation(api.chat.createThread, { providerId, modelId });
   const chat = async (content: string) => {
     await owner.mutation(api.chat.send, { threadId, content });
     await t.finishAllScheduledFunctions(() => {});
@@ -303,6 +317,57 @@ describe("after a checkpoint lands", () => {
     await s.chat(`Turn 6 ${LONG}`);
     expect(await s.checkpoints()).toHaveLength(1);
     expect(s.keepaliveCalls()).toHaveLength(0);
+  });
+});
+
+describe("the cache veto", () => {
+  test("payback: a cached thread needs several turns to recover a condense, an uncached one less than one", () => {
+    // 30k tokens folded out of a 36k prefix on Sonnet 5.5, summarized by Haiku 5.5.
+    const sonnet = { input: 2e-6, cacheRead: 1e-7, cacheWrite: 2.5e-6 };
+    const haiku = { input: 1e-7, output: 5e-7 };
+    const fold = { oldPrefixTokens: 36_000, summaryInputTokens: 30_000, summaryTokens: 2048, removedTokens: 30_000 - 2048, thread: sonnet, side: haiku };
+    const cached = paybackTurns({ ...fold, caching: true })!;
+    expect(cached).toBeGreaterThan(5);
+    expect(cached).toBeLessThan(10);
+    expect(paybackTurns({ ...fold, caching: false })!).toBeLessThan(1);
+    expect(paybackTurns({ ...fold, caching: true, thread: null })).toBeNull(); // unpriced: the veto doesn't apply
+    expect(paybackTurns({ ...fold, caching: true, thread: { input: 0, cacheRead: 0, cacheWrite: 0 } })).toBeNull(); // free
+    expect(paybackTurns({ ...fold, caching: true, removedTokens: 0 })).toBe(Infinity);
+  });
+
+  test("holds a condense on a cached thread that pays back too slowly, and the inspector says why", async () => {
+    const s = await setup({ condensePaybackTurns: 0.01 });
+    fake = fakeFetch({ [ANTHROPIC]: provider(() => "unused") });
+    await longThread(s, 5);
+    await s.chat(`Turn 6 ${LONG}`);
+    expect(s.summaryCalls()).toHaveLength(0);
+    const status = (await s.inspector())!.condense;
+    expect(status.state).toBe("held");
+    expect(status.paybackTurns).toBeGreaterThan(0.01);
+  });
+
+  test("lets it through on a provider that doesn't cache", async () => {
+    const s = await setup({ condensePaybackTurns: 1 });
+    fake = fakeFetch({ [ANTHROPIC]: provider(() => "Summary one", { caching: false }) });
+    await longThread(s, 5);
+    await s.chat(`Turn 6 ${LONG}`);
+    expect(await s.checkpoints()).toHaveLength(1);
+  });
+
+  test("doesn't apply on a free provider: the thresholds alone decide", async () => {
+    const s = await setup({ condensePaybackTurns: 0.01 }, { free: true });
+    fake = fakeFetch({ [ANTHROPIC]: provider(() => "Summary one") });
+    await longThread(s, 5);
+    await s.chat(`Turn 6 ${LONG}`);
+    expect(await s.checkpoints()).toHaveLength(1);
+  });
+
+  test("a thread at half the model's context window condenses even when the veto would hold it", async () => {
+    const s = await setup({ condensePaybackTurns: 0.01 }, { modelId: "claude-tiny" });
+    fake = fakeFetch({ [ANTHROPIC]: provider(() => "Summary one") });
+    await longThread(s, 5); // about 650 tokens: past half of claude-tiny's 1,000
+    await s.chat(`Turn 6 ${LONG}`);
+    expect(await s.checkpoints()).toHaveLength(1);
   });
 });
 

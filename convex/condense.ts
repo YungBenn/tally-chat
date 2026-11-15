@@ -8,18 +8,21 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { activeBranch, sideJobModelFor } from "./chat";
-import { contextLayers } from "./inspector";
+import { contextLayers, nextPrices } from "./inspector";
 import { warmAfterCondense } from "./keepalive";
 import { budgetReached } from "./lib/budget";
 import {
   condenseSettings,
+  CONTEXT_WINDOW_SHARE,
+  estimateSummaryTokens,
   foldTranscript,
+  paybackTurns,
   planFold,
   summaryRequest,
 } from "./lib/condense";
 import { assembleHistory } from "./lib/context";
 import { meterCall } from "./lib/metering";
-import { usageValidator } from "./lib/usage";
+import { priceFor, usageValidator } from "./lib/usage";
 
 // Condensing (spec phase 6). After a reply, a scheduled side job folds every turn but the most
 // recent ones into a checkpoint summary. Messages are never touched (ADR 0001).
@@ -48,25 +51,96 @@ export async function scheduleCondense(ctx: MutationCtx, thread: Doc<"threads">)
   await ctx.db.patch("threads", thread._id, { condenseJobId });
 }
 
-// The measured size of a branch, as the inspector shows it: the whole context, and the verbatim
-// turns since the latest checkpoint.
-export async function branchSize(
+// What a condense check decides for a branch (spec phase 6), shared by the condense job and the
+// inspector so both always agree:
+// - off: condensing is turned off (and this isn't a forced condense)
+// - wait: under the thresholds, or no whole turn can be folded yet; inTokens is how far the
+//   verbatim turns are from the threshold (0 when only more turns are missing)
+// - held: the cache veto holds it, with the payback estimate in turns
+// - ready: fold branch[cut..end] into a new checkpoint
+// `force` (condense now) skips the thresholds and the veto, never the kept turns.
+export async function condensePlan(
   ctx: QueryCtx,
   thread: Doc<"threads">,
   branch: Doc<"messages">[],
+  force = false,
 ) {
+  const settings = await settingsFor(ctx, thread.ownerId);
+  const config = condenseSettings(settings);
   const layers = await contextLayers(ctx, thread, branch);
+  const totalTokens = layers.reduce((sum, l) => sum + l.tokens, 0);
+  const turnsTokens = layers.find((l) => l.kind === "turns")?.tokens ?? 0;
+  const inTokens = Math.max(
+    0,
+    config.atTokens - turnsTokens,
+    config.minThreadTokens - totalTokens,
+  );
+  if (!config.enabled && !force) return { kind: "off" as const, inTokens };
+  if (!force && inTokens > 0) return { kind: "wait" as const, inTokens };
+
+  const { checkpoint } = await assembleHistory(
+    ctx,
+    thread._id,
+    branch.map((m) => m._id),
+  );
+  const cut = checkpoint
+    ? branch.findIndex((m) => m._id === checkpoint.coversUpToId) + 1
+    : 0;
+  const end = planFold(branch, cut, config.keepTurns);
+  const sideJob = await sideJobModelFor(ctx, thread);
+  if (end === null || !sideJob) return { kind: "wait" as const, inTokens: 0 };
+
+  // Folded tokens: the measured turns layer, scaled by the share of its text being folded.
+  const chars = (ms: Doc<"messages">[]) =>
+    ms.reduce((sum, m) => sum + (m.pinned ? 0 : m.content.length), 0);
+  const verbatimChars = chars(branch.slice(cut)) || 1;
+  const foldedTokens = Math.round(
+    (turnsTokens * chars(branch.slice(cut, end + 1))) / verbatimChars,
+  );
+  const previousSummary = checkpoint?.tokens ?? 0;
+  const summaryInputTokens = previousSummary + foldedTokens;
+  const summaryTokens = estimateSummaryTokens(summaryInputTokens);
+  const provider = await ctx.db.get("providers", thread.providerId);
+  const payback = paybackTurns({
+    oldPrefixTokens: totalTokens,
+    removedTokens: summaryInputTokens - summaryTokens,
+    summaryInputTokens,
+    summaryTokens,
+    caching: provider?.capabilities?.caching === true,
+    thread: nextPrices(provider, thread.modelId, thread.cacheTtl ?? "5m"),
+    side: sidePrices(sideJob.provider, sideJob.model),
+  });
+  const window = priceFor(thread.modelId)?.contextWindow;
+  const nearWindow =
+    window !== undefined && totalTokens >= window * CONTEXT_WINDOW_SHARE;
+  if (!force && !nearWindow && payback !== null && payback > config.paybackTurns)
+    return { kind: "held" as const, inTokens: 0, paybackTurns: payback };
   return {
-    totalTokens: layers.reduce((sum, l) => sum + l.tokens, 0),
-    turnsTokens: layers.find((l) => l.kind === "turns")?.tokens ?? 0,
+    kind: "ready" as const,
+    inTokens: 0,
+    paybackTurns: payback,
+    cut,
+    end,
+    checkpoint,
+    sideJob,
+    settings,
   };
 }
 
-// What the condense action sends, or null when there's nothing to do: condensing is off, the
-// owner is over budget, a reply is streaming, the thread is under the thresholds, or no whole
-// turn can be folded. `now` comes from the action because queries must not read the clock.
+// The side-job model's prices: free providers cost nothing; null without a price.
+function sidePrices(provider: Doc<"providers">, model: string) {
+  if (provider.free === true) return { input: 0, output: 0 };
+  const price = priceFor(model);
+  return price?.input !== undefined && price.output !== undefined
+    ? { input: price.input, output: price.output }
+    : null;
+}
+
+// What the condense action sends, or null when there's nothing to do: the owner is over budget,
+// a reply is streaming, or the plan isn't ready (see condensePlan). `now` comes from the action
+// because queries must not read the clock.
 export const input = internalQuery({
-  args: { threadId: v.id("threads"), now: v.number() },
+  args: { threadId: v.id("threads"), now: v.number(), force: v.optional(v.boolean()) },
   returns: v.union(
     v.null(),
     v.object({
@@ -82,33 +156,15 @@ export const input = internalQuery({
       allowlist: v.array(v.string()),
     }),
   ),
-  handler: async (ctx, { threadId, now }) => {
+  handler: async (ctx, { threadId, now, force }) => {
     const thread = await ctx.db.get("threads", threadId);
     if (!thread) return null;
-    const settings = await settingsFor(ctx, thread.ownerId);
-    const config = condenseSettings(settings);
-    if (!config.enabled) return null;
-    if (await budgetReached(ctx, settings, now)) return null; // side jobs pause while over budget
     const branch = await activeBranch(ctx, thread);
     if (branch.some((m) => m.status === "streaming")) return null;
-
-    const size = await branchSize(ctx, thread, branch);
-    if (size.totalTokens < config.minThreadTokens) return null;
-    if (size.turnsTokens < config.atTokens) return null;
-
-    const { checkpoint } = await assembleHistory(
-      ctx,
-      threadId,
-      branch.map((m) => m._id),
-    );
-    const cut = checkpoint
-      ? branch.findIndex((m) => m._id === checkpoint.coversUpToId) + 1
-      : 0;
-    const end = planFold(branch, cut, config.keepTurns);
-    if (end === null) return null;
-
-    const sideJob = await sideJobModelFor(ctx, thread);
-    if (!sideJob) return null;
+    const plan = await condensePlan(ctx, thread, branch, force);
+    if (plan.kind !== "ready") return null;
+    if (await budgetReached(ctx, plan.settings, now)) return null; // side jobs pause while over budget
+    const { cut, end, checkpoint, sideJob } = plan;
     const { apiStyle, baseUrl, apiKeyEncrypted } = sideJob.provider;
     return {
       coversUpToId: branch[end]._id,
@@ -119,7 +175,7 @@ export const input = internalQuery({
       providerId: sideJob.provider._id,
       provider: { apiStyle, baseUrl, apiKeyEncrypted },
       model: sideJob.model,
-      allowlist: settings?.allowlistedHosts ?? [],
+      allowlist: plan.settings?.allowlistedHosts ?? [],
     };
   },
 });

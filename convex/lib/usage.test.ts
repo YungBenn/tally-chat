@@ -28,7 +28,7 @@ describe("prices and cost", () => {
     expect(costMicroUsd(usage, null)).toBeNull();
   });
 
-  test("the synced table prices current Claude models with both cache write lifetimes", () => {
-    expect(priceFor("claude-sonnet-5-5")).toEqual({ input: 2e-6, output: 1e-5, cacheRead: 1e-7, cacheWrite5m: 2.5e-6, cacheWrite1h: 4e-6 });
+  test("the synced table prices current Claude models with both cache write lifetimes and their context window", () => {
+    expect(priceFor("claude-sonnet-5-5")).toEqual({ input: 2e-6, output: 1e-5, cacheRead: 1e-7, cacheWrite5m: 2.5e-6, cacheWrite1h: 4e-6, contextWindow: 1_000_000 });
   });
 });

@@ -1,5 +1,5 @@
 // Vendors LiteLLM's MIT-licensed model price table into convex/lib/prices.generated.json,
-// trimmed to chat models and the fields cost metering needs. Run: npm run sync-prices
+// trimmed to chat models and the fields cost metering and condensing need. Run: npm run sync-prices
 import { writeFileSync } from "node:fs";
 
 const SOURCE = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
@@ -10,6 +10,7 @@ const FIELDS = {
   cache_read_input_token_cost: "cacheRead",
   cache_creation_input_token_cost: "cacheWrite5m",
   cache_creation_input_token_cost_above_1hr: "cacheWrite1h",
+  max_input_tokens: "contextWindow", // for the condenser's context-window override (spec phase 6)
 };
 
 const res = await fetch(SOURCE);

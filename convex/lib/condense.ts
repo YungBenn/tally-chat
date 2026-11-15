@@ -78,3 +78,42 @@ export function summaryRequest(previousSummary: string | null, transcript: strin
     `Conversation to condense:\n\n${transcript}`
   );
 }
+
+// Per-token USD prices the veto needs; null when the model has no price.
+export type ThreadPrices = { input: number; cacheRead: number; cacheWrite: number } | null;
+export type SidePrices = { input: number; output: number } | null;
+
+// The cache veto (spec phase 6): how many later turns a condense needs to pay for itself, or
+// null when it can't be priced (unpriced or free models), and then the veto doesn't apply.
+// One-off cost: the summary call, plus on a caching provider the next request's write of the new
+// prefix instead of a read of the old one. Saving per turn: the tokens removed from the prefix, at
+// the price paid for them each turn (cache read when cached, input when not).
+export function paybackTurns(x: {
+  oldPrefixTokens: number; // what the next send repeats today
+  removedTokens: number; // folded turns plus the old summary, minus the new summary
+  summaryInputTokens: number; // what the summarizer reads
+  summaryTokens: number; // the summary it's expected to write (estimateSummaryTokens)
+  caching: boolean;
+  thread: ThreadPrices;
+  side: SidePrices;
+}): number | null {
+  if (!x.thread || !x.side || x.thread.input === 0) return null;
+  const newPrefix = x.oldPrefixTokens - x.removedTokens;
+  const cost =
+    x.summaryInputTokens * x.side.input +
+    x.summaryTokens * x.side.output +
+    (x.caching
+      ? newPrefix * x.thread.cacheWrite - x.oldPrefixTokens * x.thread.cacheRead
+      : 0);
+  const perTurn = x.removedTokens * (x.caching ? x.thread.cacheRead : x.thread.input);
+  if (perTurn <= 0) return Infinity;
+  return Math.max(0, cost / perTurn);
+}
+
+// The summary a condense is expected to write: a quarter of what it reads, up to its budget.
+// ponytail: a fixed 4:1 guess; measure real summaries on the usage page and tune it if it's off.
+export const estimateSummaryTokens = (summaryInputTokens: number) =>
+  Math.min(SUMMARY_MAX_TOKENS, Math.ceil(summaryInputTokens / 4));
+
+// Near the context window a thread condenses whatever the veto says: half the window.
+export const CONTEXT_WINDOW_SHARE = 0.5;

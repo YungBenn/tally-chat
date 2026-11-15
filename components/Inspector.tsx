@@ -152,12 +152,23 @@ export function InspectorBody({
                 ? "condensing…"
                 : data.condense.state === "failed"
                   ? "last attempt failed"
+                  : data.condense.state === "held"
+                    ? "on hold"
                   : data.condense.inTokens > 0
                     ? `in ~${tokens(data.condense.inTokens)} tok`
-                    : "after the next reply"
+                    : "after more turns"
           }
           title="Older turns are folded into a summary once the turns since the last summary pass the threshold in Settings"
         />
+        {data.condense.state === "held" && (
+          <p className="font-sans text-[11px] text-muted-foreground">
+            {data.condense.paybackTurns! >= 1000
+              ? "Condensing now would never pay for itself"
+              : `Condensing now pays for itself only after ~${Math.max(1, Math.round(data.condense.paybackTurns!))} turns`}
+            , so it waits. A thread near the model&apos;s context window
+            condenses anyway.
+          </p>
+        )}
         {data.condense.state === "failed" && (
           <p className="font-sans text-[11px] text-muted-foreground">
             Last condense failed: {data.condense.failure}. It tries again after

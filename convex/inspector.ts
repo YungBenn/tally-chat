@@ -6,8 +6,7 @@ import { supportsPerMessageEffort } from "./lib/anthropic";
 import { effortValidator } from "./lib/effort";
 import { cacheExpiresAt, cacheTtlValidator } from "./lib/cacheStatus";
 import { assembleHistory } from "./lib/context";
-import { condensePending } from "./condense";
-import { condenseSettings } from "./lib/condense";
+import { condensePending, condensePlan } from "./condense";
 import { imageTokens } from "./lib/images";
 import {
   CURRENT_SYSTEM_PROMPT_VERSION,
@@ -62,7 +61,7 @@ const pricesValidator = v.union(
 
 // USD per token for a send on this model; all 0 on a free provider, null without a price.
 // Without cache prices, a cached token is priced like an uncached one.
-function nextPrices(
+export function nextPrices(
   provider: Doc<"providers"> | null,
   modelId: string,
   ttl: "5m" | "1h",
@@ -127,17 +126,19 @@ export const get = query({
       editHints: v.array(
         v.object({ messageId: v.id("messages"), extraMicroUsd: v.number() }),
       ),
-      // Automatic condensing (spec phase 6): off, running, last attempt failed, or how many more
-      // tokens of verbatim turns until the next check condenses.
+      // Automatic condensing (spec phase 6): off, running, last attempt failed, held by the cache
+      // veto, or how many more tokens of verbatim turns until the next check condenses.
       condense: v.object({
         state: v.union(
           v.literal("off"),
           v.literal("condensing"),
           v.literal("failed"),
+          v.literal("held"),
           v.literal("waiting"),
         ),
         inTokens: v.number(),
         failure: v.optional(v.string()),
+        paybackTurns: v.optional(v.number()), // held: turns the condense needs to pay for itself
       }),
       thread: v.object({
         costMicroUsd: v.number(),
@@ -201,30 +202,32 @@ export const get = query({
         provider?.apiStyle === "anthropic" && prices
           ? await editHints(ctx, thread, branch, layers, prices)
           : [],
-      condense: await condenseStatus(ctx, thread, layers),
+      condense: await condenseStatus(ctx, thread, branch),
       thread: await threadFigures(ctx, ownerId, threadId),
     };
   },
 });
 
+const NEVER_PAYS_BACK = 1000;
+
 async function condenseStatus(
   ctx: QueryCtx,
   thread: Doc<"threads">,
-  layers: { kind: string; tokens: number }[],
+  branch: Doc<"messages">[],
 ) {
-  const settings = await ctx.db
-    .query("settings")
-    .withIndex("by_ownerId", (q) => q.eq("ownerId", thread.ownerId))
-    .unique();
-  const config = condenseSettings(settings);
-  const total = layers.reduce((sum, l) => sum + l.tokens, 0);
-  const turns = layers.find((l) => l.kind === "turns")?.tokens ?? 0;
-  const inTokens = Math.max(0, config.atTokens - turns, config.minThreadTokens - total);
-  if (!config.enabled) return { state: "off" as const, inTokens };
+  const plan = await condensePlan(ctx, thread, branch);
+  const { inTokens } = plan;
+  if (plan.kind === "off") return { state: "off" as const, inTokens };
   if (await condensePending(ctx, thread))
     return { state: "condensing" as const, inTokens };
   if (thread.condenseFailure)
     return { state: "failed" as const, inTokens, failure: thread.condenseFailure };
+  if (plan.kind === "held")
+    return {
+      state: "held" as const,
+      inTokens,
+      paybackTurns: Math.min(plan.paybackTurns, NEVER_PAYS_BACK), // Infinity isn't a Convex value
+    };
   return { state: "waiting" as const, inTokens };
 }
 

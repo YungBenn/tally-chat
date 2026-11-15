@@ -100,13 +100,13 @@ I can pin a message so it's never folded into a summary, condense a thread on de
 ### The cache veto
 
 - The veto estimates **payback turns**: the condense's one-off cost divided by what each later turn saves.
-  - One-off cost: the summary call at the side-job model's prices (input: previous summary plus folded text; output: the summary budget), plus, when the thread's provider caches, the next request's cache write of the new prefix (summary, pins and kept turns) minus the cache read of the old prefix it replaces.
+  - One-off cost: the summary call at the side-job model's prices (input: previous summary plus folded text; output: the expected summary, a quarter of what it reads up to the summary budget), plus, when the thread's provider caches, the next request's cache write of the new prefix (summary, pins and kept turns) minus the cache read of the old prefix it replaces.
   - Saving per turn: the tokens removed (folded tokens minus summary tokens) at the price the thread pays for them each turn: the cache-read price when the provider caches, the input price when it doesn't. Whether a provider caches comes from the capabilities learned from its usage fields.
 - It holds the condense when payback exceeds the limit (default 10 turns).
 - With no price for the thread's or the side-job model, or on a free provider, the veto doesn't apply and the thresholds alone decide.
 - **Context-window override:** when the branch's context (checkpoint layer plus turns layer) reaches half the model's context window, condense even if the veto would hold. The price sync keeps each model's context window from the same source it reads prices from. A model without a known window gets no override.
-- Each check stores its outcome on the thread (when, the decision, the payback estimate, or the failure) for the inspector. It's recomputed after every reply.
-- The cost example that shapes the default: on a cached Sonnet thread at the 30k threshold, a condense pays back only after about 20 turns, while on an uncached provider it pays back in about one. The veto is what keeps condensing from raising the bill, the trap in design doc section 8.3.
+- The condense job and the inspector compute the same plan from the same data, so the inspector's status (on hold, with the payback estimate) is always current; only a failed attempt is stored on the thread.
+- The cost example that shapes the default: folding 30k tokens out of a 36k cached Sonnet 5.5 prefix, summarized by Haiku 5.5, pays back after about 7 turns; on an uncached provider it pays back in under one. Folding a single 5k turn out of a 30k cached prefix takes over 100 turns, which is why small, frequent condenses are held. The veto is what keeps condensing from raising the bill, the trap in design doc section 8.3.
 
 ### After a checkpoint lands
 

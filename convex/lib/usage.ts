@@ -82,7 +82,7 @@ export function normalizeOpenAIUsage(raw: OpenAIUsage): NormalizedUsage {
 }
 
 // USD per token, from the vendored LiteLLM table with priceOverrides.json winning field by field.
-type Price = { input?: number; output?: number; cacheRead?: number; cacheWrite5m?: number; cacheWrite1h?: number };
+type Price = { input?: number; output?: number; cacheRead?: number; cacheWrite5m?: number; cacheWrite1h?: number; contextWindow?: number };
 type PriceTable = { models: Record<string, Price> };
 
 export function priceFor(model: string, tables: PriceTable[] = [generated, overrides]): Price | null {
