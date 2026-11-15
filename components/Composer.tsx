@@ -236,7 +236,7 @@ export default function Composer({
               />
             </>
           )}
-          {controls}
+          <div className="tc-composer-controls">{controls}</div>
           <span className="grow" />
           {streaming ? (
             <Button

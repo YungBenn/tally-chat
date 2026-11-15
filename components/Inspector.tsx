@@ -266,18 +266,21 @@ function Condense({
 
 // The thread's context window by layer and its money (spec phase 3, S9). Counts measured by
 // the provider show plainly; estimates carry `~`.
-export function InspectorBody({
+function InspectorBody({
   threadId,
   draft,
   draftImages,
+  selected,
+  setSelected,
 }: {
   threadId: Id<"threads">;
   draft: string;
   draftImages?: { width: number; height: number }[];
+  selected: number | null; // held by Inspector, so it survives the column/sheet switch
+  setSelected: (i: number) => void;
 }) {
   const data = useQuery(api.inspector.get, { threadId });
   const cache = useCacheTemp(data?.cache ?? { expiresAt: null, keepaliveScheduled: false, lastActiveAt: null });
-  const [selected, setSelected] = useState<number | null>(null);
   if (!data)
     return <p className="text-body-sm text-foreground-muted">{data === null ? "This thread was deleted." : "Loading…"}</p>;
 
@@ -421,7 +424,16 @@ export default function Inspector({
   onClose: () => void;
   closeKbd?: string;
 }) {
-  const body = <InspectorBody threadId={threadId} draft={draft} draftImages={draftImages} />;
+  const [selected, setSelected] = useState<number | null>(null);
+  const body = (
+    <InspectorBody
+      threadId={threadId}
+      draft={draft}
+      draftImages={draftImages}
+      selected={selected}
+      setSelected={setSelected}
+    />
+  );
   if (compact)
     return (
       <Sheet open={open} onOpenChange={(o) => !o && onClose()} side="bottom" title="Inspector">
