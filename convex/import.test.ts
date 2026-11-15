@@ -230,7 +230,8 @@ describe("importing a ChatGPT export", () => {
       status: "done",
       imported: 2,
     });
-  });
+    // 900 messages through convex-test take ~2s alone and over 5s with the full suite in parallel.
+  }, 30_000);
 
   test("condense now works before the first reply, and the inspector prices continuing", async () => {
     const s = await setup();
