@@ -16,3 +16,4 @@ test
 *.tsbuildinfo
 selfhost/data
 selfhost/secrets
+backups

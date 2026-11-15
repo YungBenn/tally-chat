@@ -135,6 +135,7 @@ export const generate = internalAction({
       }
       await finish("done");
     } catch (err) {
+      if (!(err instanceof ConvexError)) console.error("reply failed:", err);
       await finish(
         "error",
         err instanceof ConvexError

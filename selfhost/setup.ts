@@ -5,8 +5,10 @@
 //   2. derives the Convex admin key from the backend's own instance secret;
 //   3. sets the deployment's environment, then deploys the functions (also the upgrade path).
 // Secrets live in /secrets (selfhost/secrets on the host): back that directory up with the data.
+// `setup.ts backup <dir>` and `setup.ts restore <dir> [--replace-secrets]` back the instance up
+// and restore it (run through selfhost/backup.sh and selfhost/restore.sh).
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { exportJWK, exportPKCS8, generateKeyPair } from "jose";
 
 const SECRETS = "/secrets/tally.env";
@@ -80,13 +82,51 @@ function convex(args: string[], env: Record<string, string>) {
   if (result.status !== 0) fail(`convex ${args[0]} ${args[1] ?? ""} failed`);
 }
 
-const secrets = await appSecrets();
-const deployment = { CONVEX_SELF_HOSTED_URL: backendUrl, CONVEX_SELF_HOSTED_ADMIN_KEY: adminKey() };
-// The deployment needs its environment before the functions deploy (TALLY_MASTER_KEY is required).
-for (const [name, value] of Object.entries({ ...secrets, SITE_URL: siteUrl })) {
-  console.log(`setup: setting ${name}`);
-  convex(["env", "set", "--", name, value], deployment);
+function deploy(secrets: Record<string, string>, deployment: Record<string, string>) {
+  // The deployment needs its environment before the functions deploy (TALLY_MASTER_KEY is required).
+  for (const [name, value] of Object.entries({ ...secrets, SITE_URL: siteUrl })) {
+    console.log(`setup: setting ${name}`);
+    convex(["env", "set", "--", name, value], deployment);
+  }
+  console.log("setup: deploying the functions");
+  convex(["deploy", "--yes", "--typecheck", "disable"], deployment);
 }
-console.log("setup: deploying the functions");
-convex(["deploy", "--yes", "--typecheck", "disable"], deployment);
-console.log("setup: done");
+
+// A backup is a directory holding data.zip (a Convex export, file storage included) and
+// tally.env (this instance's secrets): restored data needs the master key that encrypted it.
+function backup(dir: string, deployment: Record<string, string>) {
+  if (!existsSync(SECRETS)) fail(`${SECRETS} is missing: has the stack been set up?`);
+  console.log(`backup: exporting the data`);
+  convex(["export", "--include-file-storage", "--path", `${dir}/data.zip`], deployment);
+  copyFileSync(SECRETS, `${dir}/tally.env`);
+  for (const file of ["data.zip", "tally.env"]) chmodSync(`${dir}/${file}`, 0o600);
+  console.log("backup: done");
+}
+
+function restore(dir: string, replaceSecrets: boolean, deployment: Record<string, string>) {
+  for (const file of ["data.zip", "tally.env"])
+    if (!existsSync(`${dir}/${file}`)) fail(`${dir}/${file} is missing: a backup holds data.zip and tally.env`);
+  const backupKey = readEnvFile(`${dir}/tally.env`).TALLY_MASTER_KEY;
+  if (!backupKey) fail(`${dir}/tally.env has no TALLY_MASTER_KEY`);
+  const currentKey = readEnvFile(SECRETS).TALLY_MASTER_KEY;
+  if (currentKey && currentKey !== backupKey && !replaceSecrets)
+    fail(
+      "this instance's secrets don't match the backup's, so its provider keys couldn't be decrypted. " +
+        "To replace this instance with the backup (data and secrets), run the restore again with --replace-secrets.",
+    );
+  copyFileSync(`${dir}/tally.env`, SECRETS);
+  chmodSync(SECRETS, 0o600);
+  deploy(readEnvFile(SECRETS), deployment);
+  console.log("restore: importing the data (replaces everything in the deployment)");
+  convex(["import", "--replace-all", "--yes", `${dir}/data.zip`], deployment);
+  console.log("restore: done");
+}
+
+const [mode, dir, flag] = process.argv.slice(2);
+const deployment = { CONVEX_SELF_HOSTED_URL: backendUrl, CONVEX_SELF_HOSTED_ADMIN_KEY: adminKey() };
+if (mode === "backup") backup(dir, deployment);
+else if (mode === "restore") restore(dir, flag === "--replace-secrets", deployment);
+else {
+  deploy(await appSecrets(), deployment);
+  console.log("setup: done");
+}

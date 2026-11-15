@@ -1,3 +1,4 @@
+import { ConvexError } from "convex/values";
 import { env } from "../_generated/server";
 
 // AES-256-GCM with the master key from the environment, never the database.
@@ -20,6 +21,14 @@ export async function encryptSecret(plaintext: string): Promise<string> {
 export async function decryptSecret(stored: string): Promise<string> {
   const [version, iv, ct] = stored.split(".");
   if (version !== "v1") throw new Error("Unknown secret format");
-  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(iv) }, await masterKey(), unb64(ct));
-  return new TextDecoder().decode(pt);
+  const key = await masterKey();
+  try {
+    const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(iv) }, key, unb64(ct));
+    return new TextDecoder().decode(pt);
+  } catch {
+    // Saved under another master key, e.g. data restored without its secrets file.
+    throw new ConvexError(
+      "This provider's key can't be decrypted: TALLY_MASTER_KEY isn't the key it was saved with. Restore the matching secrets file, or replace the key on the Providers page.",
+    );
+  }
 }
