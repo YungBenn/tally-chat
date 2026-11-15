@@ -112,6 +112,7 @@ function MessageRow({
 function UserMessage({
   id,
   text,
+  images,
   siblingIds,
   busy,
   onType,
@@ -122,6 +123,7 @@ function UserMessage({
   mode: OutputMode;
   id: Id<"messages">;
   text: string;
+  images?: { url: string | null; width: number; height: number }[];
   siblingIds: Id<"messages">[];
   busy: boolean;
   onType: () => void;
@@ -205,8 +207,34 @@ function UserMessage({
           </div>
         </form>
       ) : (
-        <div className="text-[15px] leading-7 whitespace-pre-wrap [overflow-wrap:anywhere]">
-          {text}
+        <div className="flex flex-col gap-2">
+          {images && images.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {images.map((image, i) =>
+                image.url ? (
+                  <a
+                    key={i}
+                    href={image.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Open full size"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element -- a stored upload, already downscaled */}
+                    <img
+                      src={image.url}
+                      alt={`Attached image ${i + 1}`}
+                      width={image.width}
+                      height={image.height}
+                      className="max-h-60 w-auto rounded-lg border border-border object-contain"
+                    />
+                  </a>
+                ) : null,
+              )}
+            </div>
+          )}
+          <div className="text-[15px] leading-7 whitespace-pre-wrap [overflow-wrap:anywhere]">
+            {text}
+          </div>
         </div>
       )}
     </MessageRow>
@@ -434,6 +462,7 @@ export default function ThreadPage() {
                       key={m._id}
                       id={m._id}
                       text={m.text}
+                      images={m.images}
                       siblingIds={m.siblingIds}
                       busy={streaming}
                       onType={markActive}
@@ -580,7 +609,8 @@ export default function ThreadPage() {
                 )}
               </>
             }
-            onSend={async (text) => {
+            canAttach={thread?.vision ?? false}
+            onSend={async (text, images) => {
               setAtBottom(true);
               try {
                 await send({
@@ -588,6 +618,7 @@ export default function ThreadPage() {
                   content: text,
                   mode,
                   effort: pendingEffort ?? undefined,
+                  images: images.length ? images : undefined,
                 });
                 setPendingEffort(null);
               } catch (err) {

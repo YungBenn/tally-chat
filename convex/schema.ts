@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
 import { cacheTtlValidator } from "./lib/cacheStatus";
 import { effortValidator } from "./lib/effort";
+import { imageValidator } from "./lib/images";
 import { outputModeValidator } from "./lib/outputModes";
 import { usageValidator } from "./lib/usage";
 
@@ -24,6 +25,7 @@ export default defineSchema({
         id: v.string(),
         displayName: v.string(),
         hidden: v.boolean(),
+        vision: v.optional(v.boolean()), // accepts images; absent = no
       }),
     ),
     free: v.optional(v.boolean()), // owner says it costs nothing (local models): cost is recorded as $0
@@ -73,7 +75,8 @@ export default defineSchema({
     costMicroUsd: v.optional(v.number()), // absent with usage present = model has no price
     outputMode: v.optional(outputModeValidator), // replies: the length limit asked for; absent = normal
     truncated: v.optional(v.boolean()), // replies that stopped at that limit
-    effort: v.optional(effortValidator), // replies: the effort they ran at (Anthropic style)
+    effort: v.optional(effortValidator), // user: a per-message change made here; replies: the level they ran at
+    images: v.optional(v.array(imageValidator)), // user messages: images sent with it, fixed at creation
   })
     .index("by_thread_parent", ["threadId", "parentId"])
     .index("by_status", ["status"]),

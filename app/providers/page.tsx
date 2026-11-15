@@ -178,6 +178,8 @@ function ProviderCard({ provider }: { provider: Provider }) {
   const updateModel = useMutation(api.providers.updateModel);
   const remove = useMutation(api.providers.remove);
   const [replacing, setReplacing] = useState(false);
+  const refreshModels = useAction(api.providerActions.refreshModels);
+  const [refresh, setRefresh] = useState<"idle" | "busy" | string>("idle");
   const visible = provider.models.filter((m) => !m.hidden).length;
 
   return (
@@ -197,6 +199,26 @@ function ProviderCard({ provider }: { provider: Provider }) {
           </p>
         </div>
         <div className="flex gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            loading={refresh === "busy"}
+            title="Fetch the model list again: new models and which accept images"
+            onClick={() => {
+              setRefresh("busy");
+              refreshModels({ providerId: provider._id })
+                .then(() => setRefresh("idle"))
+                .catch((err) =>
+                  setRefresh(
+                    err instanceof ConvexError
+                      ? String(err.data)
+                      : "Could not refresh the models",
+                  ),
+                );
+            }}
+          >
+            Refresh models
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -221,6 +243,11 @@ function ProviderCard({ provider }: { provider: Provider }) {
           </Button>
         </div>
       </div>
+      {refresh !== "idle" && refresh !== "busy" && (
+        <p role="alert" className="text-sm text-primitive-destructive">
+          {refresh}
+        </p>
+      )}
       {replacing && (
         <ReplaceKey
           providerId={provider._id}

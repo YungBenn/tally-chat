@@ -105,8 +105,8 @@ describe("managing a provider", () => {
     await owner.mutation(api.providers.updateModel, { providerId, modelId: "claude-sonnet-5-5", displayName: "Sonnet" });
     const [view] = await owner.query(api.providers.list, {});
     expect(view.models).toEqual([
-      { id: "claude-sonnet-5-5", displayName: "Sonnet", hidden: false },
-      { id: "claude-haiku-5-5", displayName: "Claude Haiku 5.5", hidden: true },
+      { id: "claude-sonnet-5-5", displayName: "Sonnet", hidden: false, vision: false },
+      { id: "claude-haiku-5-5", displayName: "Claude Haiku 5.5", hidden: true, vision: false },
     ]);
   });
 

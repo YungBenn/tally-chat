@@ -1,5 +1,6 @@
 import { ConvexError } from "convex/values";
 import type { Effort } from "./effort";
+import type { MessageImage } from "./images";
 import { guardedFetch, type GuardOptions } from "./urlGuard";
 import {
   normalizeAnthropicUsage,
@@ -11,6 +12,7 @@ export type ProviderModel = {
   id: string;
   displayName: string;
   hidden: boolean;
+  vision?: boolean; // accepts images (spec phase 4)
 };
 
 // GET /v1/models is free, so it doubles as the key test and the model list.
@@ -34,8 +36,17 @@ export async function fetchAnthropicModels(
     throw new ConvexError("The provider rejected this key");
   if (!res.ok)
     throw new ConvexError(`The provider returned an error (${res.status})`);
+  // capabilities.image_input.supported on the Models API; some proxies (9router) report
+  // capabilities.vision instead.
   const body = (await res.json()) as {
-    data: { id: string; display_name?: string }[];
+    data: {
+      id: string;
+      display_name?: string;
+      capabilities?: {
+        image_input?: { supported?: boolean };
+        vision?: boolean;
+      };
+    }[];
   };
   const org = res.headers.get("anthropic-organization-id");
   return {
@@ -44,16 +55,24 @@ export async function fetchAnthropicModels(
       id: m.id,
       displayName: m.display_name ?? m.id,
       hidden: false,
+      vision:
+        m.capabilities?.image_input?.supported ??
+        m.capabilities?.vision ??
+        false,
     })),
   };
 }
 
 // effort: a per-message effort change made on this user message (spec phase 4), which the
 // Anthropic body emits as a beta effort-only system message right after it.
+// images: stored images on a user message; the action loads them into imageData (base64)
+// before the request is built.
 export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   effort?: Effort;
+  images?: MessageImage[];
+  imageData?: { mediaType: MessageImage["mediaType"]; data: string }[];
 };
 
 const PER_MESSAGE_EFFORT_BETA = "mid-conversation-output-config-2026-07-01";
@@ -118,11 +137,25 @@ export function messagesBody(req: MessagesRequest, stream: boolean) {
       : req.system,
     // Breakpoint indices count the branch's messages; effort messages are inserted after them.
     messages: req.messages.flatMap((m, i) => {
+      const text = marked.has(i)
+        ? { type: "text" as const, text: m.content, cache_control: cc }
+        : { type: "text" as const, text: m.content };
+      // Images go before the text, as base64 blocks (spec phase 4).
+      const images = (m.imageData ?? []).map((d) => ({
+        type: "image" as const,
+        source: {
+          type: "base64" as const,
+          media_type: d.mediaType,
+          data: d.data,
+        },
+      }));
       const message = {
         role: m.role,
-        content: marked.has(i)
-          ? [{ type: "text" as const, text: m.content, cache_control: cc }]
-          : m.content,
+        content: images.length
+          ? [...images, text]
+          : marked.has(i)
+            ? [text]
+            : m.content,
       };
       return m.effort
         ? [

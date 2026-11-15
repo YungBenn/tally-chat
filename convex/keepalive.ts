@@ -16,6 +16,7 @@ import {
 import { effortFor } from "./chat";
 import { budgetReached } from "./lib/budget";
 import { effortValidator } from "./lib/effort";
+import { imageValidator } from "./lib/images";
 import { assembleHistory } from "./lib/context";
 import { meterCall } from "./lib/metering";
 import { usageValidator, type Usage } from "./lib/usage";
@@ -87,6 +88,7 @@ export const input = internalQuery({
           role: v.union(v.literal("user"), v.literal("assistant")),
           content: v.string(),
           effort: v.optional(effortValidator),
+          images: v.optional(v.array(imageValidator)),
         }),
       ),
       layerEnd: v.number(),

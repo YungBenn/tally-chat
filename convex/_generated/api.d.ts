@@ -20,6 +20,7 @@ import type * as lib_budget from "../lib/budget.js";
 import type * as lib_cacheStatus from "../lib/cacheStatus.js";
 import type * as lib_context from "../lib/context.js";
 import type * as lib_effort from "../lib/effort.js";
+import type * as lib_images from "../lib/images.js";
 import type * as lib_metering from "../lib/metering.js";
 import type * as lib_openaiCompatible from "../lib/openaiCompatible.js";
 import type * as lib_outputModes from "../lib/outputModes.js";
@@ -55,6 +56,7 @@ declare const fullApi: ApiFromModules<{
   "lib/cacheStatus": typeof lib_cacheStatus;
   "lib/context": typeof lib_context;
   "lib/effort": typeof lib_effort;
+  "lib/images": typeof lib_images;
   "lib/metering": typeof lib_metering;
   "lib/openaiCompatible": typeof lib_openaiCompatible;
   "lib/outputModes": typeof lib_outputModes;

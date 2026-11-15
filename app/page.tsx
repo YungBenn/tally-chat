@@ -42,6 +42,10 @@ export default function NewThread() {
   const anthropic =
     providers?.find((p) => p._id === selected?.split("|")[0])?.apiStyle ===
     "anthropic";
+  const vision =
+    providers
+      ?.find((p) => p._id === selected?.split("|")[0])
+      ?.models.find((m) => m.id === selected?.split("|")[1])?.vision === true;
 
   return (
     <ChatShell
@@ -108,7 +112,8 @@ export default function NewThread() {
               />
             )
           }
-          onSend={async (text) => {
+          canAttach={vision}
+          onSend={async (text, images) => {
             if (!selected) return;
             const [providerId, modelId] = selected.split("|");
             try {
@@ -117,7 +122,12 @@ export default function NewThread() {
                 modelId,
                 effort: anthropic ? effort : undefined,
               });
-              await send({ threadId, content: text, mode });
+              await send({
+                threadId,
+                content: text,
+                mode,
+                images: images.length ? images : undefined,
+              });
               router.push(`/t/${threadId}`);
             } catch (err) {
               throw new Error(

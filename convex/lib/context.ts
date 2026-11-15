@@ -38,10 +38,14 @@ export async function assembleHistory(
     (a, b) => position.get(b.coversUpToId)! - position.get(a.coversUpToId)!,
   )[0];
 
-  const toChat = (m: Doc<"messages">): ChatMessage =>
-    m.role === "user" && m.effort
-      ? { role: m.role, content: m.content, effort: m.effort }
-      : { role: m.role, content: m.content };
+  // Per-message effort and images ride along on user messages; the adapter turns them into
+  // their own blocks, so request bytes depend only on stored data.
+  const toChat = (m: Doc<"messages">): ChatMessage => ({
+    role: m.role,
+    content: m.content,
+    ...(m.role === "user" && m.effort ? { effort: m.effort } : {}),
+    ...(m.role === "user" && m.images?.length ? { images: m.images } : {}),
+  });
   const verbatim = (ms: Doc<"messages">[]) =>
     ms.filter((m) => m.content !== "").map(toChat);
   if (!latest)

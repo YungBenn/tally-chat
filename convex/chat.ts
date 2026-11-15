@@ -20,6 +20,11 @@ import {
   type OutputMode,
 } from "./lib/outputModes";
 import { supportsPerMessageEffort } from "./lib/anthropic";
+import {
+  imageValidator,
+  MAX_IMAGES_PER_MESSAGE,
+  type MessageImage,
+} from "./lib/images";
 import { DEFAULT_EFFORT, effortValidator, type Effort } from "./lib/effort";
 import { meterCall } from "./lib/metering";
 import {
@@ -127,6 +132,15 @@ const messageView = v.object({
   costMicroUsd: v.optional(v.number()),
   truncated: v.optional(v.boolean()),
   effort: v.optional(effortValidator),
+  images: v.optional(
+    v.array(
+      v.object({
+        url: v.union(v.null(), v.string()),
+        width: v.number(),
+        height: v.number(),
+      }),
+    ),
+  ),
 });
 
 // null when the thread doesn't exist (or was deleted), so a page left open on another
@@ -141,6 +155,7 @@ export const getThread = query({
       modelId: v.string(),
       messages: v.array(messageView),
       cacheManaged: v.boolean(), // Anthropic-style provider: tally.chat places its cache breakpoints
+      vision: v.boolean(), // the thread's model accepts images
       cacheExpiresAt: v.union(v.null(), v.number()), // judge warm/cold/keepalive with lib/cacheStatus
       keepaliveScheduled: v.boolean(),
       lastActiveAt: v.union(v.null(), v.number()),
@@ -190,6 +205,15 @@ export const getThread = query({
         costMicroUsd: m.costMicroUsd,
         truncated: m.truncated,
         effort: m.effort,
+        images: m.images
+          ? await Promise.all(
+              m.images.map(async (i) => ({
+                url: await ctx.storage.getUrl(i.storageId),
+                width: i.width,
+                height: i.height,
+              })),
+            )
+          : undefined,
       })),
     );
     return {
@@ -200,6 +224,10 @@ export const getThread = query({
       cacheManaged:
         (await ctx.db.get("providers", thread.providerId))?.apiStyle ===
         "anthropic",
+      vision:
+        (await ctx.db.get("providers", thread.providerId))?.models.find(
+          (m) => m.id === thread.modelId,
+        )?.vision === true,
       cacheExpiresAt: cacheExpiresAt(thread),
       keepaliveScheduled: await keepalivePending(ctx, thread),
       lastActiveAt: thread.lastActiveAt ?? null,
@@ -227,8 +255,10 @@ async function appendUserMessage(
   parent: Doc<"messages"> | null,
   text: string,
   effort?: Effort, // a per-message effort change, made on this message and never changed after
+  images?: MessageImage[],
 ) {
   if (effort) await assertPerMessageEffort(ctx, thread);
+  if (images?.length) await assertImagesAllowed(ctx, thread, images);
   const id = await ctx.db.insert("messages", {
     ownerId: thread.ownerId,
     threadId: thread._id,
@@ -239,6 +269,7 @@ async function appendUserMessage(
     content: text,
     status: "done",
     effort,
+    images: images?.length ? images : undefined,
   });
   return (await ctx.db.get("messages", id))!;
 }
@@ -272,6 +303,28 @@ async function effortInForce(
   return (
     ancestors.findLast((m) => m?.role === "user" && m.effort)?.effort ?? base
   );
+}
+
+// Images only go to models that accept them, at most a handful per message, and only files this
+// owner just uploaded as images (spec phase 4).
+async function assertImagesAllowed(
+  ctx: QueryCtx,
+  thread: Doc<"threads">,
+  images: MessageImage[],
+) {
+  const provider = await ctx.db.get("providers", thread.providerId);
+  if (!provider?.models.find((m) => m.id === thread.modelId)?.vision) {
+    throw new ConvexError("This model doesn't accept images");
+  }
+  if (images.length > MAX_IMAGES_PER_MESSAGE)
+    throw new ConvexError(
+      `At most ${MAX_IMAGES_PER_MESSAGE} images per message`,
+    );
+  for (const image of images) {
+    const file = await ctx.db.system.get("_storage", image.storageId);
+    if (!file?.contentType?.startsWith("image/"))
+      throw new ConvexError("That upload isn't an image");
+  }
 }
 
 async function assertPerMessageEffort(ctx: QueryCtx, thread: Doc<"threads">) {
@@ -336,9 +389,10 @@ export const send = mutation({
     content: v.string(),
     mode: v.optional(outputModeValidator),
     effort: v.optional(effortValidator), // change effort from this message on (supported models)
+    images: v.optional(v.array(imageValidator)),
   },
   returns: v.null(),
-  handler: async (ctx, { threadId, content, mode, effort }) => {
+  handler: async (ctx, { threadId, content, mode, effort, images }) => {
     const ownerId = await requireOwner(ctx);
     const thread = await ownedThread(ctx, ownerId, threadId);
     const text = cleanText(content);
@@ -349,7 +403,7 @@ export const send = mutation({
     await startReply(
       ctx,
       thread,
-      await appendUserMessage(ctx, thread, parent, text, effort),
+      await appendUserMessage(ctx, thread, parent, text, effort, images),
       mode,
     );
     return null;
@@ -407,6 +461,7 @@ export const edit = mutation({
         parent,
         text,
         effort ?? original.effort,
+        original.images, // an edit changes the text; the images stay
       ),
       mode,
     );
@@ -434,6 +489,16 @@ export const switchBranch = mutation({
     }
     await ctx.db.patch("threads", leaf.threadId, { activeLeafId: leaf._id });
     return null;
+  },
+});
+
+// Where the browser uploads an image (already downscaled) before sending it with a message.
+export const generateImageUploadUrl = mutation({
+  args: {},
+  returns: v.string(),
+  handler: async (ctx) => {
+    await requireOwner(ctx);
+    return await ctx.storage.generateUploadUrl();
   },
 });
 
@@ -507,6 +572,8 @@ export const purgeThread = internalMutation({
         continue;
       }
       if (m.streamId) await deleteStream(ctx, m.streamId);
+      for (const image of m.images ?? [])
+        await ctx.storage.delete(image.storageId);
       await ctx.db.delete("messages", m._id);
     }
     const checkpoints = await ctx.db
@@ -608,6 +675,7 @@ export const generationInput = internalQuery({
           role: v.union(v.literal("user"), v.literal("assistant")),
           content: v.string(),
           effort: v.optional(effortValidator),
+          images: v.optional(v.array(imageValidator)),
         }),
       ),
       layerEnd: v.number(),

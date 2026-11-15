@@ -3,7 +3,8 @@
 import { lookup } from "node:dns/promises";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
-import { internalAction } from "./_generated/server";
+import { internalAction, type ActionCtx } from "./_generated/server";
+import type { ChatMessage } from "./lib/anthropic";
 import {
   sendAnthropicKeepalive,
   streamAnthropicMessage,
@@ -16,6 +17,31 @@ import type { NormalizedUsage } from "./lib/usage";
 import { decryptSecret } from "./lib/vault";
 
 const FLUSH_MS = 100;
+// Loads each user message's stored images as base64 for the request (spec phase 4). The stored
+// bytes never change, so a retry or keepalive sends identical blocks.
+async function loadImages(
+  ctx: ActionCtx,
+  history: ChatMessage[],
+): Promise<ChatMessage[]> {
+  return Promise.all(
+    history.map(async (m) => {
+      if (!m.images?.length) return m;
+      const imageData = await Promise.all(
+        m.images.map(async (image) => {
+          const blob = await ctx.storage.get(image.storageId);
+          if (!blob)
+            throw new ConvexError("An image in this thread is missing");
+          return {
+            mediaType: image.mediaType,
+            data: Buffer.from(await blob.arrayBuffer()).toString("base64"),
+          };
+        }),
+      );
+      return { ...m, imageData };
+    }),
+  );
+}
+
 const systemResolve = async (host: string) =>
   (await lookup(host, { all: true })).map((a) => a.address);
 
@@ -72,7 +98,7 @@ export const generate = internalAction({
           apiKey: await decryptSecret(input.provider.apiKeyEncrypted),
           model: input.model,
           system: SYSTEM_PROMPTS[input.systemPromptVersion],
-          messages: input.history,
+          messages: await loadImages(ctx, input.history),
           maxTokens: input.maxTokens,
           effort: input.effort,
           cache: { ttl, layerEnd: input.layerEnd },
@@ -209,7 +235,7 @@ export const keepalive = internalAction({
           apiKey: await decryptSecret(input.provider.apiKeyEncrypted),
           model: input.model,
           system: SYSTEM_PROMPTS[input.systemPromptVersion],
-          messages: input.history,
+          messages: await loadImages(ctx, input.history),
           effort: input.effort,
           cache: { ttl: input.ttl, layerEnd: input.layerEnd },
         },
