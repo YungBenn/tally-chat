@@ -13,7 +13,7 @@ keeps that cache warm while you read, and shows you exactly what you're paying f
 [![Built with Convex](https://img.shields.io/badge/backend-Convex-f3b01c.svg)](https://convex.dev)
 [![Next.js](https://img.shields.io/badge/frontend-Next.js-000.svg)](https://nextjs.org)
 [![Bun](https://img.shields.io/badge/runtime-Bun-fbf0df.svg)](https://bun.sh)
-[![Tests](https://img.shields.io/badge/tests-190%20passing-2f7d4f.svg)](#development)
+[![Tests](https://img.shields.io/badge/tests-191%20passing-2f7d4f.svg)](#development)
 
 </div>
 
@@ -89,26 +89,19 @@ The full reasoning is in the [design doc](docs/tallychat-design-doc.md), with th
 
 ## Quick start
 
-> **Status:** tally.chat runs today as a local, single-user app. One-command Docker self-hosting is next on the roadmap.
-
-You need [Bun](https://bun.sh) 1.4 or later and an API key from a provider (or a local model server such as Ollama).
+You need [Docker](https://docs.docker.com/get-docker/) with Compose, and an API key from a provider (or a local model server such as Ollama).
 
 ```bash
 git clone https://github.com/YungBenn/tally-chat.git
 cd tally-chat
-bun install
-bun run dev
+docker compose up -d
 ```
 
-The first run sets up a local Convex backend (choose to run it locally without an account) and the auth keys. Its first deploy then fails on a missing `TALLY_MASTER_KEY`, the key that encrypts your provider keys. Set it from a second terminal, then restart `bun run dev`:
+The first run builds the app, starts a pinned Convex backend and generates every secret for you. Open http://127.0.0.1:3000, set your password, add a provider on the Providers page, and start a thread.
 
-```bash
-bunx convex env set TALLY_MASTER_KEY "$(openssl rand -base64 32)"
-```
+Back up `selfhost/secrets/` along with your data: it holds the key that encrypts your provider keys. `./selfhost/backup.sh` saves both.
 
-Back that value up somewhere safe: losing it makes stored provider keys unreadable.
-
-Open http://localhost:3000, set your password, add a provider on the Providers page, and start a thread.
+The [self-hosting guide](docs/self-hosting.md) covers local models (Ollama, LM Studio), HTTPS behind a reverse proxy, backups and restores, upgrades and the smoke check.
 
 > **Subscriptions are not API keys.** A ChatGPT Plus or Claude Pro subscription doesn't grant API access; API usage is billed separately from the provider's developer console.
 
@@ -120,15 +113,30 @@ Open http://localhost:3000, set your password, add a provider on the Providers p
 | 2 | Cache-aware prefix and keepalive | ✅ |
 | 3 | Inspector, cost strip, usage page, soft budget | ✅ |
 | 4 | Effort, output modes, images, title search, installable app | ✅ |
-| 5 | Self-host packaging: Docker Compose and a setup guide | next |
-| 6 | Background condenser, vetoed when it would break the cache | |
+| 5 | Self-host packaging: Docker Compose and a setup guide | ✅ |
+| 6 | Background condenser, vetoed when it would break the cache | next |
 | 7 | Model suggestions, documents, Gemini, chat import, full-text search | |
 
 ## Development
 
+You need [Bun](https://bun.sh) 1.4 or later.
+
+```bash
+bun install
+bun run dev
+```
+
+The first run sets up a local Convex backend (choose to run it locally without an account) and the auth keys. Its first deploy then fails on a missing `TALLY_MASTER_KEY`, the key that encrypts provider keys. Set it from a second terminal, then restart `bun run dev`:
+
+```bash
+bunx convex env set TALLY_MASTER_KEY "$(openssl rand -base64 32)"
+```
+
+Then open http://localhost:3000.
+
 ```bash
 bun run dev        # Convex + Next.js
-bun run test       # Vitest + convex-test (190 tests)
+bun run test       # Vitest + convex-test (191 tests)
 bun run typecheck
 bun run lint
 ```

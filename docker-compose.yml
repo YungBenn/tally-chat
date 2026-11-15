@@ -9,6 +9,9 @@ services:
   backend:
     image: *backend-image
     restart: unless-stopped
+    # Lets provider calls reach model servers on this machine (Ollama, LM Studio) on Linux too.
+    extra_hosts:
+      - host.docker.internal:host-gateway
     volumes:
       - data:/convex/data
       - ./selfhost/secrets:/secrets
