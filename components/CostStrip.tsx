@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { MODE_MAX_TOKENS, type OutputMode } from "@/convex/lib/outputModes";
+import { imageTokens } from "@/convex/lib/images";
 import { estimateTokens, usd } from "@/lib/format";
 import { nextSendMicroUsd } from "@/lib/nextSend";
 import { useCacheState } from "@/lib/useCacheState";
@@ -24,6 +25,9 @@ function useDebounced<T>(value: T, ms = 200) {
   }, [value, ms]);
   return settled;
 }
+
+const imagesTokens = (images?: { width: number; height: number }[]) =>
+  (images ?? []).reduce((sum, i) => sum + imageTokens(i), 0);
 
 const money = (micro: number | null) =>
   micro === null ? "cost unknown" : `~${usd(micro)} next`;
@@ -51,11 +55,13 @@ function Strip({ parts, onOpen }: { parts: string[]; onOpen?: () => void }) {
 export default function CostStrip({
   threadId,
   draft,
+  draftImages,
   mode,
   onOpen,
 }: {
   threadId: Id<"threads">;
   draft: string;
+  draftImages?: { width: number; height: number }[];
   mode: OutputMode;
   onOpen: () => void;
 }) {
@@ -73,7 +79,7 @@ export default function CostStrip({
     prices: next.prices,
     history,
     prefixTokens: next.prefixTokens,
-    draftTokens: estimateTokens(settled),
+    draftTokens: estimateTokens(settled) + imagesTokens(draftImages),
     // A reply can't run past the chosen mode's limit.
     expectedOutputTokens:
       next.expectedOutputTokens === null
@@ -95,10 +101,12 @@ export function NewThreadCostStrip({
   providerId,
   modelId,
   draft,
+  draftImages,
 }: {
   providerId: Id<"providers">;
   modelId: string;
   draft: string;
+  draftImages?: { width: number; height: number }[];
 }) {
   const data = useQuery(api.inspector.newThread, { providerId, modelId });
   const settled = useDebounced(draft);
@@ -107,7 +115,8 @@ export function NewThreadCostStrip({
     prices: data.prices,
     history: "cold",
     prefixTokens: 0,
-    draftTokens: data.systemTokens + estimateTokens(settled),
+    draftTokens:
+      data.systemTokens + estimateTokens(settled) + imagesTokens(draftImages),
     expectedOutputTokens: null,
   });
   return <Strip parts={[money(cost), "new thread"]} />;

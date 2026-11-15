@@ -24,6 +24,7 @@ import Inspector from "@/components/Inspector";
 import EffortControl from "@/components/EffortControl";
 import ModeControl from "@/components/ModeControl";
 import type { Effort } from "@/convex/lib/effort";
+import type { MessageImage } from "@/convex/lib/images";
 import { OUTPUT_MODES, type OutputMode } from "@/convex/lib/outputModes";
 import Markdown, { CopyButton } from "@/components/Markdown";
 import { Button } from "@/components/wensity/button";
@@ -265,6 +266,7 @@ export default function ThreadPage() {
       : [],
   );
   const [draft, setDraft] = useState("");
+  const [draftImages, setDraftImages] = useState<MessageImage[]>([]);
   const [mode, setMode] = useStoredChoice<OutputMode>(
     `tally.mode.${threadId}`,
     "normal",
@@ -592,6 +594,7 @@ export default function ThreadPage() {
               <CostStrip
                 threadId={threadId}
                 draft={draft}
+                draftImages={draftImages}
                 mode={mode}
                 onOpen={toggleInspector}
               />
@@ -610,6 +613,16 @@ export default function ThreadPage() {
               </>
             }
             canAttach={thread?.vision ?? false}
+            onImagesChange={setDraftImages}
+            attachNote={
+              // The first image in a thread with history (spec phase 4). Wording provisional
+              // until the real-API session (phase 2 ticket 06) confirms the cache effect.
+              draftImages.length > 0 &&
+              (thread?.messages.length ?? 0) > 0 &&
+              !thread?.messages.some((m) => m.images?.length)
+                ? "First image in this thread: the provider may write the history to the cache again."
+                : undefined
+            }
             onSend={async (text, images) => {
               setAtBottom(true);
               try {
@@ -634,6 +647,7 @@ export default function ThreadPage() {
         <Inspector
           threadId={threadId}
           draft={draft}
+          draftImages={draftImages}
           turnId={turnId}
           onBack={() => setTurnId(null)}
           railOpen={inspectorOpen}

@@ -14,6 +14,7 @@ import {
   EFFORT_LEVELS,
   type Effort,
 } from "@/convex/lib/effort";
+import type { MessageImage } from "@/convex/lib/images";
 import type { OutputMode } from "@/convex/lib/outputModes";
 import { NewThreadCostStrip } from "@/components/CostStrip";
 import { NativeSelect } from "@/components/wensity/native-select";
@@ -35,6 +36,7 @@ export default function NewThread() {
   );
   const [choice, setChoice] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [draftImages, setDraftImages] = useState<MessageImage[]>([]);
   const [mode, setMode] = useState<OutputMode>("normal");
   const [effort, setEffort] = useState<Effort>(DEFAULT_EFFORT);
   const selected = choice ?? options[0]?.value;
@@ -109,10 +111,12 @@ export default function NewThread() {
                 providerId={selected.split("|")[0] as Id<"providers">}
                 modelId={selected.split("|")[1]}
                 draft={draft}
+                draftImages={draftImages}
               />
             )
           }
           canAttach={vision}
+          onImagesChange={setDraftImages}
           onSend={async (text, images) => {
             if (!selected) return;
             const [providerId, modelId] = selected.split("|");

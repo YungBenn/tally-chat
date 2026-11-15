@@ -500,3 +500,26 @@ describe("edit hints", () => {
     expect((await s.inspect(thread)).editHints).toEqual([]);
   });
 });
+
+describe("image cost", () => {
+  test("images no usage has measured yet count width × height ÷ 750 each, capped at 4,784", async () => {
+    const s = await setup([usage({ cache_creation_input_tokens: 600 })]);
+    await s.send("One");
+    const storageId = await s.t.run((ctx) => ctx.storage.store(new Blob([new Uint8Array([1])], { type: "image/png" })));
+    await s.t.run(async (ctx) => {
+      const thread = (await ctx.db.get("threads", s.threadId))!;
+      const leaf = (await ctx.db.get("messages", thread.activeLeafId!))!;
+      const id = await ctx.db.insert("messages", {
+        ownerId: s.ownerId, threadId: s.threadId, parentId: leaf._id, ancestorIds: [...leaf.ancestorIds, leaf._id], role: "user",
+        content: "x".repeat(40), status: "done", pinned: false,
+        images: [
+          { storageId, mediaType: "image/png", width: 800, height: 600 }, // 640
+          { storageId, mediaType: "image/png", width: 3000, height: 3000 }, // capped
+        ],
+      });
+      await ctx.db.patch("threads", s.threadId, { activeLeafId: id });
+    });
+    const turns = (await s.inspect()).layers[1];
+    expect(turns).toMatchObject({ tokens: 10 + 600 + 50 - SYSTEM + 10 + 640 + 4784, estimated: true });
+  });
+});

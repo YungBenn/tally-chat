@@ -6,6 +6,7 @@ import { supportsPerMessageEffort } from "./lib/anthropic";
 import { effortValidator } from "./lib/effort";
 import { cacheExpiresAt, cacheTtlValidator } from "./lib/cacheStatus";
 import { assembleHistory } from "./lib/context";
+import { imageTokens } from "./lib/images";
 import {
   CURRENT_SYSTEM_PROMPT_VERSION,
   SYSTEM_PROMPTS,
@@ -21,6 +22,13 @@ import { requireOwner } from "./owner";
 
 // Rough token count for text no provider has measured (characters ÷ 4; spec phase 3).
 export const estimateTokens = (text: string) => Math.ceil(text.length / 4);
+// A message's estimate: its text plus its images (spec phase 4).
+const estimateMessage = (m: {
+  content: string;
+  images?: { width: number; height: number }[];
+}) =>
+  estimateTokens(m.content) +
+  (m.images ?? []).reduce((sum, i) => sum + imageTokens(i), 0);
 const totalInput = (u: Usage) =>
   u.inputTokens +
   u.cacheReadTokens +
@@ -231,7 +239,7 @@ async function editHints(
     before =
       m.role === "assistant" && m.usage
         ? totalInput(m.usage) + m.usage.outputTokens - m.usage.reasoningTokens
-        : before + estimateTokens(m.content);
+        : before + estimateMessage(m);
   }
   return hints;
 }
@@ -299,11 +307,11 @@ async function contextLayers(
       totalInput(u) + u.outputTokens - u.reasoningTokens - system - layerTokens;
     const later = branch
       .slice(measuredAt + 1)
-      .reduce((sum, m) => sum + estimateTokens(m.content), 0);
+      .reduce((sum, m) => sum + estimateMessage(m), 0);
     tokens = Math.max(0, measured) + later;
     estimated = later > 0;
   } else {
-    tokens = verbatim.reduce((sum, m) => sum + estimateTokens(m.content), 0);
+    tokens = verbatim.reduce((sum, m) => sum + estimateMessage(m), 0);
     estimated = true;
   }
   const first = turnOf(cut);

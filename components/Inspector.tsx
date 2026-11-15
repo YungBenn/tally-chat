@@ -4,6 +4,7 @@ import { IconArrowLeft, IconX } from "@tabler/icons-react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { imageTokens } from "@/convex/lib/images";
 import { estimateTokens, tokens, usd } from "@/lib/format";
 import { useCacheState } from "@/lib/useCacheState";
 import { cn } from "@/lib/utils";
@@ -91,9 +92,11 @@ function Section({
 export function InspectorBody({
   threadId,
   draft,
+  draftImages,
 }: {
   threadId: Id<"threads">;
   draft: string;
+  draftImages?: { width: number; height: number }[];
 }) {
   const data = useQuery(api.inspector.get, { threadId });
   const state = useCacheState(
@@ -114,7 +117,9 @@ export function InspectorBody({
     : state.state === "cold"
       ? "to write"
       : "cached";
-  const draftTokens = estimateTokens(draft);
+  const draftTokens =
+    estimateTokens(draft) +
+    (draftImages ?? []).reduce((sum, i) => sum + imageTokens(i), 0);
   const p = next.prices;
   // $0 from calls that have no price isn't free: say unknown unless something was priced.
   const known = (micro: number) =>
@@ -270,6 +275,7 @@ function TurnView({
 export default function Inspector({
   threadId,
   draft,
+  draftImages,
   railOpen,
   sheetOpen,
   onCloseRail,
@@ -279,6 +285,7 @@ export default function Inspector({
 }: {
   threadId: Id<"threads">;
   draft: string;
+  draftImages?: { width: number; height: number }[];
   turnId: Id<"messages"> | null; // a reply to show on its own, from its metadata line
   onBack: () => void;
   railOpen: boolean;
@@ -289,7 +296,11 @@ export default function Inspector({
   const content = turnId ? (
     <TurnView messageId={turnId} onBack={onBack} />
   ) : (
-    <InspectorBody threadId={threadId} draft={draft} />
+    <InspectorBody
+      threadId={threadId}
+      draft={draft}
+      draftImages={draftImages}
+    />
   );
   const header = (onClose: () => void) => (
     <div className="flex items-center justify-between pb-4">

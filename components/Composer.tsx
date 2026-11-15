@@ -7,7 +7,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useMutation } from "convex/react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { MAX_IMAGES_PER_MESSAGE, type MessageImage } from "@/convex/lib/images";
 import { ACCEPT_ATTRIBUTE, prepareAndUpload } from "@/lib/imageUpload";
@@ -24,12 +24,14 @@ export default function Composer({
   controls,
   canAttach = false,
   onImagesChange,
+  attachNote,
   streaming = false,
   disabled = false,
 }: {
   onSend: (text: string, images: MessageImage[]) => Promise<unknown>;
   canAttach?: boolean; // the model accepts images (spec phase 4)
   onImagesChange?: (images: MessageImage[]) => void; // the cost strip prices attached images
+  attachNote?: string; // a cache note about the attached images
   onStop?: () => void;
   onType?: () => void;
   onDraftChange?: (text: string) => void; // the inspector and cost strip price the draft
@@ -50,13 +52,13 @@ export default function Composer({
   const uploadUrl = useMutation(api.chat.generateImageUploadUrl);
   const uploading = attached.some((a) => !a.image);
   const ready = attached.flatMap((a) => (a.image ? [a.image] : []));
-  const readyOf = (list: typeof attached) =>
-    list.flatMap((a) => (a.image ? [a.image] : []));
 
-  const setAttachments = (next: typeof attached) => {
-    setAttached(next);
-    onImagesChange?.(readyOf(next));
-  };
+  const setAttachments = setAttached;
+  // Tell the page which images are ready (the cost strip prices them) after each change, never
+  // from inside a state update.
+  useEffect(() => {
+    onImagesChange?.(attached.flatMap((a) => (a.image ? [a.image] : [])));
+  }, [attached, onImagesChange]);
 
   async function attach(files: File[]) {
     if (!canAttach) return;
@@ -69,11 +71,9 @@ export default function Composer({
       setAttached((list) => [...list, { key, preview }]);
       try {
         const image = await prepareAndUpload(file, () => uploadUrl());
-        setAttached((list) => {
-          const next = list.map((a) => (a.key === key ? { ...a, image } : a));
-          onImagesChange?.(readyOf(next));
-          return next;
-        });
+        setAttached((list) =>
+          list.map((a) => (a.key === key ? { ...a, image } : a)),
+        );
       } catch (err) {
         setAttached((list) => list.filter((a) => a.key !== key));
         setError(
@@ -157,6 +157,11 @@ export default function Composer({
                 </button>
               </div>
             ))}
+            {attachNote && (
+              <p className="basis-full text-xs text-muted-foreground">
+                {attachNote}
+              </p>
+            )}
           </div>
         )}
         <Textarea
