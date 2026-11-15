@@ -12,7 +12,8 @@ import {
   IconSettings,
   IconX,
 } from "@tabler/icons-react";
-import { useMutation, useQuery } from "convex/react";
+import { useConvex, useMutation, useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -41,6 +42,25 @@ function NewThreadButton({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
+// The query's terms marked in a snippet (search matches each term as a word prefix).
+function Highlight({ text, query }: { text: string; query: string }) {
+  const terms = query
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (terms.length === 0) return text;
+  const parts = text.split(new RegExp(`(${terms.join("|")})`, "gi"));
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      <mark key={i} className="bg-transparent font-medium text-foreground">
+        {part}
+      </mark>
+    ) : (
+      part
+    ),
+  );
+}
+
 function Sidebar({
   onClose,
   onNavigate,
@@ -52,16 +72,35 @@ function Sidebar({
 }) {
   const threads = useQuery(api.chat.listThreads);
   const { threadId } = useParams<{ threadId?: string }>();
-  // Title search (spec phase 4): results replace the grouped list while there's a query.
+  // Search (spec phases 4 and 7): titles, then messages, replacing the grouped list while
+  // there's a query. One request per pause in typing, never a subscription (design doc S10).
+  const convex = useConvex();
   const [search, setSearch] = useState("");
-  const [query, setQuery] = useState("");
+  const query = search.trim();
+  const [found, setFound] = useState<{
+    query: string;
+    result: FunctionReturnType<typeof api.search.search>;
+  } | null>(null);
   useEffect(() => {
-    const timer = setTimeout(() => setQuery(search.trim()), 200);
-    return () => clearTimeout(timer);
-  }, [search]);
-  const results = useQuery(api.chat.searchThreads, query ? { query } : "skip");
+    if (!query) return;
+    let current = true;
+    const timer = setTimeout(() => {
+      void convex
+        .query(api.search.search, { query })
+        .then((result) => current && setFound({ query, result }))
+        .catch(() => {});
+    }, 250);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [convex, query]);
+  // The last answer stays up while the next is on its way, so typing doesn't flash the list.
+  const results = query ? found?.result : undefined;
   const groups = query
-    ? [{ label: "Results", threads: results ?? [] }]
+    ? results?.titles.length
+      ? [{ label: "Threads", threads: results.titles }]
+      : []
     : groupThreads(threads ?? []);
   const path = usePathname();
   const router = useRouter();
@@ -90,8 +129,8 @@ function Sidebar({
           onKeyDown={(e) => {
             if (e.key === "Escape") setSearch("");
           }}
-          placeholder="Search titles"
-          aria-label="Search thread titles"
+          placeholder="Search"
+          aria-label="Search threads and messages"
           className="h-9 w-full rounded-[var(--primitive-radius-item)] border border-border bg-surface pr-8 pl-9 text-sm placeholder:text-muted-foreground focus:border-border-strong focus:outline-none [&::-webkit-search-cancel-button]:hidden"
         />
         {search && (
@@ -134,10 +173,37 @@ function Sidebar({
             ))}
           </section>
         ))}
+        {query && results && results.messages.length > 0 && (
+          <section>
+            <h2 className="px-3 pt-4 pb-1.5 text-xs font-medium text-muted-foreground">
+              Messages
+            </h2>
+            {results.messages.map((m) => (
+              <Link
+                key={m.messageId}
+                href={`/t/${m.threadId}?m=${m.messageId}`}
+                onClick={onNavigate}
+                className="flex flex-col gap-0.5 rounded-[var(--primitive-radius-item)] px-3 py-2 text-sm transition-colors hover:bg-primitive-surface-hover"
+              >
+                <span className="flex min-w-0 items-baseline gap-1 text-xs text-muted-foreground">
+                  <span className="truncate">{m.threadTitle}</span>
+                  <span className="shrink-0">
+                    · {m.role === "user" ? "You" : "Reply"}
+                  </span>
+                </span>
+                <span className="line-clamp-2 text-foreground/80">
+                  <Highlight text={m.snippet} query={query} />
+                </span>
+              </Link>
+            ))}
+          </section>
+        )}
         {query
-          ? results?.length === 0 && (
+          ? results &&
+            results.titles.length === 0 &&
+            results.messages.length === 0 && (
               <p className="px-3 pt-4 text-sm text-muted-foreground">
-                No titles match.
+                Nothing matches.
               </p>
             )
           : threads?.length === 0 && (

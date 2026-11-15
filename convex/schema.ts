@@ -56,7 +56,6 @@ export default defineSchema({
     startedAt: v.optional(v.number()),
   })
     .index("by_ownerId_and_startedAt", ["ownerId", "startedAt"])
-    // Titles only: full-text message search waits for phase 7 (design doc section 10).
     .searchIndex("search_title", {
       searchField: "title",
       filterFields: ["ownerId"],
@@ -91,7 +90,13 @@ export default defineSchema({
     images: v.optional(v.array(imageValidator)), // user messages: images sent with it, fixed at creation
   })
     .index("by_thread_parent", ["threadId", "parentId"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    // Full-text message search (spec phase 7). Content is written once, at finalize, so an
+    // entry never changes after that; a streaming reply's content is empty until then.
+    .searchIndex("search_content", {
+      searchField: "content",
+      filterFields: ["ownerId"],
+    }),
   // A summary standing in for every message up to coversUpToId on any branch containing it
   // (ADR 0001). Stored outside the tree so condensing never rewrites messages.
   checkpoints: defineTable({

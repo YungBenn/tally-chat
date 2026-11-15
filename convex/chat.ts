@@ -62,12 +62,12 @@ export async function activeBranch(
   return [...ancestors.filter((m) => m !== null), leaf];
 }
 
-const threadRow = v.object({
+export const threadRow = v.object({
   _id: v.id("threads"),
   startedAt: v.number(),
   title: v.string(),
 });
-const toRow = (t: Doc<"threads">) => ({
+export const toRow = (t: Doc<"threads">) => ({
   _id: t._id,
   startedAt: t.startedAt ?? t._creationTime,
   title: t.title,
@@ -84,24 +84,6 @@ export const listThreads = query({
       .withIndex("by_ownerId_and_startedAt", (q) => q.eq("ownerId", ownerId))
       .order("desc")
       .take(100);
-    return threads.map(toRow);
-  },
-});
-
-// The owner's threads whose title matches, best first, at most 20 (spec phase 4).
-export const searchThreads = query({
-  args: { query: v.string() },
-  returns: v.array(threadRow),
-  handler: async (ctx, { query }) => {
-    const ownerId = await requireOwner(ctx);
-    const text = query.trim();
-    if (!text) return [];
-    const threads = await ctx.db
-      .query("threads")
-      .withSearchIndex("search_title", (q) =>
-        q.search("title", text).eq("ownerId", ownerId),
-      )
-      .take(20);
     return threads.map(toRow);
   },
 });

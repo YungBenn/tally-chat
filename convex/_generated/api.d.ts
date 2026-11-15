@@ -27,6 +27,7 @@ import type * as lib_metering from "../lib/metering.js";
 import type * as lib_openaiCompatible from "../lib/openaiCompatible.js";
 import type * as lib_outputModes from "../lib/outputModes.js";
 import type * as lib_rollups from "../lib/rollups.js";
+import type * as lib_search from "../lib/search.js";
 import type * as lib_systemPrompts from "../lib/systemPrompts.js";
 import type * as lib_textStream from "../lib/textStream.js";
 import type * as lib_urlGuard from "../lib/urlGuard.js";
@@ -36,6 +37,7 @@ import type * as migrations from "../migrations.js";
 import type * as owner from "../owner.js";
 import type * as providerActions from "../providerActions.js";
 import type * as providers from "../providers.js";
+import type * as search from "../search.js";
 import type * as settings from "../settings.js";
 import type * as usage from "../usage.js";
 
@@ -65,6 +67,7 @@ declare const fullApi: ApiFromModules<{
   "lib/openaiCompatible": typeof lib_openaiCompatible;
   "lib/outputModes": typeof lib_outputModes;
   "lib/rollups": typeof lib_rollups;
+  "lib/search": typeof lib_search;
   "lib/systemPrompts": typeof lib_systemPrompts;
   "lib/textStream": typeof lib_textStream;
   "lib/urlGuard": typeof lib_urlGuard;
@@ -74,6 +77,7 @@ declare const fullApi: ApiFromModules<{
   owner: typeof owner;
   providerActions: typeof providerActions;
   providers: typeof providers;
+  search: typeof search;
   settings: typeof settings;
   usage: typeof usage;
 }>;
