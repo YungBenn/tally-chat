@@ -1,0 +1,489 @@
+[
+ {
+  "id": "conv-a",
+  "conversation_id": "conv-a",
+  "title": "Parsing dates",
+  "create_time": 1700000000.5,
+  "update_time": 1700000100,
+  "current_node": "a5",
+  "mapping": {
+   "root": {
+    "id": "root",
+    "parent": null,
+    "children": [
+     "sys"
+    ],
+    "message": null
+   },
+   "sys": {
+    "id": "sys",
+    "parent": "root",
+    "children": [
+     "u1",
+     "u1edit"
+    ],
+    "message": {
+     "id": "sys",
+     "author": {
+      "role": "system"
+     },
+     "content": {
+      "content_type": "text",
+      "parts": [
+       ""
+      ]
+     },
+     "metadata": {
+      "is_visually_hidden_from_conversation": true
+     },
+     "recipient": "all"
+    }
+   },
+   "u1": {
+    "id": "u1",
+    "parent": "sys",
+    "children": [
+     "a1",
+     "a1b"
+    ],
+    "message": {
+     "id": "u1",
+     "author": {
+      "role": "user"
+     },
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "How do I parse dates?"
+      ]
+     },
+     "metadata": {},
+     "recipient": "all"
+    }
+   },
+   "a1": {
+    "id": "a1",
+    "parent": "u1",
+    "children": [],
+    "message": {
+     "id": "a1",
+     "author": {
+      "role": "assistant"
+     },
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "Use a regex."
+      ]
+     },
+     "metadata": {
+      "model_slug": "gpt-4o"
+     },
+     "recipient": "all"
+    }
+   },
+   "a1b": {
+    "id": "a1b",
+    "parent": "u1",
+    "children": [
+     "u3"
+    ],
+    "message": {
+     "id": "a1b",
+     "author": {
+      "role": "assistant"
+     },
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "Use date-fns."
+      ]
+     },
+     "metadata": {
+      "model_slug": "gpt-4o"
+     },
+     "recipient": "all"
+    }
+   },
+   "u3": {
+    "id": "u3",
+    "parent": "a1b",
+    "children": [
+     "code"
+    ],
+    "message": {
+     "id": "u3",
+     "author": {
+      "role": "user"
+     },
+     "content": {
+      "content_type": "multimodal_text",
+      "parts": [
+       {
+        "content_type": "image_asset_pointer",
+        "asset_pointer": "file-service://x"
+       },
+       "What's in this picture?"
+      ]
+     },
+     "metadata": {},
+     "recipient": "all"
+    }
+   },
+   "code": {
+    "id": "code",
+    "parent": "u3",
+    "children": [
+     "tool"
+    ],
+    "message": {
+     "id": "code",
+     "author": {
+      "role": "assistant"
+     },
+     "content": {
+      "content_type": "code",
+      "text": "print(1)"
+     },
+     "metadata": {
+      "model_slug": "gpt-4o"
+     },
+     "recipient": "python"
+    }
+   },
+   "tool": {
+    "id": "tool",
+    "parent": "code",
+    "children": [
+     "a4"
+    ],
+    "message": {
+     "id": "tool",
+     "author": {
+      "role": "tool"
+     },
+     "content": {
+      "content_type": "execution_output",
+      "parts": [
+       "tool output"
+      ]
+     },
+     "metadata": {},
+     "recipient": "all"
+    }
+   },
+   "a4": {
+    "id": "a4",
+    "parent": "tool",
+    "children": [
+     "a5"
+    ],
+    "message": {
+     "id": "a4",
+     "author": {
+      "role": "assistant"
+     },
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "It's a cat."
+      ]
+     },
+     "metadata": {
+      "model_slug": "gpt-4o"
+     },
+     "recipient": "all"
+    }
+   },
+   "a5": {
+    "id": "a5",
+    "parent": "a4",
+    "children": [],
+    "message": {
+     "id": "a5",
+     "author": {
+      "role": "assistant"
+     },
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "It has whiskers."
+      ]
+     },
+     "metadata": {
+      "model_slug": "gpt-4o"
+     },
+     "recipient": "all"
+    }
+   },
+   "u1edit": {
+    "id": "u1edit",
+    "parent": "sys",
+    "children": [
+     "a2"
+    ],
+    "message": {
+     "id": "u1edit",
+     "author": {
+      "role": "user"
+     },
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "How do I parse ISO dates?"
+      ]
+     },
+     "metadata": {},
+     "recipient": "all"
+    }
+   },
+   "a2": {
+    "id": "a2",
+    "parent": "u1edit",
+    "children": [],
+    "message": {
+     "id": "a2",
+     "author": {
+      "role": "assistant"
+     },
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "Use Date.parse."
+      ]
+     },
+     "metadata": {
+      "model_slug": "o3"
+     },
+     "recipient": "all"
+    }
+   }
+  }
+ },
+ {
+  "id": "conv-b",
+  "conversation_id": "conv-b",
+  "title": "",
+  "create_time": 1600000000,
+  "current_node": "a4",
+  "mapping": {
+   "root": {
+    "id": "root",
+    "parent": null,
+    "children": [
+     "u1"
+    ],
+    "message": null
+   },
+   "u1": {
+    "id": "u1",
+    "parent": "root",
+    "children": [
+     "a1"
+    ],
+    "message": {
+     "id": "u1",
+     "author": {
+      "role": "user"
+     },
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "Turn 1 question lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum "
+      ]
+     },
+     "metadata": {
+      "attachments": [
+       {
+        "name": "report.pdf",
+        "mime_type": "application/pdf"
+       }
+      ]
+     },
+     "recipient": "all"
+    }
+   },
+   "a1": {
+    "id": "a1",
+    "parent": "u1",
+    "children": [
+     "u2"
+    ],
+    "message": {
+     "id": "a1",
+     "author": {
+      "role": "assistant"
+     },
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "Turn 1 answer lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum "
+      ]
+     },
+     "metadata": {},
+     "recipient": "all"
+    }
+   },
+   "u2": {
+    "id": "u2",
+    "parent": "a1",
+    "children": [
+     "a2"
+    ],
+    "message": {
+     "id": "u2",
+     "author": {
+      "role": "user"
+     },
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "Turn 2 question lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum "
+      ]
+     },
+     "metadata": {},
+     "recipient": "all"
+    }
+   },
+   "a2": {
+    "id": "a2",
+    "parent": "u2",
+    "children": [
+     "u3"
+    ],
+    "message": {
+     "id": "a2",
+     "author": {
+      "role": "assistant"
+     },
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "Turn 2 answer lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum "
+      ]
+     },
+     "metadata": {},
+     "recipient": "all"
+    }
+   },
+   "u3": {
+    "id": "u3",
+    "parent": "a2",
+    "children": [
+     "a3"
+    ],
+    "message": {
+     "id": "u3",
+     "author": {
+      "role": "user"
+     },
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "Turn 3 question lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum "
+      ]
+     },
+     "metadata": {},
+     "recipient": "all"
+    }
+   },
+   "a3": {
+    "id": "a3",
+    "parent": "u3",
+    "children": [
+     "u4"
+    ],
+    "message": {
+     "id": "a3",
+     "author": {
+      "role": "assistant"
+     },
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "Turn 3 answer lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum "
+      ]
+     },
+     "metadata": {},
+     "recipient": "all"
+    }
+   },
+   "u4": {
+    "id": "u4",
+    "parent": "a3",
+    "children": [
+     "a4"
+    ],
+    "message": {
+     "id": "u4",
+     "author": {
+      "role": "user"
+     },
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "Turn 4 question lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum "
+      ]
+     },
+     "metadata": {},
+     "recipient": "all"
+    }
+   },
+   "a4": {
+    "id": "a4",
+    "parent": "u4",
+    "children": [],
+    "message": {
+     "id": "a4",
+     "author": {
+      "role": "assistant"
+     },
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "Turn 4 answer lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum "
+      ]
+     },
+     "metadata": {},
+     "recipient": "all"
+    }
+   }
+  }
+ },
+ {
+  "id": "conv-c",
+  "conversation_id": "conv-c",
+  "title": "Only system",
+  "create_time": 1650000000,
+  "current_node": "s",
+  "mapping": {
+   "root": {
+    "id": "root",
+    "parent": null,
+    "children": [
+     "s"
+    ],
+    "message": null
+   },
+   "s": {
+    "id": "s",
+    "parent": "root",
+    "children": [],
+    "message": {
+     "id": "s",
+     "author": {
+      "role": "system"
+     },
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "You are helpful"
+      ]
+     },
+     "metadata": {},
+     "recipient": "all"
+    }
+   }
+  }
+ }
+]

@@ -7,6 +7,11 @@ import { imageValidator } from "./lib/images";
 import { outputModeValidator } from "./lib/outputModes";
 import { usageValidator } from "./lib/usage";
 
+export const importSourceValidator = v.union(
+  v.literal("chatgpt"),
+  v.literal("claude"),
+);
+
 // Convention: every table the owner creates has `ownerId: v.id("users")`,
 // set via `requireOwner` in ./owner.ts, so multi-user later is a feature
 // rather than a migration.
@@ -54,8 +59,17 @@ export default defineSchema({
     // When the conversation started: creation time, or the original date of an imported one.
     // Absent only on threads from before phase 7 until migrations:backfillThreadStartedAt runs.
     startedAt: v.optional(v.number()),
+    // A conversation brought in from another app's export (spec phase 7); re-imports skip it.
+    importedFrom: v.optional(
+      v.object({ source: importSourceValidator, externalId: v.string() }),
+    ),
   })
     .index("by_ownerId_and_startedAt", ["ownerId", "startedAt"])
+    .index("by_ownerId_and_importedFrom", [
+      "ownerId",
+      "importedFrom.source",
+      "importedFrom.externalId",
+    ])
     .searchIndex("search_title", {
       searchField: "title",
       filterFields: ["ownerId"],
@@ -148,6 +162,25 @@ export default defineSchema({
       "key",
       "day",
     ]),
+  // An upload of another app's conversations.json, imported in the background (spec phase 7).
+  imports: defineTable({
+    ownerId: v.id("users"),
+    fileName: v.string(),
+    storageId: v.optional(v.id("_storage")), // deleted once the import finishes or fails
+    source: v.optional(importSourceValidator), // detected from the file's shape
+    providerId: v.id("providers"), // the model imported threads continue on
+    modelId: v.string(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("done"),
+      v.literal("failed"),
+    ),
+    total: v.optional(v.number()), // conversations in the file, once parsed
+    imported: v.number(),
+    skipped: v.number(), // already imported earlier
+    error: v.optional(v.string()),
+  }).index("by_ownerId", ["ownerId"]),
   settings: defineTable({
     ownerId: v.id("users"),
     allowlistedHosts: v.array(v.string()), // private hosts the URL guard lets through, e.g. "192.168.1.20:11434"

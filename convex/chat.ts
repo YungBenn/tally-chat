@@ -36,6 +36,7 @@ import {
 } from "./lib/textStream";
 import { priceFor, usageValidator } from "./lib/usage";
 import { requireOwner } from "./owner";
+import { importSourceValidator } from "./schema";
 
 async function ownedThread(
   ctx: QueryCtx,
@@ -159,6 +160,7 @@ export const getThread = query({
       title: v.string(),
       providerId: v.id("providers"),
       modelId: v.string(),
+      importedFrom: v.union(v.null(), importSourceValidator), // an imported conversation's source
       messages: v.array(messageView),
       // The latest checkpoint on the branch: it covers the first coveredCount messages (spec phase 6).
       checkpoint: v.union(
@@ -246,6 +248,7 @@ export const getThread = query({
       title: thread.title,
       providerId: thread.providerId,
       modelId: thread.modelId,
+      importedFrom: thread.importedFrom?.source ?? null,
       messages,
       checkpoint: checkpoint && {
         coveredCount,

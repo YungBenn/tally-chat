@@ -705,6 +705,15 @@ export default function ThreadPage() {
           <h1 className="min-w-0 flex-1 truncate text-sm font-medium">
             {thread?.title}
           </h1>
+          {thread?.importedFrom && (
+            <span
+              className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground"
+              title="Imported from a data export; its messages carry no cost"
+            >
+              imported from{" "}
+              {thread.importedFrom === "chatgpt" ? "ChatGPT" : "Claude"}
+            </span>
+          )}
           {thread?.cacheManaged && (
             <CacheStatus
               expiresAt={thread.cacheExpiresAt}

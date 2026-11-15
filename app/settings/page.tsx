@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
+import Link from "next/link";
 import { useState } from "react";
 import ChatShell from "@/components/ChatShell";
 import { Button } from "@/components/wensity/button";
@@ -384,6 +385,20 @@ export default function SettingsPage() {
           <h1 className="text-2xl font-semibold tracking-[-0.02em]">
             Settings
           </h1>
+          <section
+            data-surface="panel"
+            className="flex items-center justify-between gap-4 rounded-[var(--primitive-radius-surface)] p-5"
+          >
+            <div>
+              <h2 className="font-semibold tracking-[-0.01em]">Import</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Bring your history from ChatGPT or Claude.
+              </p>
+            </div>
+            <Button asChild variant="outline">
+              <Link href="/import">Import</Link>
+            </Button>
+          </section>
           <SideJobModel />
           <Keepalive />
           <Condensing />
