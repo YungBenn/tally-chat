@@ -1,0 +1,32 @@
+# Overrides for the smoke check (selfhost/smoke.sh): no published ports, secrets in a throwaway
+# volume instead of ./selfhost/secrets, a fake model server and the check runner.
+# Paths are relative to the project directory (the first compose file), not this file.
+services:
+  backend:
+    ports: !reset []
+    volumes: !override
+      - data:/convex/data
+      - secrets:/secrets
+  setup:
+    volumes: !override
+      - secrets:/secrets
+  web:
+    ports: !reset []
+  fake:
+    image: oven/bun:1.4.2-slim
+    profiles: [smoke]
+    volumes:
+      - ./selfhost/smoke/fake-openai.ts:/fake-openai.ts:ro
+    command: ["bun", "/fake-openai.ts"]
+  check:
+    build: { context: ., target: setup }
+    profiles: [smoke]
+    volumes:
+      - ./selfhost/smoke/check.ts:/app/selfhost/smoke/check.ts:ro
+    command: ["bun", "selfhost/smoke/check.ts"]
+    depends_on:
+      web: { condition: service_healthy }
+      fake: { condition: service_started }
+
+volumes:
+  secrets:
