@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { query, type QueryCtx } from "./_generated/server";
-import { activeBranch, effortFor } from "./chat";
+import { activeBranch, effortFor, isCheaperReply } from "./chat";
 import { supportsPerMessageEffort } from "./lib/anthropic";
 import { effortValidator } from "./lib/effort";
 import { cacheExpiresAt, cacheTtlValidator } from "./lib/cacheStatus";
@@ -186,7 +186,9 @@ export const get = query({
           : false,
         lastActiveAt: thread.lastActiveAt ?? null,
         ttl,
-        lastReadTokens: replies.at(-1)?.usage?.cacheReadTokens ?? null,
+        lastReadTokens:
+          replies.findLast((m) => !isCheaperReply(m, thread))?.usage
+            ?.cacheReadTokens ?? null,
       },
       // The level in force for the next send: the latest per-message change, else the thread's.
       effort: effortFor(thread, provider)

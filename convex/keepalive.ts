@@ -13,7 +13,7 @@ import {
   cacheState,
   cacheTtlValidator,
 } from "./lib/cacheStatus";
-import { effortFor } from "./chat";
+import { activeBranch, effortFor, isCheaperReply } from "./chat";
 import { budgetReached } from "./lib/budget";
 import { effortValidator } from "./lib/effort";
 import { imageValidator } from "./lib/images";
@@ -126,7 +126,12 @@ export const input = internalQuery({
     if (!thread?.activeLeafId) return null;
     const provider = await ctx.db.get("providers", thread.providerId);
     if (provider?.apiStyle !== "anthropic") return null;
-    const leaf = await ctx.db.get("messages", thread.activeLeafId);
+    // The thread's cache ends at its latest reply from the thread's own model: a cheaper reply
+    // after it was cached for another model (spec phase 7).
+    const branch = await activeBranch(ctx, thread);
+    const leaf = branch.findLast(
+      (m) => m.role === "assistant" && !isCheaperReply(m, thread),
+    );
     if (
       !leaf ||
       leaf.role !== "assistant" ||

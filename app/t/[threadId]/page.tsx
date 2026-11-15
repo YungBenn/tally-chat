@@ -9,6 +9,7 @@ import {
   IconPin,
   IconPinFilled,
   IconRefresh,
+  IconArrowsExchange,
   IconTrash,
   IconUser,
 } from "@tabler/icons-react";
@@ -25,6 +26,11 @@ import Composer from "@/components/Composer";
 import Inspector from "@/components/Inspector";
 import EffortControl from "@/components/EffortControl";
 import ModeControl from "@/components/ModeControl";
+import ModelMenu, {
+  sameModel,
+  type ModelChoice,
+  type ModelEntry,
+} from "@/components/ModelMenu";
 import type { Effort } from "@/convex/lib/effort";
 import type { MessageImage } from "@/convex/lib/images";
 import { OUTPUT_MODES, type OutputMode } from "@/convex/lib/outputModes";
@@ -36,6 +42,7 @@ import { estimateTokens, metaLine, tokens, usd } from "@/lib/format";
 import { useStoredChoice, useStoredFlag } from "@/lib/storedFlag";
 import { useCacheState } from "@/lib/useCacheState";
 import { usePresence } from "@/lib/usePresence";
+import { cn } from "@/lib/utils";
 import type { Id } from "@/convex/_generated/dataModel";
 
 // The muted, always-visible metadata line under a reply (cost layer: monospace, tabular).
@@ -369,6 +376,38 @@ export default function ThreadPage() {
   const setPendingEffort = (effort: Effort | null) =>
     setPending(effort && { threadId, effort });
   const setThreadEffort = useMutation(api.chat.setThreadEffort);
+  // A one-off "reply with" model for the next send only, tied to its thread (spec phase 7).
+  const [replyWith, setReplyWith] = useState<{
+    threadId: string;
+    model: ModelChoice;
+  } | null>(null);
+  const providers = useQuery(api.providers.list);
+  const threadModel = thread && {
+    providerId: thread.providerId,
+    modelId: thread.modelId,
+  };
+  const oneOff =
+    replyWith?.threadId === threadId &&
+    threadModel &&
+    !sameModel(replyWith.model, threadModel)
+      ? replyWith.model
+      : null;
+  const modelEntries: ModelEntry[] = (providers ?? []).flatMap((p) =>
+    p.models
+      .filter((m) => !m.hidden)
+      .map((m) => ({
+        providerId: p._id,
+        modelId: m.id,
+        name: `${p.name} · ${m.displayName}`,
+        thread:
+          !!threadModel &&
+          sameModel(threadModel, { providerId: p._id, modelId: m.id }),
+      })),
+  );
+  const modelName = (c: ModelChoice) =>
+    providers
+      ?.find((p) => p._id === c.providerId)
+      ?.models.find((m) => m.id === c.modelId)?.displayName ?? c.modelId;
   const changeEffort = async (level: Effort) => {
     if (!inspector?.effort) return;
     if (inspector.perMessageEffort) {
@@ -519,6 +558,30 @@ export default function ThreadPage() {
               >
                 <IconRefresh />
               </button>
+              <ModelMenu
+                title="Retry with"
+                entries={modelEntries}
+                onPick={(model) =>
+                  void retry({
+                    messageId: m._id,
+                    mode,
+                    model:
+                      threadModel && sameModel(model, threadModel)
+                        ? undefined
+                        : model,
+                  })
+                }
+                trigger={
+                  <button
+                    className="icon-action"
+                    disabled={streaming}
+                    aria-label="Retry with…"
+                    title="Retry with another model"
+                  >
+                    <IconArrowsExchange />
+                  </button>
+                }
+              />
               <PinButton id={m._id} pinned={m.pinned} locked={m.pinLocked} />
               <Versions ids={m.siblingIds} current={m._id} />
             </>
@@ -698,7 +761,36 @@ export default function ThreadPage() {
             controls={
               <>
                 <ModeControl value={mode} onChange={setMode} />
-                {inspector?.effort && (
+                {threadModel && (
+                  <ModelMenu
+                    title="Reply with, for this message only"
+                    entries={modelEntries}
+                    selected={oneOff ?? threadModel}
+                    onPick={(model) => setReplyWith({ threadId, model })}
+                    trigger={
+                      <button
+                        type="button"
+                        className={cn(
+                          "inline-flex max-w-48 items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs focus-visible:ring-2 focus-visible:ring-[var(--primitive-ring)] focus-visible:outline-none",
+                          oneOff
+                            ? "border-foreground text-foreground"
+                            : "border-border text-muted-foreground hover:text-foreground",
+                        )}
+                        title={
+                          oneOff
+                            ? "This message goes to another model once; the thread keeps its model and cache"
+                            : "Reply with another model, for this message only"
+                        }
+                      >
+                        <span>reply with</span>
+                        <span className="truncate font-medium text-foreground">
+                          {modelName(oneOff ?? threadModel)}
+                        </span>
+                      </button>
+                    }
+                  />
+                )}
+                {inspector?.effort && !oneOff && (
                   <EffortControl
                     value={pendingEffort ?? inspector.effort}
                     pending={pendingEffort !== null}
@@ -726,10 +818,13 @@ export default function ThreadPage() {
                   threadId,
                   content: text,
                   mode,
-                  effort: pendingEffort ?? undefined,
+                  // A per-message effort change waits for the thread's own model.
+                  effort: oneOff ? undefined : (pendingEffort ?? undefined),
                   images: images.length ? images : undefined,
+                  model: oneOff ?? undefined,
                 });
-                setPendingEffort(null);
+                if (oneOff) setReplyWith(null);
+                else setPendingEffort(null);
               } catch (err) {
                 throw new Error(
                   err instanceof ConvexError

@@ -306,9 +306,11 @@ async function appendUserMessage(
   text: string,
   effort?: Effort, // a per-message effort change, made on this message and never changed after
   images?: MessageImage[],
+  replyModel?: ReplyModel, // the model answering it, when not the thread's
 ) {
   if (effort) await assertPerMessageEffort(ctx, thread);
-  if (images?.length) await assertImagesAllowed(ctx, thread, images);
+  if (images?.length)
+    await assertImagesAllowed(ctx, thread, images, replyModel);
   const id = await ctx.db.insert("messages", {
     ownerId: thread.ownerId,
     threadId: thread._id,
@@ -334,17 +336,16 @@ export const effortFor = (
     ? (thread.effort ?? DEFAULT_EFFORT)
     : undefined;
 
-// The effort in force for a reply to `user`: the latest per-message change on its branch, else
-// the thread's level (spec phase 4).
+// The effort in force for a reply to `user` on `provider`: the latest per-message change on its
+// branch, else the thread's level (spec phase 4). Only Anthropic-style replies carry one, so a
+// cheaper reply on another provider gets none (spec phase 7).
 async function effortInForce(
   ctx: QueryCtx,
   thread: Doc<"threads">,
   user: Doc<"messages">,
+  provider: Doc<"providers"> | null,
 ) {
-  const base = effortFor(
-    thread,
-    await ctx.db.get("providers", thread.providerId),
-  );
+  const base = effortFor(thread, provider);
   if (!base) return undefined;
   if (user.effort) return user.effort;
   const ancestors = await Promise.all(
@@ -361,9 +362,11 @@ async function assertImagesAllowed(
   ctx: QueryCtx,
   thread: Doc<"threads">,
   images: MessageImage[],
+  replyModel?: ReplyModel,
 ) {
-  const provider = await ctx.db.get("providers", thread.providerId);
-  if (!provider?.models.find((m) => m.id === thread.modelId)?.vision) {
+  const { providerId, modelId } = replyModel ?? thread;
+  const provider = await ctx.db.get("providers", providerId);
+  if (!provider?.models.find((m) => m.id === modelId)?.vision) {
     throw new ConvexError("This model doesn't accept images");
   }
   if (images.length > MAX_IMAGES_PER_MESSAGE)
@@ -387,6 +390,58 @@ async function assertPerMessageEffort(ctx: QueryCtx, thread: Doc<"threads">) {
   }
 }
 
+// A model to answer one send or retry instead of the thread's (spec phase 7, cheaper reply).
+const replyModelValidator = v.object({
+  providerId: v.id("providers"),
+  modelId: v.string(),
+});
+type ReplyModel = { providerId: Id<"providers">; modelId: string };
+
+// A reply written by a model other than its thread's: a cheaper reply. It never touches the
+// thread's cache bookkeeping (spec phase 7). Replies from before phase 7 always record theirs.
+export const isCheaperReply = (
+  m: Pick<Doc<"messages">, "providerId" | "model">,
+  thread: Pick<Doc<"threads">, "providerId" | "modelId">,
+) =>
+  m.providerId !== undefined &&
+  (m.providerId !== thread.providerId || m.model !== thread.modelId);
+
+// The provider that answers: the thread's, or a visible model of another of the owner's. The
+// whole branch goes to it, so it must accept images when the branch has any.
+async function replyProvider(
+  ctx: QueryCtx,
+  thread: Doc<"threads">,
+  user: Doc<"messages">,
+  replyModel?: ReplyModel,
+) {
+  if (
+    !replyModel ||
+    (replyModel.providerId === thread.providerId &&
+      replyModel.modelId === thread.modelId)
+  )
+    return {
+      provider: await ctx.db.get("providers", thread.providerId),
+      modelId: thread.modelId,
+    };
+  const provider = await ctx.db.get("providers", replyModel.providerId);
+  if (!provider || provider.ownerId !== thread.ownerId)
+    throw new ConvexError("Provider not found");
+  const model = provider.models.find(
+    (m) => m.id === replyModel.modelId && !m.hidden,
+  );
+  if (!model) throw new ConvexError("Model not available");
+  if (!model.vision) {
+    const branch = await Promise.all(
+      user.ancestorIds.map((id) => ctx.db.get("messages", id)),
+    );
+    if ([...branch, user].some((m) => m?.images?.length))
+      throw new ConvexError(
+        "This model doesn't accept images, and this thread has some",
+      );
+  }
+  return { provider, modelId: model.id };
+}
+
 // A new streaming reply under `user`, made the active leaf, with generation scheduled.
 // Send, retry and edit all start their reply here, so the soft budget is enforced once.
 async function startReply(
@@ -394,8 +449,15 @@ async function startReply(
   thread: Doc<"threads">,
   user: Doc<"messages">,
   outputMode?: OutputMode,
+  replyModel?: ReplyModel,
 ) {
   await assertWithinBudget(ctx, thread.ownerId);
+  const { provider, modelId } = await replyProvider(
+    ctx,
+    thread,
+    user,
+    replyModel,
+  );
   const assistantId = await ctx.db.insert("messages", {
     ownerId: thread.ownerId,
     threadId: thread._id,
@@ -406,10 +468,10 @@ async function startReply(
     content: "",
     status: "streaming",
     streamId: await createStream(ctx),
-    model: thread.modelId,
-    providerId: thread.providerId,
+    model: modelId,
+    providerId: provider?._id ?? thread.providerId,
     outputMode,
-    effort: await effortInForce(ctx, thread, user),
+    effort: await effortInForce(ctx, thread, user, provider),
   });
   // ponytail: first message as title until side-job titles land (ticket 11).
   const title = thread.activeLeafId ? thread.title : user.content.slice(0, 60);
@@ -440,21 +502,27 @@ export const send = mutation({
     mode: v.optional(outputModeValidator),
     effort: v.optional(effortValidator), // change effort from this message on (supported models)
     images: v.optional(v.array(imageValidator)),
+    model: v.optional(replyModelValidator), // reply with this model once (spec phase 7)
   },
   returns: v.null(),
-  handler: async (ctx, { threadId, content, mode, effort, images }) => {
+  handler: async (ctx, { threadId, content, mode, effort, images, model }) => {
     const ownerId = await requireOwner(ctx);
     const thread = await ownedThread(ctx, ownerId, threadId);
     const text = cleanText(content);
     await assertNotStreaming(ctx, thread);
+    if (effort && model)
+      throw new ConvexError(
+        "Change effort on a reply from the thread's own model",
+      );
     const parent = thread.activeLeafId
       ? await ctx.db.get("messages", thread.activeLeafId)
       : null;
     await startReply(
       ctx,
       thread,
-      await appendUserMessage(ctx, thread, parent, text, effort, images),
+      await appendUserMessage(ctx, thread, parent, text, effort, images, model),
       mode,
+      model,
     );
     return null;
   },
@@ -462,9 +530,13 @@ export const send = mutation({
 
 // A new reply beside an existing one, under the same user message (ADR 0001: nothing is overwritten).
 export const retry = mutation({
-  args: { messageId: v.id("messages"), mode: v.optional(outputModeValidator) },
+  args: {
+    messageId: v.id("messages"),
+    mode: v.optional(outputModeValidator),
+    model: v.optional(replyModelValidator), // retry with this model (spec phase 7)
+  },
   returns: v.null(),
-  handler: async (ctx, { messageId, mode }) => {
+  handler: async (ctx, { messageId, mode, model }) => {
     const ownerId = await requireOwner(ctx);
     const reply = await ownedMessage(ctx, ownerId, messageId);
     if (reply.role !== "assistant" || !reply.parentId)
@@ -476,6 +548,7 @@ export const retry = mutation({
       thread,
       (await ctx.db.get("messages", reply.parentId))!,
       mode,
+      model,
     );
     return null;
   },
@@ -739,7 +812,13 @@ export const generationInput = internalQuery({
       return null;
     const thread = await ctx.db.get("threads", message.threadId);
     if (!thread) return null; // deleted while queued; purgeThread stops and removes the reply
-    const provider = await ctx.db.get("providers", thread.providerId);
+    // The reply's own model: the thread's, or another one for a cheaper reply (spec phase 7).
+    const provider = await ctx.db.get(
+      "providers",
+      message.providerId ?? thread.providerId,
+    );
+    const model = message.model ?? thread.modelId;
+    const oneOff = isCheaperReply(message, thread);
     const settings = await ctx.db
       .query("settings")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", message.ownerId))
@@ -751,7 +830,7 @@ export const generationInput = internalQuery({
     );
     return {
       streamId: message.streamId,
-      model: thread.modelId,
+      model,
       systemPromptVersion: thread.systemPromptVersion,
       provider: provider && {
         apiStyle: provider.apiStyle,
@@ -759,12 +838,20 @@ export const generationInput = internalQuery({
         apiKeyEncrypted: provider.apiKeyEncrypted,
       },
       allowlist: settings?.allowlistedHosts ?? [],
-      history: history.messages,
+      // A cheaper reply starts cold, so it sends the level in force once, at the top, rather than
+      // per-message changes its model may not accept (spec phase 7).
+      history: oneOff
+        ? history.messages.map((m) => ({
+            role: m.role,
+            content: m.content,
+            ...(m.images ? { images: m.images } : {}),
+          }))
+        : history.messages,
       layerEnd: history.layerEnd,
       // With keepalive off, pauses up to an hour stay cheap from the second turn on (the first
       // turn's prefix is too short to be worth a 2x write). On, keepalive covers the pauses.
       maxTokens: MODE_MAX_TOKENS[message.outputMode ?? "normal"],
-      effort: effortFor(thread, provider),
+      effort: oneOff ? message.effort : effortFor(thread, provider),
       cacheTtl:
         settings?.keepaliveEnabled === false && message.ancestorIds.length > 1
           ? ("1h" as const)
@@ -851,7 +938,8 @@ export const finalize = internalMutation({
     });
 
     const thread = await ctx.db.get("threads", message.threadId);
-    if (thread) {
+    // A cheaper reply's cache belongs to another model: the thread's touch and keepalive stay.
+    if (thread && !isCheaperReply(message, thread)) {
       // A cache-marked request that the provider says read or wrote the cache touched it.
       const touchedAt =
         cacheRequest && touchedCache(usage) ? cacheRequest.startedAt : null;
