@@ -35,7 +35,7 @@ export default function BrandMark({
         }
       : {};
   return (
-    <span className="inline-flex items-center" style={{ gap: Math.round(size / 3.2) }}>
+    <span className="inline-flex items-center" style={{ gap: Math.round(size / 4) }}>
       <svg width={size} height={size} viewBox="0 0 48 48" fill="none" role="img" aria-label="tally.chat">
         <defs>
           <HoloGradient id={id} x1={4} y1={4} x2={44} y2={44} />

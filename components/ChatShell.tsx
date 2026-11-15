@@ -134,14 +134,14 @@ function Sidebar({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
-      <div className="flex h-header shrink-0 items-center gap-2 pr-2 pl-5">
+      <div className="flex h-14 shrink-0 items-center gap-2 pr-2.5 pl-2.5">
         <Link
           href="/"
           onClick={onNavigate}
           className="mr-auto rounded-control"
           aria-label="tally.chat home"
         >
-          <BrandMark size={22} wordmark />
+          <BrandMark size={28} wordmark />
         </Link>
         <IconButton
           icon={<IconLayoutSidebarLeftCollapse />}
@@ -151,7 +151,7 @@ function Sidebar({
           onClick={close}
         />
       </div>
-      <div className="flex shrink-0 flex-col gap-2 px-3 pt-1 pb-2">
+      <div className="flex shrink-0 flex-col gap-2 px-3 pb-3">
         <Button
           icon={<IconMessagePlus />}
           className="w-full"
