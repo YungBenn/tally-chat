@@ -62,40 +62,36 @@ export async function activeBranch(
   return [...ancestors.filter((m) => m !== null), leaf];
 }
 
+const threadRow = v.object({
+  _id: v.id("threads"),
+  startedAt: v.number(),
+  title: v.string(),
+});
+const toRow = (t: Doc<"threads">) => ({
+  _id: t._id,
+  startedAt: t.startedAt ?? t._creationTime,
+  title: t.title,
+});
+
+// The owner's 100 most recently started threads, newest first.
 export const listThreads = query({
   args: {},
-  returns: v.array(
-    v.object({
-      _id: v.id("threads"),
-      _creationTime: v.number(),
-      title: v.string(),
-    }),
-  ),
+  returns: v.array(threadRow),
   handler: async (ctx) => {
     const ownerId = await requireOwner(ctx);
     const threads = await ctx.db
       .query("threads")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+      .withIndex("by_ownerId_and_startedAt", (q) => q.eq("ownerId", ownerId))
       .order("desc")
       .take(100);
-    return threads.map(({ _id, _creationTime, title }) => ({
-      _id,
-      _creationTime,
-      title,
-    }));
+    return threads.map(toRow);
   },
 });
 
 // The owner's threads whose title matches, best first, at most 20 (spec phase 4).
 export const searchThreads = query({
   args: { query: v.string() },
-  returns: v.array(
-    v.object({
-      _id: v.id("threads"),
-      _creationTime: v.number(),
-      title: v.string(),
-    }),
-  ),
+  returns: v.array(threadRow),
   handler: async (ctx, { query }) => {
     const ownerId = await requireOwner(ctx);
     const text = query.trim();
@@ -106,11 +102,7 @@ export const searchThreads = query({
         q.search("title", text).eq("ownerId", ownerId),
       )
       .take(20);
-    return threads.map(({ _id, _creationTime, title }) => ({
-      _id,
-      _creationTime,
-      title,
-    }));
+    return threads.map(toRow);
   },
 });
 
@@ -134,6 +126,7 @@ export const createThread = mutation({
       providerId,
       modelId,
       systemPromptVersion: CURRENT_SYSTEM_PROMPT_VERSION,
+      startedAt: Date.now(),
       // Only Anthropic-style threads send effort (spec phase 4).
       effort:
         provider.apiStyle === "anthropic"

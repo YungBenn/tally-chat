@@ -51,8 +51,11 @@ export default defineSchema({
     effort: v.optional(effortValidator), // Anthropic-style threads: sent on every request; absent = low
     condenseJobId: v.optional(v.id("_scheduled_functions")), // the thread's one pending or running condense
     condenseFailure: v.optional(v.string()), // why the last condense wrote no checkpoint; cleared by the next one
+    // When the conversation started: creation time, or the original date of an imported one.
+    // Absent only on threads from before phase 7 until migrations:backfillThreadStartedAt runs.
+    startedAt: v.optional(v.number()),
   })
-    .index("by_ownerId", ["ownerId"])
+    .index("by_ownerId_and_startedAt", ["ownerId", "startedAt"])
     // Titles only: full-text message search waits for phase 7 (design doc section 10).
     .searchIndex("search_title", {
       searchField: "title",

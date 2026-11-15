@@ -3,7 +3,8 @@
 //   1. creates tally.chat's secrets on first run (the master key that encrypts provider keys and
 //      Convex Auth's signing keys) and reuses them afterwards;
 //   2. derives the Convex admin key from the backend's own instance secret;
-//   3. sets the deployment's environment, then deploys the functions (also the upgrade path).
+//   3. sets the deployment's environment, deploys the functions (also the upgrade path) and runs
+//      the data backfills.
 // Secrets live in /secrets (selfhost/secrets on the host): back that directory up with the data.
 // `setup.ts backup <dir>` and `setup.ts restore <dir> [--replace-secrets]` back the instance up
 // and restore it (run through selfhost/backup.sh and selfhost/restore.sh).
@@ -90,6 +91,9 @@ function deploy(secrets: Record<string, string>, deployment: Record<string, stri
   }
   console.log("setup: deploying the functions");
   convex(["deploy", "--yes", "--typecheck", "disable"], deployment);
+  // Data backfills for the deployed schema; each skips rows it already filled, so reruns are no-ops.
+  console.log("setup: running backfills");
+  convex(["run", "migrations:backfillThreadStartedAt", "{}"], deployment);
 }
 
 // A backup is a directory holding data.zip (a Convex export, file storage included) and

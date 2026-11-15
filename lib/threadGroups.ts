@@ -1,7 +1,7 @@
 const DAY = 86_400_000;
 
-// Sidebar sections by the thread's age in the viewer's local days, newest first.
-export function groupThreads<T extends { _creationTime: number }>(
+// Sidebar sections by the thread's start in the viewer's local days, newest first.
+export function groupThreads<T extends { startedAt: number }>(
   threads: T[],
   now = Date.now(),
 ) {
@@ -18,7 +18,7 @@ export function groupThreads<T extends { _creationTime: number }>(
             : "Older";
   const groups: { label: string; threads: T[] }[] = [];
   for (const t of threads) {
-    const l = label(t._creationTime);
+    const l = label(t.startedAt);
     if (groups.at(-1)?.label !== l) groups.push({ label: l, threads: [] });
     groups.at(-1)!.threads.push(t);
   }

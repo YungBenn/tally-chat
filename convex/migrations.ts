@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
 import { savedFor } from "./lib/metering";
 import { dayIn } from "./lib/rollups";
@@ -80,3 +81,22 @@ export const backfillRollupsPhase3 = internalMutation({
 });
 
 const pick = (d: Doc<"messages"> | Doc<"sideJobs">) => ({ ownerId: d.ownerId, at: d._creationTime, threadId: d.threadId });
+
+const STARTED_AT_BATCH = 200;
+
+// Phase 7: gives every thread from before start times its creation time, in batches. Runs on every
+// self-host deploy (selfhost/setup.ts); threads that already have one are skipped, so it's safe to
+// run again. Locally: `npx convex run migrations:backfillThreadStartedAt`.
+export const backfillThreadStartedAt = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.null(),
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db.query("threads").paginate({ numItems: STARTED_AT_BATCH, cursor: cursor ?? null });
+    for (const t of page.page) {
+      if (t.startedAt === undefined) await ctx.db.patch("threads", t._id, { startedAt: t._creationTime });
+    }
+    if (!page.isDone)
+      await ctx.scheduler.runAfter(0, internal.migrations.backfillThreadStartedAt, { cursor: page.continueCursor });
+    return null;
+  },
+});

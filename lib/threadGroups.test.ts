@@ -4,7 +4,7 @@ import { groupThreads } from "./threadGroups";
 test("groups threads by local day, keeping order", () => {
   const now = new Date(2026, 10, 15, 9).getTime();
   const at = (d: number, h = 12) => ({
-    _creationTime: new Date(2026, 10, 15 - d, h).getTime(),
+    startedAt: new Date(2026, 10, 15 - d, h).getTime(),
   });
   const groups = groupThreads(
     [at(0, 8), at(0, 1), at(1), at(3), at(20), at(90)],
