@@ -534,7 +534,7 @@ export default function ThreadPage() {
     if (targetOnBranch) router.replace(`/t/${threadId}`, { scroll: false });
     else if (switchedFor.current !== target) {
       switchedFor.current = target;
-      void switchBranch({ messageId: target }).catch(() => {});
+      void switchBranch({ messageId: target, threadId }).catch(() => {});
     }
   }, [target, thread, targetOnBranch, switchBranch, router, threadId]);
   useEffect(() => {
@@ -542,8 +542,17 @@ export default function ThreadPage() {
     document
       .getElementById(`m-${highlighted}`)
       ?.scrollIntoView({ block: "start" });
+    // A thread too short to scroll fires no scroll event: measure where that left the reader.
+    const frame = requestAnimationFrame(() => {
+      const el = scroller.current;
+      if (el)
+        setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+    });
     const timer = setTimeout(() => setHighlighted(null), 2000);
-    return () => clearTimeout(timer);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
   }, [highlighted]);
 
   if (thread === null) {

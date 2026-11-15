@@ -579,11 +579,16 @@ export const edit = mutation({
 
 // Makes `messageId`'s branch active, following its newest descendants down to a leaf.
 export const switchBranch = mutation({
-  args: { messageId: v.id("messages") },
+  args: {
+    messageId: v.id("messages"),
+    threadId: v.optional(v.id("threads")), // refuse a message from any other thread
+  },
   returns: v.null(),
-  handler: async (ctx, { messageId }) => {
+  handler: async (ctx, { messageId, threadId }) => {
     const ownerId = await requireOwner(ctx);
     let leaf = await ownedMessage(ctx, ownerId, messageId);
+    if (threadId && leaf.threadId !== threadId)
+      throw new ConvexError("Message not found");
     for (;;) {
       const child = await ctx.db
         .query("messages")

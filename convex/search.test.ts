@@ -91,6 +91,8 @@ test("a hit on another branch becomes visible by switching to it; one inside a f
   expect((await view())!.messages.some((m) => m._id === other._id)).toBe(false);
   await s.owner.mutation(api.chat.switchBranch, { messageId: avocado.messageId });
   expect((await view())!.messages.at(-1)!._id).toBe(other._id);
+  const elsewhere = await s.thread(s.ownerId, "Elsewhere");
+  await expect(s.owner.mutation(api.chat.switchBranch, { messageId: a2._id, threadId: elsewhere })).rejects.toThrow("Message not found");
 
   const [tomato] = (await s.search("tomatoes")).messages;
   const v = (await view())!;
