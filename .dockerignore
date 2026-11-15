@@ -1,0 +1,18 @@
+# Only what the production build needs goes into the image context.
+node_modules
+.next
+.git
+.env*
+!.env.example
+.scratch
+.serena
+.playwright-mcp
+.mcp.json
+.claude
+docs
+prototypes
+test
+**/*.test.ts
+*.tsbuildinfo
+selfhost/data
+selfhost/secrets

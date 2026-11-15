@@ -7,11 +7,16 @@ import {
 const isSignInPage = createRouteMatcher(["/signin"]);
 
 // Everything except the sign-in page requires the owner to be logged in.
-export default convexAuthNextjsMiddleware(async (request, { convexAuth }) => {
-  const authed = await convexAuth.isAuthenticated();
-  if (isSignInPage(request) && authed) return nextjsMiddlewareRedirect(request, "/");
-  if (!isSignInPage(request) && !authed) return nextjsMiddlewareRedirect(request, "/signin");
-});
+export default convexAuthNextjsMiddleware(
+  async (request, { convexAuth }) => {
+    const authed = await convexAuth.isAuthenticated();
+    if (isSignInPage(request) && authed) return nextjsMiddlewareRedirect(request, "/");
+    if (!isSignInPage(request) && !authed) return nextjsMiddlewareRedirect(request, "/signin");
+  },
+  // The browser reaches Convex at its public URL (baked into the build); this server may need a
+  // different address, e.g. the backend's name inside Docker (phase 5). Read at runtime.
+  { convexUrl: process.env.CONVEX_URL_INTERNAL ?? process.env.NEXT_PUBLIC_CONVEX_URL },
+);
 
 export const config = {
   // The following matcher runs middleware on all routes
