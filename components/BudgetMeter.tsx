@@ -21,7 +21,7 @@ export default function BudgetMeter() {
   if (!b) return null;
   const pct = Math.round(b.ratio * 100);
   return (
-    <div className="mt-2.5 flex flex-col gap-2 rounded-popover border border-border bg-surface-raised p-3">
+    <div className="mx-1.5 mt-2.5 flex flex-col gap-2 rounded-popover border border-border bg-surface-raised p-3">
       <div className="flex items-center gap-2">
         <span className="flex-1 text-overline text-foreground-muted uppercase">Today</span>
         <span className="tc-mono text-mono-sm text-foreground">{usd(b.spentMicroUsd)}</span>
