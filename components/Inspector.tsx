@@ -178,6 +178,13 @@ export function InspectorBody({
           title="Read discount minus write premiums, minus cache upkeep. Can be negative."
         />
         <Row label="reasoning" value={tokens(thread.reasoningTokens)} />
+        {data.effort && (
+          <Row
+            label="effort"
+            value={data.effort}
+            title="Sent as output_config.effort on every request"
+          />
+        )}
         {thread.unpricedCalls > 0 && (
           <p className="pt-1 font-sans text-[11px] text-muted-foreground">
             {thread.unpricedCalls} call
@@ -226,7 +233,9 @@ function TurnView({
   return (
     <div className="font-mono text-xs tabular-nums">
       {back}
-      <Section title={`This reply · ${turn.model}`}>
+      <Section
+        title={`This reply · ${turn.model}${turn.effort ? ` · ${turn.effort} effort` : ""}`}
+      >
         <Row label="uncached input" value={tokens(u.inputTokens)} />
         <Row label="cache read" value={tokens(u.cacheReadTokens)} />
         <Row label="cache write 5m" value={tokens(u.cacheWriteTokens5m)} />

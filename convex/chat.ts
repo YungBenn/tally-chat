@@ -19,6 +19,7 @@ import {
   outputModeValidator,
   type OutputMode,
 } from "./lib/outputModes";
+import { DEFAULT_EFFORT, effortValidator } from "./lib/effort";
 import { meterCall } from "./lib/metering";
 import {
   appendChunk,
@@ -79,9 +80,13 @@ export const listThreads = query({
 });
 
 export const createThread = mutation({
-  args: { providerId: v.id("providers"), modelId: v.string() },
+  args: {
+    providerId: v.id("providers"),
+    modelId: v.string(),
+    effort: v.optional(effortValidator),
+  },
   returns: v.id("threads"),
-  handler: async (ctx, { providerId, modelId }) => {
+  handler: async (ctx, { providerId, modelId, effort }) => {
     const ownerId = await requireOwner(ctx);
     const provider = await ctx.db.get("providers", providerId);
     if (!provider || provider.ownerId !== ownerId)
@@ -94,6 +99,11 @@ export const createThread = mutation({
       providerId,
       modelId,
       systemPromptVersion: CURRENT_SYSTEM_PROMPT_VERSION,
+      // Only Anthropic-style threads send effort (spec phase 4).
+      effort:
+        provider.apiStyle === "anthropic"
+          ? (effort ?? DEFAULT_EFFORT)
+          : undefined,
     });
   },
 });
@@ -115,6 +125,7 @@ const messageView = v.object({
   usage: v.optional(usageValidator),
   costMicroUsd: v.optional(v.number()),
   truncated: v.optional(v.boolean()),
+  effort: v.optional(effortValidator),
 });
 
 // null when the thread doesn't exist (or was deleted), so a page left open on another
@@ -177,6 +188,7 @@ export const getThread = query({
         usage: m.usage,
         costMicroUsd: m.costMicroUsd,
         truncated: m.truncated,
+        effort: m.effort,
       })),
     );
     return {
@@ -227,6 +239,16 @@ async function appendUserMessage(
   return (await ctx.db.get("messages", id))!;
 }
 
+// The effort a thread's requests send (spec phase 4): Anthropic-style threads only; threads from
+// before phase 4 run at the default.
+export const effortFor = (
+  thread: Doc<"threads">,
+  provider: Doc<"providers"> | null,
+) =>
+  provider?.apiStyle === "anthropic"
+    ? (thread.effort ?? DEFAULT_EFFORT)
+    : undefined;
+
 // A new streaming reply under `user`, made the active leaf, with generation scheduled.
 // Send, retry and edit all start their reply here, so the soft budget is enforced once.
 async function startReply(
@@ -249,6 +271,7 @@ async function startReply(
     model: thread.modelId,
     providerId: thread.providerId,
     outputMode,
+    effort: effortFor(thread, await ctx.db.get("providers", thread.providerId)),
   });
   // ponytail: first message as title until side-job titles land (ticket 11).
   const title = thread.activeLeafId ? thread.title : user.content.slice(0, 60);
@@ -502,6 +525,7 @@ export const generationInput = internalQuery({
     v.object({
       streamId: v.string(),
       model: v.string(),
+      effort: v.optional(effortValidator),
       systemPromptVersion: v.number(),
       provider: v.union(
         v.null(),
@@ -557,6 +581,7 @@ export const generationInput = internalQuery({
       // With keepalive off, pauses up to an hour stay cheap from the second turn on (the first
       // turn's prefix is too short to be worth a 2x write). On, keepalive covers the pauses.
       maxTokens: MODE_MAX_TOKENS[message.outputMode ?? "normal"],
+      effort: effortFor(thread, provider),
       cacheTtl:
         settings?.keepaliveEnabled === false && message.ancestorIds.length > 1
           ? ("1h" as const)

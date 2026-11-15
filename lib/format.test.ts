@@ -31,4 +31,7 @@ test("formats money, tokens and the metadata line like the design doc", () => {
       reasoningTokens: 0,
     }),
   ).toBe("Local · cost unknown · 1.6k in · 340 out");
+  expect(metaLine("Sonnet 5.5", 4300, usage, "low")).toBe(
+    "Sonnet 5.5 (low) · $0.0043 · 12.4k in (87% cached) · 340 out · 1.4k reasoning",
+  );
 });

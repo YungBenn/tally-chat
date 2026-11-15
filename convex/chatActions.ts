@@ -74,6 +74,7 @@ export const generate = internalAction({
           system: SYSTEM_PROMPTS[input.systemPromptVersion],
           messages: input.history,
           maxTokens: input.maxTokens,
+          effort: input.effort,
           cache: { ttl, layerEnd: input.layerEnd },
         },
         { allowlist: input.allowlist, resolve: systemResolve },
@@ -155,6 +156,7 @@ export const generateTitle = internalAction({
             },
           ],
           maxTokens: 30,
+          effort: input.provider.apiStyle === "anthropic" ? "low" : undefined, // titles need no deep thought
         },
         { allowlist: input.allowlist, resolve: systemResolve },
         new AbortController().signal,
@@ -208,6 +210,7 @@ export const keepalive = internalAction({
           model: input.model,
           system: SYSTEM_PROMPTS[input.systemPromptVersion],
           messages: input.history,
+          effort: input.effort,
           cache: { ttl: input.ttl, layerEnd: input.layerEnd },
         },
         { allowlist: input.allowlist, resolve: systemResolve },

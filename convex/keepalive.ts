@@ -1,9 +1,21 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
-import { ACTIVE_WINDOW_MS, cacheExpiresAt, cacheState, cacheTtlValidator } from "./lib/cacheStatus";
+import {
+  internalMutation,
+  internalQuery,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
+import {
+  ACTIVE_WINDOW_MS,
+  cacheExpiresAt,
+  cacheState,
+  cacheTtlValidator,
+} from "./lib/cacheStatus";
+import { effortFor } from "./chat";
 import { budgetReached } from "./lib/budget";
+import { effortValidator } from "./lib/effort";
 import { assembleHistory } from "./lib/context";
 import { meterCall } from "./lib/metering";
 import { usageValidator, type Usage } from "./lib/usage";
@@ -12,20 +24,30 @@ import { usageValidator, type Usage } from "./lib/usage";
 // before it expires, so pausing to read doesn't make the next turn a full cache write.
 export const KEEPALIVE_AFTER_MS = 4.5 * 60_000; // after the touch the job keeps alive
 
-export const touchedCache = (usage: Usage) => usage.cacheReadTokens + usage.cacheWriteTokens5m + usage.cacheWriteTokens1h > 0;
+export const touchedCache = (usage: Usage) =>
+  usage.cacheReadTokens + usage.cacheWriteTokens5m + usage.cacheWriteTokens1h >
+  0;
 
 // Whether this thread has a keepalive job still waiting to run.
 export async function keepalivePending(ctx: QueryCtx, thread: Doc<"threads">) {
   if (!thread.keepaliveJobId) return false;
-  const job = await ctx.db.system.get("_scheduled_functions", thread.keepaliveJobId);
+  const job = await ctx.db.system.get(
+    "_scheduled_functions",
+    thread.keepaliveJobId,
+  );
   return job?.state.kind === "pending";
 }
 
 // After a reply: cancel any pending keepalive, then schedule one from this reply's cache
 // touch (none if it didn't touch the cache or keepalive is off). One job per thread, however
 // many tabs are open.
-export async function restartKeepalive(ctx: MutationCtx, thread: Doc<"threads">, touchedAt: number | null) {
-  if (await keepalivePending(ctx, thread)) await ctx.scheduler.cancel(thread.keepaliveJobId!);
+export async function restartKeepalive(
+  ctx: MutationCtx,
+  thread: Doc<"threads">,
+  touchedAt: number | null,
+) {
+  if (await keepalivePending(ctx, thread))
+    await ctx.scheduler.cancel(thread.keepaliveJobId!);
   const settings = await ctx.db
     .query("settings")
     .withIndex("by_ownerId", (q) => q.eq("ownerId", thread.ownerId))
@@ -33,7 +55,11 @@ export async function restartKeepalive(ctx: MutationCtx, thread: Doc<"threads">,
   const keepaliveJobId =
     touchedAt === null || settings?.keepaliveEnabled === false
       ? undefined
-      : await ctx.scheduler.runAt(touchedAt + KEEPALIVE_AFTER_MS, internal.chatActions.keepalive, { threadId: thread._id });
+      : await ctx.scheduler.runAt(
+          touchedAt + KEEPALIVE_AFTER_MS,
+          internal.chatActions.keepalive,
+          { threadId: thread._id },
+        );
   await ctx.db.patch("threads", thread._id, { keepaliveJobId });
 }
 
@@ -54,8 +80,14 @@ export const input = internalQuery({
       providerId: v.id("providers"),
       provider: providerFields,
       model: v.string(),
+      effort: v.optional(effortValidator),
       systemPromptVersion: v.number(),
-      history: v.array(v.object({ role: v.union(v.literal("user"), v.literal("assistant")), content: v.string() })),
+      history: v.array(
+        v.object({
+          role: v.union(v.literal("user"), v.literal("assistant")),
+          content: v.string(),
+        }),
+      ),
       layerEnd: v.number(),
       ttl: cacheTtlValidator,
       allowlist: v.array(v.string()),
@@ -67,8 +99,19 @@ export const input = internalQuery({
     const provider = await ctx.db.get("providers", thread.providerId);
     if (provider?.apiStyle !== "anthropic") return null;
     const leaf = await ctx.db.get("messages", thread.activeLeafId);
-    if (!leaf || leaf.role !== "assistant" || leaf.status === "streaming" || !leaf.usage || !touchedCache(leaf.usage)) return null;
-    if (thread.lastActiveAt === undefined || now - thread.lastActiveAt > ACTIVE_WINDOW_MS) return null;
+    if (
+      !leaf ||
+      leaf.role !== "assistant" ||
+      leaf.status === "streaming" ||
+      !leaf.usage ||
+      !touchedCache(leaf.usage)
+    )
+      return null;
+    if (
+      thread.lastActiveAt === undefined ||
+      now - thread.lastActiveAt > ACTIVE_WINDOW_MS
+    )
+      return null;
     if (cacheState(cacheExpiresAt(thread), now).state !== "warm") return null;
 
     const settings = await ctx.db
@@ -77,11 +120,18 @@ export const input = internalQuery({
       .unique();
     if (settings?.keepaliveEnabled === false) return null;
     if (await budgetReached(ctx, settings, now)) return null; // upkeep pauses while over budget
-    const history = await assembleHistory(ctx, thread._id, [...leaf.ancestorIds, leaf._id]);
+    const history = await assembleHistory(ctx, thread._id, [
+      ...leaf.ancestorIds,
+      leaf._id,
+    ]);
     return {
       providerId: provider._id,
-      provider: { baseUrl: provider.baseUrl, apiKeyEncrypted: provider.apiKeyEncrypted },
+      provider: {
+        baseUrl: provider.baseUrl,
+        apiKeyEncrypted: provider.apiKeyEncrypted,
+      },
       model: thread.modelId,
+      effort: effortFor(thread, provider), // the same parameters as a real turn
       systemPromptVersion: thread.systemPromptVersion,
       history: history.messages,
       layerEnd: history.layerEnd,
@@ -102,25 +152,59 @@ export const record = internalMutation({
     ttl: cacheTtlValidator,
     sent: v.boolean(),
     usage: v.optional(usageValidator),
-    reports: v.optional(v.object({ caching: v.boolean(), reasoning: v.boolean() })),
+    reports: v.optional(
+      v.object({ caching: v.boolean(), reasoning: v.boolean() }),
+    ),
     reportedCostMicroUsd: v.optional(v.number()),
   },
   returns: v.null(),
-  handler: async (ctx, { threadId, providerId, model, startedAt, ttl, sent, usage, reports, reportedCostMicroUsd }) => {
+  handler: async (
+    ctx,
+    {
+      threadId,
+      providerId,
+      model,
+      startedAt,
+      ttl,
+      sent,
+      usage,
+      reports,
+      reportedCostMicroUsd,
+    },
+  ) => {
     const thread = await ctx.db.get("threads", threadId);
     if (!thread) return null; // deleted meanwhile
     if (usage) {
       const cost = await meterCall(ctx, {
-        ownerId: thread.ownerId, threadId, providerId, model, normalized: { usage, reports, reportedCostMicroUsd }, upkeep: true,
+        ownerId: thread.ownerId,
+        threadId,
+        providerId,
+        model,
+        normalized: { usage, reports, reportedCostMicroUsd },
+        upkeep: true,
       });
       await ctx.db.insert("sideJobs", {
-        ownerId: thread.ownerId, threadId, kind: "keepalive", providerId, model, usage, costMicroUsd: cost ?? undefined,
+        ownerId: thread.ownerId,
+        threadId,
+        kind: "keepalive",
+        providerId,
+        model,
+        usage,
+        costMicroUsd: cost ?? undefined,
       });
     }
     if (!sent) return null;
     // This job is the one running, so nothing is pending to cancel: just schedule the next.
-    const keepaliveJobId = await ctx.scheduler.runAt(startedAt + KEEPALIVE_AFTER_MS, internal.chatActions.keepalive, { threadId });
-    await ctx.db.patch("threads", threadId, { cacheTouchedAt: startedAt, cacheTtl: ttl, keepaliveJobId });
+    const keepaliveJobId = await ctx.scheduler.runAt(
+      startedAt + KEEPALIVE_AFTER_MS,
+      internal.chatActions.keepalive,
+      { threadId },
+    );
+    await ctx.db.patch("threads", threadId, {
+      cacheTouchedAt: startedAt,
+      cacheTtl: ttl,
+      keepaliveJobId,
+    });
     return null;
   },
 });

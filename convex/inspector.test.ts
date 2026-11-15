@@ -391,6 +391,7 @@ describe("one turn", () => {
       await s.owner.query(api.inspector.turn, { messageId: reply._id }),
     ).toEqual({
       model: "Sonnet",
+      effort: "low",
       usage: {
         inputTokens: 40,
         cacheReadTokens: 3000,

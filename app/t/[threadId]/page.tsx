@@ -480,6 +480,7 @@ export default function ThreadPage() {
                                 m.modelName ?? m.model ?? "",
                                 m.costMicroUsd,
                                 m.usage,
+                                m.effort,
                               )}
                             </button>
                           )}

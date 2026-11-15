@@ -2,6 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
 import { cacheTtlValidator } from "./lib/cacheStatus";
+import { effortValidator } from "./lib/effort";
 import { outputModeValidator } from "./lib/outputModes";
 import { usageValidator } from "./lib/usage";
 
@@ -45,6 +46,7 @@ export default defineSchema({
     cacheTouchedAt: v.optional(v.number()),
     cacheTtl: v.optional(cacheTtlValidator),
     keepaliveJobId: v.optional(v.id("_scheduled_functions")), // the thread's one pending keepalive, if any
+    effort: v.optional(effortValidator), // Anthropic-style threads: sent on every request; absent = low
   }).index("by_ownerId", ["ownerId"]),
   // Append-only tree (ADR 0001). The only update a message ever gets is
   // streaming -> final status (plus the stop flag before that).
@@ -71,6 +73,7 @@ export default defineSchema({
     costMicroUsd: v.optional(v.number()), // absent with usage present = model has no price
     outputMode: v.optional(outputModeValidator), // replies: the length limit asked for; absent = normal
     truncated: v.optional(v.boolean()), // replies that stopped at that limit
+    effort: v.optional(effortValidator), // replies: the effort they ran at (Anthropic style)
   })
     .index("by_thread_parent", ["threadId", "parentId"])
     .index("by_status", ["status"]),

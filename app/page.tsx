@@ -9,6 +9,11 @@ import BudgetBanner from "@/components/BudgetBanner";
 import ChatShell from "@/components/ChatShell";
 import Composer from "@/components/Composer";
 import ModeControl from "@/components/ModeControl";
+import {
+  DEFAULT_EFFORT,
+  EFFORT_LEVELS,
+  type Effort,
+} from "@/convex/lib/effort";
 import type { OutputMode } from "@/convex/lib/outputModes";
 import { NewThreadCostStrip } from "@/components/CostStrip";
 import { NativeSelect } from "@/components/wensity/native-select";
@@ -31,20 +36,41 @@ export default function NewThread() {
   const [choice, setChoice] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [mode, setMode] = useState<OutputMode>("normal");
+  const [effort, setEffort] = useState<Effort>(DEFAULT_EFFORT);
   const selected = choice ?? options[0]?.value;
+  // Effort is an Anthropic-style setting (spec phase 4); other providers get no control.
+  const anthropic =
+    providers?.find((p) => p._id === selected?.split("|")[0])?.apiStyle ===
+    "anthropic";
 
   return (
     <ChatShell
       header={
         options.length > 0 && (
-          <NativeSelect
-            aria-label="Model"
-            selectSize="sm"
-            fullWidth={false}
-            value={selected ?? ""}
-            onChange={(e) => setChoice(e.target.value)}
-            options={options}
-          />
+          <>
+            <NativeSelect
+              aria-label="Model"
+              selectSize="sm"
+              fullWidth={false}
+              value={selected ?? ""}
+              onChange={(e) => setChoice(e.target.value)}
+              options={options}
+            />
+            {anthropic && (
+              <NativeSelect
+                aria-label="Effort"
+                title="How hard the model thinks. Fixed for the thread; higher costs more."
+                selectSize="sm"
+                fullWidth={false}
+                value={effort}
+                onChange={(e) => setEffort(e.target.value as Effort)}
+                options={EFFORT_LEVELS.map((level) => ({
+                  value: level,
+                  label: `${level} effort`,
+                }))}
+              />
+            )}
+          </>
         )
       }
     >
@@ -89,6 +115,7 @@ export default function NewThread() {
               const threadId = await createThread({
                 providerId: providerId as Id<"providers">,
                 modelId,
+                effort: anthropic ? effort : undefined,
               });
               await send({ threadId, content: text, mode });
               router.push(`/t/${threadId}`);

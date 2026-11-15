@@ -1,4 +1,5 @@
 import { ConvexError } from "convex/values";
+import type { Effort } from "./effort";
 import { guardedFetch, type GuardOptions } from "./urlGuard";
 import {
   normalizeAnthropicUsage,
@@ -63,6 +64,7 @@ export type MessagesRequest = {
   messages: ChatMessage[];
   maxTokens: number;
   cache?: CacheLayout; // absent (side jobs): no cache_control at all
+  effort?: Effort; // output_config.effort; absent: the model's own default
 };
 
 // The Messages API body. Breakpoints: the system prompt, the end of the checkpoint layer,
@@ -77,6 +79,7 @@ export function messagesBody(req: MessagesRequest, stream: boolean) {
   return {
     model: req.model,
     max_tokens: req.maxTokens,
+    ...(req.effort ? { output_config: { effort: req.effort } } : {}),
     system: cc
       ? [{ type: "text" as const, text: req.system, cache_control: cc }]
       : req.system,

@@ -31,16 +31,17 @@ export const totalInput = (u: Usage) =>
   u.cacheWriteTokens5m +
   u.cacheWriteTokens1h;
 
-// "Sonnet 5.5 · $0.0043 · 12.4k in (87% cached) · 340 out · 1.4k reasoning"
+// "Sonnet 5.5 (low) · $0.0043 · 12.4k in (87% cached) · 340 out · 1.4k reasoning"
 export function metaLine(
   model: string,
   costMicroUsd: number | undefined,
   u: Usage,
+  effort?: string,
 ) {
   const input = totalInput(u);
   const cached = input > 0 ? Math.round((u.cacheReadTokens / input) * 100) : 0;
   return [
-    model,
+    effort ? `${model} (${effort})` : model,
     costMicroUsd === undefined ? "cost unknown" : usd(costMicroUsd),
     `${tokens(input)} in${u.cacheReadTokens > 0 ? ` (${cached}% cached)` : ""}`,
     `${tokens(u.outputTokens)} out`,

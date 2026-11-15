@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { query, type QueryCtx } from "./_generated/server";
-import { activeBranch } from "./chat";
+import { activeBranch, effortFor } from "./chat";
+import { effortValidator } from "./lib/effort";
 import { cacheExpiresAt, cacheTtlValidator } from "./lib/cacheStatus";
 import { assembleHistory } from "./lib/context";
 import {
@@ -102,6 +103,7 @@ export const get = query({
         ttl: cacheTtlValidator,
         lastReadTokens: v.union(v.null(), v.number()), // the latest reply's reported cache read
       }),
+      effort: v.union(v.null(), effortValidator), // what the next send uses; null outside Anthropic style
       layers: v.array(layerValidator),
       next: v.object({
         prefixTokens: v.number(), // everything the next send repeats before the new message
@@ -152,6 +154,7 @@ export const get = query({
         ttl,
         lastReadTokens: replies.at(-1)?.usage?.cacheReadTokens ?? null,
       },
+      effort: effortFor(thread, provider) ?? null,
       layers,
       next: {
         prefixTokens: layers.reduce((sum, l) => sum + l.tokens, 0),
@@ -370,6 +373,7 @@ export const turn = query({
     v.null(),
     v.object({
       model: v.string(),
+      effort: v.union(v.null(), effortValidator),
       usage: usageValidator,
       costMicroUsd: v.union(v.null(), v.number()),
       savedMicroUsd: v.union(v.null(), v.number()), // null when the model has no price
@@ -388,6 +392,7 @@ export const turn = query({
       provider?.models.find((x) => x.id === model)?.displayName ?? model;
     return {
       model: name,
+      effort: m.effort ?? null,
       usage: m.usage,
       costMicroUsd: m.costMicroUsd ?? null,
       savedMicroUsd:
