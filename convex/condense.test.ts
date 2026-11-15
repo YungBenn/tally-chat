@@ -270,6 +270,7 @@ describe("condensing after a reply", () => {
     const jobs = await s.t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
     expect(jobs.filter((j) => j.name.includes("condense"))).toHaveLength(1);
     expect((await s.inspector())!.condense.state).toBe("condensing");
+    await s.t.finishAllScheduledFunctions(() => {}); // don't leave the job to run during the next test
   });
 
   test("condensing off stops automatic condensing", async () => {
@@ -383,6 +384,41 @@ describe("pinned messages", () => {
     await s.owner.mutation(api.chat.retry, { messageId: reply._id });
     await s.t.finishAllScheduledFunctions(() => {});
     expect(JSON.stringify(s.replyCalls().at(-1)!.messages)).toBe(before);
+  });
+});
+
+describe("condense now", () => {
+  test("runs below the threshold, despite the veto and with condensing off, and keeps the recent turns", async () => {
+    const s = await setup({ condenseEnabled: false, condenseAtTokens: 1e9, condensePaybackTurns: 0.01 });
+    fake = fakeFetch({ [ANTHROPIC]: provider(() => "Manual summary") });
+    for (let i = 1; i <= 4; i++) await s.chat(`Turn ${i} ${LONG}`);
+    expect(s.summaryCalls()).toHaveLength(0);
+
+    const estimate = (await s.inspector())!.condenseNow!;
+    expect(estimate.costMicroUsd).toBeGreaterThan(0);
+    expect(estimate.paybackTurns).toBeGreaterThan(0);
+
+    await s.owner.mutation(api.condense.condenseNow, { threadId: s.threadId });
+    await s.t.finishAllScheduledFunctions(() => {});
+    const request = text(s.summaryCalls()[0].messages[0].content);
+    expect(request).toContain("Turn 2");
+    expect(request).not.toContain("Turn 3"); // keep 2: turns 3 and 4 stay verbatim
+    expect((await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!.checkpoint).toMatchObject({ turns: 2, summary: "Manual summary" });
+  });
+
+  test("is unavailable when only the kept turns remain, and can't be queued twice", async () => {
+    const s = await setup();
+    fake = fakeFetch({ [ANTHROPIC]: provider(() => "unused") });
+    await s.setCondense({ condenseEnabled: false });
+    await s.chat(`Turn 1 ${LONG}`);
+    await s.chat(`Turn 2 ${LONG}`);
+    expect((await s.inspector())!.condenseNow).toBeNull();
+    await expect(s.owner.mutation(api.condense.condenseNow, { threadId: s.threadId })).rejects.toThrow("Nothing to condense yet");
+
+    await s.chat(`Turn 3 ${LONG}`);
+    await s.owner.mutation(api.condense.condenseNow, { threadId: s.threadId });
+    await expect(s.owner.mutation(api.condense.condenseNow, { threadId: s.threadId })).rejects.toThrow("already condensing");
+    await s.t.finishAllScheduledFunctions(() => {}); // don't leave the job to run during the next test
   });
 });
 

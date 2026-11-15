@@ -1,7 +1,10 @@
 "use client";
 
 import { IconArrowLeft, IconX } from "@tabler/icons-react";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
+import { ConvexError } from "convex/values";
+import { useState } from "react";
+import { Button } from "@/components/wensity/button";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { imageTokens } from "@/convex/lib/images";
@@ -66,6 +69,68 @@ function Row({
       <span className="text-right">{value}</span>
       <span className="text-right text-muted-foreground">{state}</span>
       <span className="text-right">{cost ?? ""}</span>
+    </div>
+  );
+}
+
+// Condense now (spec phase 6): the estimate first, and a confirm above the owner's cache-break
+// threshold, like an expensive edit.
+function CondenseNow({
+  threadId,
+  estimate,
+}: {
+  threadId: Id<"threads">;
+  estimate: { costMicroUsd: number | null; paybackTurns: number | null };
+}) {
+  const condenseNow = useMutation(api.condense.condenseNow);
+  const settings = useQuery(api.settings.get);
+  const [error, setError] = useState<string | null>(null);
+  const confirmAbove = settings?.cacheBreakConfirmMicroUsd ?? 100_000;
+  const cost = estimate.costMicroUsd;
+  const payback =
+    estimate.paybackTurns === null
+      ? null
+      : estimate.paybackTurns >= 1000
+        ? "never pays back"
+        : `pays back in ~${Math.max(1, Math.round(estimate.paybackTurns))} turns`;
+  const run = async () => {
+    if (
+      cost !== null &&
+      cost > confirmAbove &&
+      !confirm(
+        `Condensing now costs about ${usd(cost)} (the summary plus writing the new prefix to the cache)${payback ? ` and ${payback}` : ""}. Condense anyway?`,
+      )
+    )
+      return;
+    setError(null);
+    try {
+      await condenseNow({ threadId });
+    } catch (err) {
+      setError(
+        err instanceof ConvexError ? String(err.data) : "Could not condense",
+      );
+    }
+  };
+  return (
+    <div className="flex flex-col gap-1 pt-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="outline" onClick={() => void run()}>
+          Condense now
+        </Button>
+        <span className="font-sans text-[11px] text-muted-foreground">
+          {[cost !== null && `~${usd(cost)}`, payback]
+            .filter(Boolean)
+            .join(" · ")}
+        </span>
+      </div>
+      {error && (
+        <p
+          role="alert"
+          className="font-sans text-[11px] text-primitive-destructive"
+        >
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -174,6 +239,9 @@ export function InspectorBody({
             Last condense failed: {data.condense.failure}. It tries again after
             the next reply.
           </p>
+        )}
+        {data.condenseNow && data.condense.state !== "condensing" && (
+          <CondenseNow threadId={threadId} estimate={data.condenseNow} />
         )}
         <p
           data-inspector-section="cache"

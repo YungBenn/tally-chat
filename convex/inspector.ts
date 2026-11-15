@@ -140,6 +140,15 @@ export const get = query({
         failure: v.optional(v.string()),
         paybackTurns: v.optional(v.number()), // held: turns the condense needs to pay for itself
       }),
+      // Condense now, when there's a turn to fold: its estimated one-off cost (summary plus cache
+      // rewrite; null when it can't be priced) and payback. null when it isn't available.
+      condenseNow: v.union(
+        v.null(),
+        v.object({
+          costMicroUsd: v.union(v.null(), v.number()),
+          paybackTurns: v.union(v.null(), v.number()),
+        }),
+      ),
       thread: v.object({
         costMicroUsd: v.number(),
         unpricedCalls: v.number(),
@@ -203,12 +212,33 @@ export const get = query({
           ? await editHints(ctx, thread, branch, layers, prices)
           : [],
       condense: await condenseStatus(ctx, thread, branch),
+      condenseNow: await condenseNowEstimate(ctx, thread, branch),
       thread: await threadFigures(ctx, ownerId, threadId),
     };
   },
 });
 
 const NEVER_PAYS_BACK = 1000;
+
+async function condenseNowEstimate(
+  ctx: QueryCtx,
+  thread: Doc<"threads">,
+  branch: Doc<"messages">[],
+) {
+  if (branch.some((m) => m.status === "streaming")) return null;
+  const plan = await condensePlan(ctx, thread, branch, true);
+  if (plan.kind !== "ready") return null;
+  return {
+    costMicroUsd:
+      plan.costUsd === null
+        ? null
+        : Math.round(Math.max(0, plan.costUsd) * 1e6),
+    paybackTurns:
+      plan.paybackTurns === null
+        ? null
+        : Math.min(plan.paybackTurns, NEVER_PAYS_BACK),
+  };
+}
 
 async function condenseStatus(
   ctx: QueryCtx,

@@ -224,12 +224,13 @@ export const generateTitle = internalAction({
 // and saves the summary as a checkpoint. A failed, empty or cut-off summary saves nothing; the
 // next reply tries again.
 export const condense = internalAction({
-  args: { threadId: v.id("threads") },
+  args: { threadId: v.id("threads"), force: v.optional(v.boolean()) },
   returns: v.null(),
-  handler: async (ctx, { threadId }) => {
+  handler: async (ctx, { threadId, force }) => {
     const input = await ctx.runQuery(internal.condense.input, {
       threadId,
       now: Date.now(),
+      force,
     });
     if (!input) return null;
     let text = "";

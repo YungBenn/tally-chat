@@ -15,9 +15,9 @@ import { budgetReached } from "./lib/budget";
 import {
   condenseSettings,
   CONTEXT_WINDOW_SHARE,
+  condenseEconomics,
   estimateSummaryTokens,
   foldTranscript,
-  paybackTurns,
   planFold,
   summaryRequest,
 } from "./lib/condense";
@@ -82,18 +82,44 @@ export async function condensePending(ctx: QueryCtx, thread: Doc<"threads">) {
 }
 
 // After a finished reply: schedule a condense check, unless one is already queued or running.
+// `force` is condense now: past the thresholds and the veto, never the kept turns.
 export async function scheduleCondense(
   ctx: MutationCtx,
   thread: Doc<"threads">,
+  force?: boolean,
 ) {
   if (await condensePending(ctx, thread)) return;
   const condenseJobId = await ctx.scheduler.runAfter(
     0,
     internal.chatActions.condense,
-    { threadId: thread._id },
+    { threadId: thread._id, force },
   );
   await ctx.db.patch("threads", thread._id, { condenseJobId });
 }
+
+// The inspector's condense now (spec phase 6): runs whatever the thresholds, the veto and the
+// on/off setting say, as long as there's a whole turn to fold before the kept ones.
+export const condenseNow = mutation({
+  args: { threadId: v.id("threads") },
+  returns: v.null(),
+  handler: async (ctx, { threadId }) => {
+    const ownerId = await requireOwner(ctx);
+    const thread = await ctx.db.get("threads", threadId);
+    if (!thread || thread.ownerId !== ownerId)
+      throw new ConvexError("Thread not found");
+    if (await condensePending(ctx, thread))
+      throw new ConvexError("This thread is already condensing");
+    const branch = await activeBranch(ctx, thread);
+    if (branch.some((m) => m.status === "streaming"))
+      throw new ConvexError("Wait for the reply to finish");
+    if ((await condensePlan(ctx, thread, branch, true)).kind !== "ready")
+      throw new ConvexError(
+        "Nothing to condense yet: the most recent turns are always kept",
+      );
+    await scheduleCondense(ctx, thread, true);
+    return null;
+  },
+});
 
 // What a condense check decides for a branch (spec phase 6), shared by the condense job and the
 // inspector so both always agree:
@@ -145,7 +171,7 @@ export async function condensePlan(
   const summaryInputTokens = previousSummary + foldedTokens;
   const summaryTokens = estimateSummaryTokens(summaryInputTokens);
   const provider = await ctx.db.get("providers", thread.providerId);
-  const payback = paybackTurns({
+  const economics = condenseEconomics({
     oldPrefixTokens: totalTokens,
     removedTokens: summaryInputTokens - summaryTokens,
     summaryInputTokens,
@@ -154,6 +180,7 @@ export async function condensePlan(
     thread: nextPrices(provider, thread.modelId, thread.cacheTtl ?? "5m"),
     side: sidePrices(sideJob.provider, sideJob.model),
   });
+  const payback = economics?.paybackTurns ?? null;
   const window = priceFor(thread.modelId)?.contextWindow;
   const nearWindow =
     window !== undefined && totalTokens >= window * CONTEXT_WINDOW_SHARE;
@@ -168,6 +195,7 @@ export async function condensePlan(
     kind: "ready" as const,
     inTokens: 0,
     paybackTurns: payback,
+    costUsd: economics?.costUsd ?? null,
     cut,
     end,
     checkpoint,

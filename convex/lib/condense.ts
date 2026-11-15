@@ -96,7 +96,7 @@ export type SidePrices = { input: number; output: number } | null;
 // One-off cost: the summary call, plus on a caching provider the next request's write of the new
 // prefix instead of a read of the old one. Saving per turn: the tokens removed from the prefix, at
 // the price paid for them each turn (cache read when cached, input when not).
-export function paybackTurns(x: {
+type CondenseFigures = {
   oldPrefixTokens: number; // what the next send repeats today
   removedTokens: number; // folded turns plus the old summary, minus the new summary
   summaryInputTokens: number; // what the summarizer reads
@@ -104,10 +104,15 @@ export function paybackTurns(x: {
   caching: boolean;
   thread: ThreadPrices;
   side: SidePrices;
-}): number | null {
+};
+
+// A condense's one-off cost in USD and its payback in turns, or null when it can't be priced.
+export function condenseEconomics(
+  x: CondenseFigures,
+): { costUsd: number; paybackTurns: number } | null {
   if (!x.thread || !x.side || x.thread.input === 0) return null;
   const newPrefix = x.oldPrefixTokens - x.removedTokens;
-  const cost =
+  const costUsd =
     x.summaryInputTokens * x.side.input +
     x.summaryTokens * x.side.output +
     (x.caching
@@ -115,9 +120,14 @@ export function paybackTurns(x: {
       : 0);
   const perTurn =
     x.removedTokens * (x.caching ? x.thread.cacheRead : x.thread.input);
-  if (perTurn <= 0) return Infinity;
-  return Math.max(0, cost / perTurn);
+  return {
+    costUsd,
+    paybackTurns: perTurn <= 0 ? Infinity : Math.max(0, costUsd / perTurn),
+  };
 }
+
+export const paybackTurns = (x: CondenseFigures) =>
+  condenseEconomics(x)?.paybackTurns ?? null;
 
 // The summary a condense is expected to write: a quarter of what it reads, up to its budget.
 // ponytail: a fixed 4:1 guess; measure real summaries on the usage page and tune it if it's off.
