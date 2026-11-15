@@ -65,3 +65,34 @@ test("message search finds the owner's finished messages, with their thread and 
   for (let i = 0; i < 35; i++) await s.message(s.ownerId, many, `widget number ${i}`);
   expect((await s.search("widget")).messages).toHaveLength(30);
 });
+
+test("a hit on another branch becomes visible by switching to it; one inside a fold is covered", async () => {
+  const s = await setup();
+  const threadId = await s.thread(s.ownerId, "Branches");
+  const insert = (content: string, role: "user" | "assistant", parent?: { _id: Id<"messages">; ancestorIds: Id<"messages">[] }) =>
+    s.t.run(async (ctx) => {
+      const id = await ctx.db.insert("messages", {
+        ownerId: s.ownerId, threadId, parentId: parent?._id, ancestorIds: parent ? [...parent.ancestorIds, parent._id] : [],
+        role, pinned: false, content, status: "done",
+      });
+      return (await ctx.db.get("messages", id))!;
+    });
+  const q1 = await insert("first question about tomatoes", "user");
+  const a1 = await insert("first answer", "assistant", q1);
+  const q2 = await insert("second question", "user", a1);
+  const a2 = await insert("second answer", "assistant", q2);
+  const other = await insert("a different reply about avocados", "assistant", q2); // a retry: the other branch
+  await s.t.run((ctx) => ctx.db.patch("threads", threadId, { activeLeafId: a2._id }));
+  await s.t.run((ctx) => ctx.db.insert("checkpoints", { ownerId: s.ownerId, threadId, coversUpToId: a1._id, summary: "S", tokens: 1 }));
+
+  const [avocado] = (await s.search("avocados")).messages;
+  expect(avocado.messageId).toBe(other._id);
+  const view = () => s.owner.query(api.chat.getThread, { threadId });
+  expect((await view())!.messages.some((m) => m._id === other._id)).toBe(false);
+  await s.owner.mutation(api.chat.switchBranch, { messageId: avocado.messageId });
+  expect((await view())!.messages.at(-1)!._id).toBe(other._id);
+
+  const [tomato] = (await s.search("tomatoes")).messages;
+  const v = (await view())!;
+  expect(v.messages.findIndex((m) => m._id === tomato.messageId)).toBeLessThan(v.checkpoint!.coveredCount);
+});

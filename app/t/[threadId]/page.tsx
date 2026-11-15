@@ -16,7 +16,7 @@ import {
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import CacheStatus from "@/components/CacheStatus";
 import BudgetBanner from "@/components/BudgetBanner";
@@ -88,20 +88,27 @@ function Versions({
 
 // One message row: avatar, author, body, and an action bar that shows on hover (always on the latest reply).
 function MessageRow({
+  id,
   avatar,
   author,
   actions,
   latest,
+  highlighted,
   children,
 }: {
+  id: Id<"messages">;
   avatar: React.ReactNode;
   author: string;
   actions?: React.ReactNode;
   latest?: boolean;
+  highlighted?: boolean; // just opened from a search hit
   children: React.ReactNode;
 }) {
   return (
-    <article className="group flex gap-4">
+    <article
+      id={`m-${id}`}
+      className={`group flex scroll-mt-4 gap-4 rounded-[var(--primitive-radius-item)] transition-[background-color,box-shadow] duration-700 ${highlighted ? "bg-primitive-surface-selected shadow-[0_0_0_8px_var(--primitive-surface-selected)]" : "shadow-[0_0_0_8px_transparent]"}`}
+    >
       <div className="grid size-7 shrink-0 place-items-center rounded-full border border-border bg-surface text-xs font-semibold [&_svg]:size-4">
         {avatar}
       </div>
@@ -164,8 +171,10 @@ function UserMessage({
   breakCost,
   confirmAbove,
   mode,
+  highlighted,
 }: {
   mode: OutputMode;
+  highlighted: boolean;
   id: Id<"messages">;
   text: string;
   pinned: boolean;
@@ -183,6 +192,8 @@ function UserMessage({
 
   return (
     <MessageRow
+      id={id}
+      highlighted={highlighted}
       avatar={<IconUser />}
       author="You"
       actions={
@@ -295,17 +306,25 @@ function Condensed<M extends { _id: Id<"messages">; pinned: boolean }>({
   checkpoint,
   messages,
   render,
+  revealId,
 }: {
   checkpoint: { coveredCount: number; turns: number; summary: string } | null;
   messages: M[];
   render: (m: M) => React.ReactNode;
+  revealId: Id<"messages"> | null; // a search hit to show: opens the fold when it's inside
 }) {
   const [open, setOpen] = useState(false);
-  if (!checkpoint) return null;
   // Covered pinned messages are still sent verbatim, so the thread shows them after the fold.
-  const covered = messages
-    .slice(0, checkpoint.coveredCount)
-    .filter((m) => !m.pinned);
+  const covered = checkpoint
+    ? messages.slice(0, checkpoint.coveredCount).filter((m) => !m.pinned)
+    : [];
+  // Opened during render, so the hit's row exists by the time the page scrolls to it.
+  const [revealed, setRevealed] = useState<Id<"messages"> | null>(null);
+  if (revealId !== revealed) {
+    setRevealed(revealId);
+    if (revealId && covered.some((m) => m._id === revealId)) setOpen(true);
+  }
+  if (!checkpoint) return null;
   return (
     <section
       aria-label="Condensed turns"
@@ -341,6 +360,11 @@ function Condensed<M extends { _id: Id<"messages">; pinned: boolean }>({
 export default function ThreadPage() {
   const { threadId } = useParams<{ threadId: Id<"threads"> }>();
   const thread = useQuery(api.chat.getThread, { threadId });
+  // A search hit to open (spec phase 7): /t/<thread>?m=<message>.
+  const target = useSearchParams().get("m") as Id<"messages"> | null;
+  const [highlighted, setHighlighted] = useState<Id<"messages"> | null>(null);
+  const switchBranch = useMutation(api.chat.switchBranch);
+  const switchedFor = useRef<Id<"messages"> | null>(null);
   const send = useMutation(api.chat.send);
   const stop = useMutation(api.chat.stop);
   const retry = useMutation(api.chat.retry);
@@ -493,6 +517,35 @@ export default function ThreadPage() {
     if (atBottom) toBottom();
   }, [last?.text, thread?.messages.length, atBottom]);
 
+  // Opening a search hit: switch to the branch holding it if needed (once), then mark it, which
+  // opens a fold around it; the next effect scrolls to it. The URL drops the hit afterwards.
+  const targetOnBranch =
+    !!target && !!thread?.messages.some((m) => m._id === target);
+  const [handled, setHandled] = useState<Id<"messages"> | null>(null);
+  if (handled !== (targetOnBranch ? target : null)) {
+    setHandled(targetOnBranch ? target : null);
+    if (targetOnBranch) {
+      setHighlighted(target);
+      setAtBottom(false);
+    }
+  }
+  useEffect(() => {
+    if (!target || !thread) return;
+    if (targetOnBranch) router.replace(`/t/${threadId}`, { scroll: false });
+    else if (switchedFor.current !== target) {
+      switchedFor.current = target;
+      void switchBranch({ messageId: target }).catch(() => {});
+    }
+  }, [target, thread, targetOnBranch, switchBranch, router, threadId]);
+  useEffect(() => {
+    if (!highlighted) return;
+    document
+      .getElementById(`m-${highlighted}`)
+      ?.scrollIntoView({ block: "start" });
+    const timer = setTimeout(() => setHighlighted(null), 2000);
+    return () => clearTimeout(timer);
+  }, [highlighted]);
+
   if (thread === null) {
     return (
       <ChatShell>
@@ -527,10 +580,13 @@ export default function ThreadPage() {
         breakCost={breakCosts.get(m._id) ?? null}
         confirmAbove={settings?.cacheBreakConfirmMicroUsd ?? 100_000}
         mode={mode}
+        highlighted={highlighted === m._id}
       />
     ) : (
       <MessageRow
         key={m._id}
+        id={m._id}
+        highlighted={highlighted === m._id}
         avatar={<span className="font-mono">t</span>}
         author={m.modelName ?? m.model ?? "Assistant"}
         latest={m._id === last?._id}
@@ -710,6 +766,7 @@ export default function ThreadPage() {
                     checkpoint={thread.checkpoint}
                     messages={thread.messages}
                     render={renderMessage}
+                    revealId={highlighted}
                   />
                 )}
                 {thread?.messages
