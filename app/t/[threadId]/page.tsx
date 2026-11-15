@@ -17,7 +17,7 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import CacheStatus from "@/components/CacheStatus";
-import BudgetBanner from "@/components/BudgetBanner";
+import BudgetBanner, { useSendingPaused } from "@/components/BudgetBanner";
 import ChatShell from "@/components/ChatShell";
 import CostStrip from "@/components/CostStrip";
 import Composer from "@/components/Composer";
@@ -397,6 +397,7 @@ export default function ThreadPage() {
     return send({ threadId, content: "Continue.", mode }).catch(() => {});
   };
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const paused = useSendingPaused();
   const inspectorKbd = useShortcutLabel(SHORTCUTS.toggleInspector);
   const modelKbd = useShortcutLabel(SHORTCUTS.modelPicker);
   const [inspectorOpen, setInspectorOpen] = useStoredFlag(
@@ -738,6 +739,7 @@ export default function ThreadPage() {
             onType={markActive}
             onDraftChange={setDraft}
             onEditLast={streaming ? undefined : editLast}
+            paused={paused}
             banner={<BudgetBanner />}
             footer={
               <CostStrip

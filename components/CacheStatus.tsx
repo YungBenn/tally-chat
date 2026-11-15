@@ -57,7 +57,10 @@ export function useCacheTemp(cache: {
 }) {
   const state = useCacheState(cache);
   const now = useNow(state.state !== "cold");
-  return { ...cacheRing(state, now), keptAlive: state.state === "keepalive" };
+  const ring = cacheRing(state, now);
+  const keptAlive = state.state === "keepalive";
+  // A kept-alive cache is refreshed before it expires, so it never reads as cooling.
+  return { ...ring, temp: keptAlive && ring.temp === "cooling" ? ("warm" as const) : ring.temp, keptAlive };
 }
 
 /**

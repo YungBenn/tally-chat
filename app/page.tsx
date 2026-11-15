@@ -6,7 +6,7 @@ import { ConvexError } from "convex/values";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import BudgetBanner from "@/components/BudgetBanner";
+import BudgetBanner, { useSendingPaused } from "@/components/BudgetBanner";
 import ChatShell from "@/components/ChatShell";
 import Composer from "@/components/Composer";
 import ModeControl from "@/components/ModeControl";
@@ -136,6 +136,7 @@ export default function NewThread() {
       })),
   );
   const [choice, setChoice] = useState<string | null>(null);
+  const paused = useSendingPaused();
   const [draft, setDraft] = useState("");
   const [draftImages, setDraftImages] = useState<MessageImage[]>([]);
   const [mode, setMode] = useState<OutputMode>("normal");
@@ -175,6 +176,7 @@ export default function NewThread() {
         </div>
         <Composer
           disabled={!selected}
+          paused={paused}
           onDraftChange={setDraft}
           controls={
             selected &&

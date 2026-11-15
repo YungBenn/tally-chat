@@ -13,6 +13,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import BrandMark from "@/components/BrandMark";
+import { BudgetNotice } from "@/components/BudgetBanner";
 import {
   Badge,
   Button,
@@ -171,6 +172,8 @@ export default function UiGallery() {
           Error toast
         </Button>
       </Row>
+      <BudgetNotice state="near" ratio={0.84} spent={4_020_000} budget={5_000_000} onOverride={() => {}} onDismiss={() => {}} />
+      <BudgetNotice state="paused" ratio={1.02} spent={5_100_000} budget={5_000_000} onOverride={() => {}} onDismiss={() => {}} />
       <EmptyState
         title="No usage yet"
         description="Send a message and its cost shows up here."
