@@ -4,7 +4,10 @@ import { lookup } from "node:dns/promises";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
-import { sendAnthropicKeepalive, streamAnthropicMessage } from "./lib/anthropic";
+import {
+  sendAnthropicKeepalive,
+  streamAnthropicMessage,
+} from "./lib/anthropic";
 import type { CacheTtl } from "./lib/cacheStatus";
 import { streamOpenAICompatible } from "./lib/openaiCompatible";
 import { SYSTEM_PROMPTS } from "./lib/systemPrompts";
@@ -13,17 +16,24 @@ import type { NormalizedUsage } from "./lib/usage";
 import { decryptSecret } from "./lib/vault";
 
 const FLUSH_MS = 100;
-const MAX_TOKENS = 4096; // ponytail: fixed until output modes land (S11, phase 4)
-const systemResolve = async (host: string) => (await lookup(host, { all: true })).map((a) => a.address);
+const systemResolve = async (host: string) =>
+  (await lookup(host, { all: true })).map((a) => a.address);
 
 export const generate = internalAction({
   args: { messageId: v.id("messages") },
   returns: v.null(),
   handler: async (ctx, { messageId }) => {
-    const input = await ctx.runQuery(internal.chat.generationInput, { messageId });
+    const input = await ctx.runQuery(internal.chat.generationInput, {
+      messageId,
+    });
     if (!input) {
       // Thread deleted before we started: close the reply so the purge can remove it.
-      await ctx.runMutation(internal.chat.finalize, { messageId, status: "stopped", content: "", pending: "" });
+      await ctx.runMutation(internal.chat.finalize, {
+        messageId,
+        status: "stopped",
+        content: "",
+        pending: "",
+      });
       return null;
     }
     let full = "";
@@ -33,17 +43,27 @@ export const generate = internalAction({
     let usage: NormalizedUsage | undefined;
     // Set when the request carried cache breakpoints: the cache lifetime counts from its start.
     let cacheRequest: { startedAt: number; ttl: CacheTtl } | undefined;
+    let truncated = false;
     const finish = (status: "done" | "stopped" | "error", error?: string) =>
       ctx.runMutation(internal.chat.finalize, {
-        messageId, status, content: full, pending, error, cacheRequest,
+        messageId,
+        status,
+        content: full,
+        pending,
+        error,
+        cacheRequest,
+        truncated: truncated || undefined,
         ...usage,
       });
 
     const abort = new AbortController();
     try {
-      if (!input.provider) throw new ConvexError("This thread's provider was deleted");
+      if (!input.provider)
+        throw new ConvexError("This thread's provider was deleted");
       const anthropic = input.provider.apiStyle === "anthropic";
-      const stream = anthropic ? streamAnthropicMessage : streamOpenAICompatible;
+      const stream = anthropic
+        ? streamAnthropicMessage
+        : streamOpenAICompatible;
       const ttl = input.cacheTtl;
       if (anthropic) cacheRequest = { startedAt: Date.now(), ttl };
       const deltas = stream(
@@ -53,7 +73,7 @@ export const generate = internalAction({
           model: input.model,
           system: SYSTEM_PROMPTS[input.systemPromptVersion],
           messages: input.history,
-          maxTokens: MAX_TOKENS,
+          maxTokens: input.maxTokens,
           cache: { ttl, layerEnd: input.layerEnd },
         },
         { allowlist: input.allowlist, resolve: systemResolve },
@@ -62,7 +82,15 @@ export const generate = internalAction({
       let lastFlush = Date.now();
       for await (const event of deltas) {
         if (event.type === "usage") {
-          usage = { usage: event.usage, reports: event.reports, reportedCostMicroUsd: event.reportedCostMicroUsd };
+          usage = {
+            usage: event.usage,
+            reports: event.reports,
+            reportedCostMicroUsd: event.reportedCostMicroUsd,
+          };
+          continue;
+        }
+        if (event.type === "stop") {
+          truncated = event.truncated;
           continue;
         }
         const text = event.text;
@@ -80,13 +108,19 @@ export const generate = internalAction({
       }
       await finish("done");
     } catch (err) {
-      await finish("error", err instanceof ConvexError ? String(err.data) : "Could not reach the provider");
+      await finish(
+        "error",
+        err instanceof ConvexError
+          ? String(err.data)
+          : "Could not reach the provider",
+      );
     }
     return null;
   },
 });
 
-const TITLE_SYSTEM = "Write a title of at most six words for this conversation. Reply with the title only, no quotes.";
+const TITLE_SYSTEM =
+  "Write a title of at most six words for this conversation. Reply with the title only, no quotes.";
 const TITLE_EXCERPT = 2000; // characters of each message sent to the title model
 
 // Side job: titles a thread from its first exchange. Any failure leaves the fallback title
@@ -95,12 +129,19 @@ export const generateTitle = internalAction({
   args: { threadId: v.id("threads"), replyId: v.id("messages") },
   returns: v.null(),
   handler: async (ctx, { threadId, replyId }) => {
-    const input = await ctx.runQuery(internal.chat.titleJobInput, { threadId, replyId, now: Date.now() });
+    const input = await ctx.runQuery(internal.chat.titleJobInput, {
+      threadId,
+      replyId,
+      now: Date.now(),
+    });
     if (!input) return null;
     let text = "";
     let usage: NormalizedUsage | undefined;
     try {
-      const stream = input.provider.apiStyle === "anthropic" ? streamAnthropicMessage : streamOpenAICompatible;
+      const stream =
+        input.provider.apiStyle === "anthropic"
+          ? streamAnthropicMessage
+          : streamOpenAICompatible;
       const events = stream(
         {
           baseUrl: input.provider.baseUrl,
@@ -120,14 +161,26 @@ export const generateTitle = internalAction({
       );
       for await (const event of events) {
         if (event.type === "text") text += event.text;
-        else usage = { usage: event.usage, reports: event.reports, reportedCostMicroUsd: event.reportedCostMicroUsd };
+        else if (event.type === "usage")
+          usage = {
+            usage: event.usage,
+            reports: event.reports,
+            reportedCostMicroUsd: event.reportedCostMicroUsd,
+          };
       }
     } catch {
       text = ""; // keep the fallback title; still bill whatever usage arrived
     }
-    const title = text.trim().replace(/^["'\s]+|["'.\s]+$/g, "").slice(0, 60);
+    const title = text
+      .trim()
+      .replace(/^["'\s]+|["'.\s]+$/g, "")
+      .slice(0, 60);
     await ctx.runMutation(internal.chat.saveTitle, {
-      threadId, providerId: input.providerId, model: input.model, title: title || undefined, ...usage,
+      threadId,
+      providerId: input.providerId,
+      model: input.model,
+      title: title || undefined,
+      ...usage,
     });
     return null;
   },
@@ -141,7 +194,10 @@ export const keepalive = internalAction({
   returns: v.null(),
   handler: async (ctx, { threadId }) => {
     const startedAt = Date.now();
-    const input = await ctx.runQuery(internal.keepalive.input, { threadId, now: startedAt });
+    const input = await ctx.runQuery(internal.keepalive.input, {
+      threadId,
+      now: startedAt,
+    });
     if (!input) return null;
     let usage: NormalizedUsage | undefined;
     try {
@@ -160,7 +216,13 @@ export const keepalive = internalAction({
       // usage stays undefined: a failed non-streaming call reports none
     }
     await ctx.runMutation(internal.keepalive.record, {
-      threadId, providerId: input.providerId, model: input.model, startedAt, ttl: input.ttl, sent: usage !== undefined, ...usage,
+      threadId,
+      providerId: input.providerId,
+      model: input.model,
+      startedAt,
+      ttl: input.ttl,
+      sent: usage !== undefined,
+      ...usage,
     });
     return null;
   },

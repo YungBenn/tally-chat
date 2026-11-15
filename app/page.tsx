@@ -8,6 +8,8 @@ import { useState } from "react";
 import BudgetBanner from "@/components/BudgetBanner";
 import ChatShell from "@/components/ChatShell";
 import Composer from "@/components/Composer";
+import ModeControl from "@/components/ModeControl";
+import type { OutputMode } from "@/convex/lib/outputModes";
 import { NewThreadCostStrip } from "@/components/CostStrip";
 import { NativeSelect } from "@/components/wensity/native-select";
 import { api } from "@/convex/_generated/api";
@@ -28,6 +30,7 @@ export default function NewThread() {
   );
   const [choice, setChoice] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [mode, setMode] = useState<OutputMode>("normal");
   const selected = choice ?? options[0]?.value;
 
   return (
@@ -68,6 +71,7 @@ export default function NewThread() {
         <Composer
           disabled={!selected}
           onDraftChange={setDraft}
+          controls={<ModeControl value={mode} onChange={setMode} />}
           banner={<BudgetBanner />}
           footer={
             selected && (
@@ -86,7 +90,7 @@ export default function NewThread() {
                 providerId: providerId as Id<"providers">,
                 modelId,
               });
-              await send({ threadId, content: text });
+              await send({ threadId, content: text, mode });
               router.push(`/t/${threadId}`);
             } catch (err) {
               throw new Error(

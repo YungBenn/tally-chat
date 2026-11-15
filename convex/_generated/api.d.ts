@@ -21,6 +21,7 @@ import type * as lib_cacheStatus from "../lib/cacheStatus.js";
 import type * as lib_context from "../lib/context.js";
 import type * as lib_metering from "../lib/metering.js";
 import type * as lib_openaiCompatible from "../lib/openaiCompatible.js";
+import type * as lib_outputModes from "../lib/outputModes.js";
 import type * as lib_rollups from "../lib/rollups.js";
 import type * as lib_systemPrompts from "../lib/systemPrompts.js";
 import type * as lib_textStream from "../lib/textStream.js";
@@ -54,6 +55,7 @@ declare const fullApi: ApiFromModules<{
   "lib/context": typeof lib_context;
   "lib/metering": typeof lib_metering;
   "lib/openaiCompatible": typeof lib_openaiCompatible;
+  "lib/outputModes": typeof lib_outputModes;
   "lib/rollups": typeof lib_rollups;
   "lib/systemPrompts": typeof lib_systemPrompts;
   "lib/textStream": typeof lib_textStream;

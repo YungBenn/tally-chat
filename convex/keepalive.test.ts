@@ -7,7 +7,7 @@ import { fakeFetch } from "../test/fakeFetch";
 import { messageDelta, messageStart, messageStop, oaiDelta, oaiDone, oaiFinish, sse, textDelta } from "../test/sse";
 import { api, internal } from "./_generated/api";
 import { cacheState } from "./lib/cacheStatus";
-import { SYSTEM_PROMPTS } from "./lib/systemPrompts";
+import { CURRENT_SYSTEM_PROMPT_VERSION, SYSTEM_PROMPTS } from "./lib/systemPrompts";
 import { encryptSecret } from "./lib/vault";
 import schema from "./schema";
 
@@ -93,7 +93,7 @@ describe("keepalive", () => {
     const s = await setup();
     await s.tab1.mutation(api.chat.markActive, { threadId: s.threadId });
     await s.send("Hi");
-    const reply = fake!.requests.find((r) => (r.body as Body).max_tokens === 4096)!.body as Body;
+    const reply = fake!.requests.find((r) => (r.body as Body).max_tokens === 8192)!.body as Body;
     expect(await s.state()).toBe("keepalive");
 
     await s.later(4.4 * MIN);
@@ -111,7 +111,7 @@ describe("keepalive", () => {
       { role: "assistant", content: [{ type: "text", text: "R1", cache_control: { type: "ephemeral", ttl: "5m" } }] },
       { role: "user", content: "." },
     ]);
-    expect((first.system as { text: string }[])[0].text).toBe(SYSTEM_PROMPTS[1]);
+    expect((first.system as { text: string }[])[0].text).toBe(SYSTEM_PROMPTS[CURRENT_SYSTEM_PROMPT_VERSION]);
 
     await s.later(4.5 * MIN);
     expect(s.keepalives()).toHaveLength(2);
@@ -265,7 +265,7 @@ describe("keepalive", () => {
 
 describe("keepalive switch and the 1-hour fallback", () => {
   const breakpoints = (body: unknown) => [...JSON.stringify(body).matchAll(/"cache_control":(\{[^}]*\})/g)].map((m) => JSON.parse(m[1]));
-  const replyBodies = () => fake!.requests.map((r) => r.body as Body).filter((b) => b.max_tokens === 4096);
+  const replyBodies = () => fake!.requests.map((r) => r.body as Body).filter((b) => b.max_tokens === 8192);
 
   test("off: no keepalives, and from the second turn every breakpoint uses the 1-hour lifetime", async () => {
     const s = await setup();

@@ -7,7 +7,7 @@ import { fakeFetch } from "../test/fakeFetch";
 import { gate, gatedStream, messageDelta, messageStart, messageStop, sse, streamError, textDelta } from "../test/sse";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { SYSTEM_PROMPTS } from "./lib/systemPrompts";
+import { CURRENT_SYSTEM_PROMPT_VERSION, SYSTEM_PROMPTS } from "./lib/systemPrompts";
 import { encryptSecret } from "./lib/vault";
 import schema from "./schema";
 
@@ -84,7 +84,7 @@ describe("sending a message", () => {
     expect(request.body).toMatchObject({
       model: "claude-sonnet-5-5",
       stream: true,
-      system: [{ type: "text", text: SYSTEM_PROMPTS[1] }],
+      system: [{ type: "text", text: SYSTEM_PROMPTS[CURRENT_SYSTEM_PROMPT_VERSION] }],
       messages: [{ role: "user", content: "Hi" }],
     });
   });

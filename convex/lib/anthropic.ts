@@ -1,11 +1,23 @@
 import { ConvexError } from "convex/values";
 import { guardedFetch, type GuardOptions } from "./urlGuard";
-import { normalizeAnthropicUsage, type AnthropicUsage, type NormalizedUsage } from "./usage";
+import {
+  normalizeAnthropicUsage,
+  type AnthropicUsage,
+  type NormalizedUsage,
+} from "./usage";
 
-export type ProviderModel = { id: string; displayName: string; hidden: boolean };
+export type ProviderModel = {
+  id: string;
+  displayName: string;
+  hidden: boolean;
+};
 
 // GET /v1/models is free, so it doubles as the key test and the model list.
-export async function fetchAnthropicModels(baseUrl: string, apiKey: string, guard: GuardOptions) {
+export async function fetchAnthropicModels(
+  baseUrl: string,
+  apiKey: string,
+  guard: GuardOptions,
+) {
   let res: Response;
   try {
     res = await guardedFetch(
@@ -17,13 +29,21 @@ export async function fetchAnthropicModels(baseUrl: string, apiKey: string, guar
     if (err instanceof ConvexError) throw err;
     throw new ConvexError("Could not reach the provider");
   }
-  if (res.status === 401 || res.status === 403) throw new ConvexError("The provider rejected this key");
-  if (!res.ok) throw new ConvexError(`The provider returned an error (${res.status})`);
-  const body = (await res.json()) as { data: { id: string; display_name?: string }[] };
+  if (res.status === 401 || res.status === 403)
+    throw new ConvexError("The provider rejected this key");
+  if (!res.ok)
+    throw new ConvexError(`The provider returned an error (${res.status})`);
+  const body = (await res.json()) as {
+    data: { id: string; display_name?: string }[];
+  };
   const org = res.headers.get("anthropic-organization-id");
   return {
     detected: org ? `Anthropic · org ${org.slice(0, 8)}` : "Anthropic",
-    models: body.data.map((m): ProviderModel => ({ id: m.id, displayName: m.display_name ?? m.id, hidden: false })),
+    models: body.data.map((m): ProviderModel => ({
+      id: m.id,
+      displayName: m.display_name ?? m.id,
+      hidden: false,
+    })),
   };
 }
 
@@ -57,16 +77,28 @@ export function messagesBody(req: MessagesRequest, stream: boolean) {
   return {
     model: req.model,
     max_tokens: req.maxTokens,
-    system: cc ? [{ type: "text" as const, text: req.system, cache_control: cc }] : req.system,
+    system: cc
+      ? [{ type: "text" as const, text: req.system, cache_control: cc }]
+      : req.system,
     messages: req.messages.map((m, i) =>
-      marked.has(i) ? { role: m.role, content: [{ type: "text" as const, text: m.content, cache_control: cc }] } : m,
+      marked.has(i)
+        ? {
+            role: m.role,
+            content: [
+              { type: "text" as const, text: m.content, cache_control: cc },
+            ],
+          }
+        : m,
     ),
     ...(cc ? { cache_control: cc } : {}),
     stream,
   };
 }
 
-export type StreamEvent = { type: "text"; text: string } | ({ type: "usage" } & NormalizedUsage);
+export type StreamEvent =
+  | { type: "text"; text: string }
+  | ({ type: "usage" } & NormalizedUsage)
+  | { type: "stop"; truncated: boolean }; // truncated: the reply stopped at max_tokens
 
 // Streams a Messages API reply, yielding text deltas and the usage reported so far
 // (message_start carries the input side, message_delta the cumulative output).
@@ -81,14 +113,22 @@ export async function* streamAnthropicMessage(
     {
       method: "POST",
       signal,
-      headers: { "x-api-key": req.apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      headers: {
+        "x-api-key": req.apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
       body: JSON.stringify(messagesBody(req, true)),
     },
     guard,
   );
   if (!res.ok || !res.body) {
-    const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-    throw new ConvexError(`Provider error ${res.status}${body?.error?.message ? `: ${body.error.message}` : ""}`);
+    const body = (await res.json().catch(() => null)) as {
+      error?: { message?: string };
+    } | null;
+    throw new ConvexError(
+      `Provider error ${res.status}${body?.error?.message ? `: ${body.error.message}` : ""}`,
+    );
   }
 
   const decoder = new TextDecoder();
@@ -100,25 +140,46 @@ export async function* streamAnthropicMessage(
     while ((end = buffer.indexOf("\n\n")) !== -1) {
       const event = buffer.slice(0, end);
       buffer = buffer.slice(end + 2);
-      const data = event.split("\n").find((line) => line.startsWith("data:"))?.slice(5).trim();
+      const data = event
+        .split("\n")
+        .find((line) => line.startsWith("data:"))
+        ?.slice(5)
+        .trim();
       // Some proxies (9router) end Anthropic streams with an OpenAI-style "[DONE]" line.
       if (!data || data === "[DONE]") continue;
       const parsed = JSON.parse(data) as {
         type: string;
-        delta?: { type: string; text?: string };
+        delta?: { type?: string; text?: string; stop_reason?: string };
         message?: { usage?: AnthropicUsage };
         usage?: AnthropicUsage;
         error?: { message?: string };
       };
-      if (parsed.type === "content_block_delta" && parsed.delta?.type === "text_delta") {
+      if (
+        parsed.type === "content_block_delta" &&
+        parsed.delta?.type === "text_delta"
+      ) {
         yield { type: "text", text: parsed.delta.text ?? "" };
       }
-      const reported = parsed.type === "message_start" ? parsed.message?.usage : parsed.type === "message_delta" ? parsed.usage : undefined;
+      if (parsed.type === "message_delta" && parsed.delta?.stop_reason) {
+        yield {
+          type: "stop",
+          truncated: parsed.delta.stop_reason === "max_tokens",
+        };
+      }
+      const reported =
+        parsed.type === "message_start"
+          ? parsed.message?.usage
+          : parsed.type === "message_delta"
+            ? parsed.usage
+            : undefined;
       if (reported) {
         usage = { ...usage, ...reported };
         yield { type: "usage", ...normalizeAnthropicUsage(usage) };
       }
-      if (parsed.type === "error") throw new ConvexError(`Provider error: ${parsed.error?.message ?? "unknown"}`);
+      if (parsed.type === "error")
+        throw new ConvexError(
+          `Provider error: ${parsed.error?.message ?? "unknown"}`,
+        );
     }
   }
 }
@@ -132,7 +193,11 @@ export const KEEPALIVE_NUDGE: ChatMessage = { role: "user", content: "." };
 // shares, then KEEPALIVE_NUDGE; `max_tokens: 0` and not streamed, so it only refreshes the
 // cache. Returns the usage the provider reported. Throws ConvexError on an HTTP error.
 export async function sendAnthropicKeepalive(
-  req: Omit<MessagesRequest, "maxTokens" | "cache"> & { cache: CacheLayout; baseUrl: string; apiKey: string },
+  req: Omit<MessagesRequest, "maxTokens" | "cache"> & {
+    cache: CacheLayout;
+    baseUrl: string;
+    apiKey: string;
+  },
   guard: GuardOptions,
 ): Promise<NormalizedUsage> {
   const messages = [...req.messages, KEEPALIVE_NUDGE];
@@ -141,14 +206,25 @@ export async function sendAnthropicKeepalive(
     `${req.baseUrl}/v1/messages`,
     {
       method: "POST",
-      headers: { "x-api-key": req.apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify(messagesBody({ ...req, messages, cache, maxTokens: 0 }, false)),
+      headers: {
+        "x-api-key": req.apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(
+        messagesBody({ ...req, messages, cache, maxTokens: 0 }, false),
+      ),
     },
     guard,
   );
-  const body = (await res.json().catch(() => null)) as { usage?: AnthropicUsage; error?: { message?: string } } | null;
+  const body = (await res.json().catch(() => null)) as {
+    usage?: AnthropicUsage;
+    error?: { message?: string };
+  } | null;
   if (!res.ok || !body?.usage) {
-    throw new ConvexError(`Provider error ${res.status}${body?.error?.message ? `: ${body.error.message}` : ""}`);
+    throw new ConvexError(
+      `Provider error ${res.status}${body?.error?.message ? `: ${body.error.message}` : ""}`,
+    );
   }
   return normalizeAnthropicUsage(body.usage);
 }

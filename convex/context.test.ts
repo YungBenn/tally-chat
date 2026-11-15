@@ -8,7 +8,7 @@ import { messageStop, sse, textDelta } from "../test/sse";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { SUMMARY_PREFIX } from "./lib/context";
-import { SYSTEM_PROMPTS } from "./lib/systemPrompts";
+import { CURRENT_SYSTEM_PROMPT_VERSION, SYSTEM_PROMPTS } from "./lib/systemPrompts";
 import { encryptSecret } from "./lib/vault";
 import schema from "./schema";
 
@@ -80,7 +80,7 @@ describe("context assembly", () => {
     const s = await setup();
     const ids = await s.seed(null, turns(1, 3));
     const body = await s.sendFrom(ids.at(-1)!, "U4");
-    expect(text(body.system)).toBe(SYSTEM_PROMPTS[1]);
+    expect(text(body.system)).toBe(SYSTEM_PROMPTS[CURRENT_SYSTEM_PROMPT_VERSION]);
     expect(contents(body)).toEqual([...verbatim(1, 3), "U4"]);
   });
 
@@ -109,7 +109,7 @@ describe("context assembly", () => {
     expect(contents(early)).toEqual([SUMMARY_PREFIX + "S1: turns 1-10", ...verbatim(11, 20), "U21early", "A21early", "U22early"]);
 
     // None of it touched the system prompt.
-    for (const body of [turn40, late, early]) expect(text(body.system)).toBe(SYSTEM_PROMPTS[1]);
+    for (const body of [turn40, late, early]) expect(text(body.system)).toBe(SYSTEM_PROMPTS[CURRENT_SYSTEM_PROMPT_VERSION]);
   });
 
   test("a pinned message inside the covered range keeps its original order with other pins", async () => {

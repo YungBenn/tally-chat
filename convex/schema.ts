@@ -2,6 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
 import { cacheTtlValidator } from "./lib/cacheStatus";
+import { outputModeValidator } from "./lib/outputModes";
 import { usageValidator } from "./lib/usage";
 
 // Convention: every table the owner creates has `ownerId: v.id("users")`,
@@ -17,10 +18,18 @@ export default defineSchema({
     apiKeyEncrypted: v.string(), // never leaves the server; see lib/vault.ts
     detected: v.string(), // which provider the key belongs to, e.g. "Anthropic · org 1a2b3c4d"
     keyCheckedAt: v.number(),
-    models: v.array(v.object({ id: v.string(), displayName: v.string(), hidden: v.boolean() })),
+    models: v.array(
+      v.object({
+        id: v.string(),
+        displayName: v.string(),
+        hidden: v.boolean(),
+      }),
+    ),
     free: v.optional(v.boolean()), // owner says it costs nothing (local models): cost is recorded as $0
     // Learned from usage fields the provider actually returns, never assumed.
-    capabilities: v.optional(v.object({ caching: v.boolean(), reasoning: v.boolean() })),
+    capabilities: v.optional(
+      v.object({ caching: v.boolean(), reasoning: v.boolean() }),
+    ),
   }).index("by_ownerId", ["ownerId"]),
   threads: defineTable({
     ownerId: v.id("users"),
@@ -47,7 +56,12 @@ export default defineSchema({
     role: v.union(v.literal("user"), v.literal("assistant")),
     pinned: v.boolean(),
     content: v.string(), // final text; while streaming the text lives in streamId
-    status: v.union(v.literal("streaming"), v.literal("done"), v.literal("stopped"), v.literal("error")),
+    status: v.union(
+      v.literal("streaming"),
+      v.literal("done"),
+      v.literal("stopped"),
+      v.literal("error"),
+    ),
     streamId: v.optional(v.string()),
     stopRequested: v.optional(v.boolean()),
     error: v.optional(v.string()),
@@ -55,6 +69,8 @@ export default defineSchema({
     providerId: v.optional(v.id("providers")),
     usage: v.optional(usageValidator), // as reported by the provider
     costMicroUsd: v.optional(v.number()), // absent with usage present = model has no price
+    outputMode: v.optional(outputModeValidator), // replies: the length limit asked for; absent = normal
+    truncated: v.optional(v.boolean()), // replies that stopped at that limit
   })
     .index("by_thread_parent", ["threadId", "parentId"])
     .index("by_status", ["status"]),
@@ -83,7 +99,12 @@ export default defineSchema({
     ownerId: v.id("users"),
     day: v.string(), // YYYY-MM-DD in the owner's time zone at the time of the call
     // "upkeep" rolls up keepalives only, keyed by thread (cache upkeep per thread and per day).
-    dimension: v.union(v.literal("model"), v.literal("provider"), v.literal("thread"), v.literal("upkeep")),
+    dimension: v.union(
+      v.literal("model"),
+      v.literal("provider"),
+      v.literal("thread"),
+      v.literal("upkeep"),
+    ),
     key: v.string(),
     calls: v.number(),
     unpricedCalls: v.number(),
@@ -94,13 +115,20 @@ export default defineSchema({
     ...usageValidator.fields,
   })
     .index("by_owner_day_dimension_key", ["ownerId", "day", "dimension", "key"])
-    .index("by_owner_dimension_key_day", ["ownerId", "dimension", "key", "day"]),
+    .index("by_owner_dimension_key_day", [
+      "ownerId",
+      "dimension",
+      "key",
+      "day",
+    ]),
   settings: defineTable({
     ownerId: v.id("users"),
     allowlistedHosts: v.array(v.string()), // private hosts the URL guard lets through, e.g. "192.168.1.20:11434"
     // Model for work the user didn't ask for directly (titles now, condensing later).
     // Unset: the cheapest priced model of the thread's own provider.
-    sideJobModel: v.optional(v.object({ providerId: v.id("providers"), modelId: v.string() })),
+    sideJobModel: v.optional(
+      v.object({ providerId: v.id("providers"), modelId: v.string() }),
+    ),
     timeZone: v.optional(v.string()), // IANA name; daily rollups use the owner's day, UTC until set
     keepaliveEnabled: v.optional(v.boolean()), // absent = on; off = 1-hour cache lifetime instead
     cacheBreakConfirmMicroUsd: v.optional(v.number()), // edits costing more than this ask first; absent = $0.10

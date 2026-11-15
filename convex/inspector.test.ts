@@ -16,7 +16,7 @@ import {
 } from "../test/sse";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { SYSTEM_PROMPTS } from "./lib/systemPrompts";
+import { CURRENT_SYSTEM_PROMPT_VERSION, SYSTEM_PROMPTS } from "./lib/systemPrompts";
 import { encryptSecret } from "./lib/vault";
 import schema from "./schema";
 
@@ -31,7 +31,7 @@ beforeAll(setAuthEnv);
 let fake: ReturnType<typeof fakeFetch> | undefined;
 afterEach(() => fake?.restore());
 
-const SYSTEM = Math.ceil(SYSTEM_PROMPTS[1].length / 4);
+const SYSTEM = Math.ceil(SYSTEM_PROMPTS[CURRENT_SYSTEM_PROMPT_VERSION].length / 4);
 // Sonnet 5.5: input $2, output $10, read $0.10, 5m write $2.50, 1h write $4 per MTok.
 
 async function setup(replyUsages: object[], model = "claude-sonnet-5-5") {

@@ -12,6 +12,7 @@ export default function Composer({
   onDraftChange,
   footer,
   banner,
+  controls,
   streaming = false,
   disabled = false,
 }: {
@@ -21,6 +22,7 @@ export default function Composer({
   onDraftChange?: (text: string) => void; // the inspector and cost strip price the draft
   footer?: React.ReactNode; // a line under the box (the cost strip)
   banner?: React.ReactNode; // a notice above the box (the soft budget)
+  controls?: React.ReactNode; // send options beside the send button (output mode, effort)
   streaming?: boolean;
   disabled?: boolean;
 }) {
@@ -75,7 +77,10 @@ export default function Composer({
           }}
           textareaClassName="min-h-0 border-0 bg-transparent px-5 pt-4 pb-1 text-[15px] shadow-none hover:bg-transparent focus:ring-0 focus:ring-offset-0"
         />
-        <div className="flex justify-end px-3 pb-3">
+        <div className="flex items-center justify-between gap-2 pr-3 pb-3 pl-4">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            {controls}
+          </div>
           {streaming ? (
             <Button
               variant="outline"

@@ -34,3 +34,30 @@ export function useStoredFlag(
   );
   return [value, set];
 }
+
+// A per-browser choice among fixed values (an output mode per thread), stored like a flag.
+export function useStoredChoice<T extends string>(
+  key: string,
+  fallback: T,
+  allowed: readonly T[],
+): [T, (value: T) => void] {
+  const read = useCallback(() => {
+    try {
+      const stored = localStorage.getItem(key) as T | null;
+      return stored !== null && allowed.includes(stored) ? stored : fallback;
+    } catch {
+      return fallback;
+    }
+  }, [key, fallback, allowed]);
+  const value = useSyncExternalStore(subscribe, read, () => fallback);
+  const set = useCallback(
+    (next: T) => {
+      try {
+        localStorage.setItem(key, next);
+      } catch {}
+      listeners.forEach((l) => l());
+    },
+    [key],
+  );
+  return [value, set];
+}

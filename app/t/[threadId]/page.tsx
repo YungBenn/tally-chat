@@ -21,12 +21,14 @@ import ChatShell from "@/components/ChatShell";
 import CostStrip from "@/components/CostStrip";
 import Composer from "@/components/Composer";
 import Inspector from "@/components/Inspector";
+import ModeControl from "@/components/ModeControl";
+import { OUTPUT_MODES, type OutputMode } from "@/convex/lib/outputModes";
 import Markdown, { CopyButton } from "@/components/Markdown";
 import { Button } from "@/components/wensity/button";
 import { Textarea } from "@/components/wensity/text-area";
 import { api } from "@/convex/_generated/api";
 import { estimateTokens, metaLine, tokens, usd } from "@/lib/format";
-import { useStoredFlag } from "@/lib/storedFlag";
+import { useStoredChoice, useStoredFlag } from "@/lib/storedFlag";
 import { useCacheState } from "@/lib/useCacheState";
 import { usePresence } from "@/lib/usePresence";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -113,7 +115,9 @@ function UserMessage({
   onType,
   breakCost,
   confirmAbove,
+  mode,
 }: {
+  mode: OutputMode;
   id: Id<"messages">;
   text: string;
   siblingIds: Id<"messages">[];
@@ -172,7 +176,7 @@ function UserMessage({
           className="flex flex-col gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            void edit({ messageId: id, content: draft }).then(() =>
+            void edit({ messageId: id, content: draft, mode }).then(() =>
               setEditing(false),
             );
           }}
@@ -231,6 +235,16 @@ export default function ThreadPage() {
       : [],
   );
   const [draft, setDraft] = useState("");
+  const [mode, setMode] = useStoredChoice<OutputMode>(
+    `tally.mode.${threadId}`,
+    "normal",
+    OUTPUT_MODES,
+  );
+  // Continue a cut-off reply: an ordinary next turn (5.5 models don't allow prefill).
+  const continueReply = () => {
+    setAtBottom(true);
+    return send({ threadId, content: "Continue.", mode }).catch(() => {});
+  };
   const [inspectorOpen, setInspectorOpen] = useStoredFlag(
     "tally.inspectorOpen",
     false,
@@ -390,6 +404,7 @@ export default function ThreadPage() {
                       confirmAbove={
                         settings?.cacheBreakConfirmMicroUsd ?? 100_000
                       }
+                      mode={mode}
                     />
                   ) : (
                     <MessageRow
@@ -404,7 +419,9 @@ export default function ThreadPage() {
                             <button
                               className="icon-action"
                               disabled={streaming}
-                              onClick={() => void retry({ messageId: m._id })}
+                              onClick={() =>
+                                void retry({ messageId: m._id, mode })
+                              }
                               aria-label="Retry"
                               title="Retry"
                             >
@@ -466,6 +483,20 @@ export default function ThreadPage() {
                               )}
                             </button>
                           )}
+                      {m.truncated && (
+                        <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                          Cut off at the length limit.
+                          {m._id === last?._id && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => void continueReply()}
+                            >
+                              Continue
+                            </Button>
+                          )}
+                        </p>
+                      )}
                     </MessageRow>
                   ),
                 )}
@@ -494,13 +525,15 @@ export default function ThreadPage() {
               <CostStrip
                 threadId={threadId}
                 draft={draft}
+                mode={mode}
                 onOpen={toggleInspector}
               />
             }
+            controls={<ModeControl value={mode} onChange={setMode} />}
             onSend={async (text) => {
               setAtBottom(true);
               try {
-                await send({ threadId, content: text });
+                await send({ threadId, content: text, mode });
               } catch (err) {
                 throw new Error(
                   err instanceof ConvexError

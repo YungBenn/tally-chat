@@ -9,7 +9,7 @@ import { messageDelta, messageStart, messageStop, oaiDelta, oaiDone, oaiFinish, 
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { SUMMARY_PREFIX } from "./lib/context";
-import { SYSTEM_PROMPTS } from "./lib/systemPrompts";
+import { CURRENT_SYSTEM_PROMPT_VERSION, SYSTEM_PROMPTS } from "./lib/systemPrompts";
 import { encryptSecret } from "./lib/vault";
 import schema from "./schema";
 
@@ -69,7 +69,7 @@ describe("cache-aware Anthropic requests", () => {
     const s = await setup();
     await s.send("Hi");
     const [body] = s.replies();
-    expect(body.system).toEqual([{ type: "text", text: SYSTEM_PROMPTS[1], cache_control: FIVE_MIN }]);
+    expect(body.system).toEqual([{ type: "text", text: SYSTEM_PROMPTS[CURRENT_SYSTEM_PROMPT_VERSION], cache_control: FIVE_MIN }]);
     expect(body.cache_control).toEqual(FIVE_MIN);
     expect(body.messages).toEqual([{ role: "user", content: "Hi" }]);
     expect(breakpoints(body)).toHaveLength(2); // system + top-level
