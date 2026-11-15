@@ -31,7 +31,10 @@ export const touchedCache = (usage: Usage) =>
 
 // After a condense (spec phase 6): the cached prefix no longer matches, so the thread reads cold,
 // and a keepalive writes the new prefix now if the owner is still in the thread.
-export async function warmAfterCondense(ctx: MutationCtx, thread: Doc<"threads">) {
+export async function warmAfterCondense(
+  ctx: MutationCtx,
+  thread: Doc<"threads">,
+) {
   if (await keepalivePending(ctx, thread))
     await ctx.scheduler.cancel(thread.keepaliveJobId!);
   const keepaliveJobId = await ctx.scheduler.runAfter(
@@ -92,7 +95,11 @@ const providerFields = v.object({
 // the new prefix is written before the owner's next send. `now` comes from the action because
 // queries must not read the clock.
 export const input = internalQuery({
-  args: { threadId: v.id("threads"), now: v.number(), warm: v.optional(v.boolean()) },
+  args: {
+    threadId: v.id("threads"),
+    now: v.number(),
+    warm: v.optional(v.boolean()),
+  },
   returns: v.union(
     v.null(),
     v.object({

@@ -36,12 +36,18 @@ const settingsFor = (ctx: QueryCtx, ownerId: Id<"users">) =>
 // Whether the thread already has a condense waiting or running.
 export async function condensePending(ctx: QueryCtx, thread: Doc<"threads">) {
   if (!thread.condenseJobId) return false;
-  const job = await ctx.db.system.get("_scheduled_functions", thread.condenseJobId);
+  const job = await ctx.db.system.get(
+    "_scheduled_functions",
+    thread.condenseJobId,
+  );
   return job?.state.kind === "pending" || job?.state.kind === "inProgress";
 }
 
 // After a finished reply: schedule a condense check, unless one is already queued or running.
-export async function scheduleCondense(ctx: MutationCtx, thread: Doc<"threads">) {
+export async function scheduleCondense(
+  ctx: MutationCtx,
+  thread: Doc<"threads">,
+) {
   if (await condensePending(ctx, thread)) return;
   const condenseJobId = await ctx.scheduler.runAfter(
     0,
@@ -113,7 +119,12 @@ export async function condensePlan(
   const window = priceFor(thread.modelId)?.contextWindow;
   const nearWindow =
     window !== undefined && totalTokens >= window * CONTEXT_WINDOW_SHARE;
-  if (!force && !nearWindow && payback !== null && payback > config.paybackTurns)
+  if (
+    !force &&
+    !nearWindow &&
+    payback !== null &&
+    payback > config.paybackTurns
+  )
     return { kind: "held" as const, inTokens: 0, paybackTurns: payback };
   return {
     kind: "ready" as const,
@@ -140,7 +151,11 @@ function sidePrices(provider: Doc<"providers">, model: string) {
 // a reply is streaming, or the plan isn't ready (see condensePlan). `now` comes from the action
 // because queries must not read the clock.
 export const input = internalQuery({
-  args: { threadId: v.id("threads"), now: v.number(), force: v.optional(v.boolean()) },
+  args: {
+    threadId: v.id("threads"),
+    now: v.number(),
+    force: v.optional(v.boolean()),
+  },
   returns: v.union(
     v.null(),
     v.object({
@@ -148,7 +163,10 @@ export const input = internalQuery({
       request: v.string(),
       providerId: v.id("providers"),
       provider: v.object({
-        apiStyle: v.union(v.literal("anthropic"), v.literal("openai-compatible")),
+        apiStyle: v.union(
+          v.literal("anthropic"),
+          v.literal("openai-compatible"),
+        ),
         baseUrl: v.string(),
         apiKeyEncrypted: v.string(),
       }),
@@ -191,7 +209,9 @@ export const save = internalMutation({
     summary: v.optional(v.string()),
     failure: v.optional(v.string()),
     usage: v.optional(usageValidator),
-    reports: v.optional(v.object({ caching: v.boolean(), reasoning: v.boolean() })),
+    reports: v.optional(
+      v.object({ caching: v.boolean(), reasoning: v.boolean() }),
+    ),
     reportedCostMicroUsd: v.optional(v.number()),
   },
   returns: v.null(),

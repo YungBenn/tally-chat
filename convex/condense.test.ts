@@ -151,6 +151,11 @@ describe("condensing after a reply", () => {
     // Summary, then turns 5 and 6 verbatim, then the new message.
     expect(next.messages.slice(1).map((m) => text(m.content).slice(0, 6))).toEqual(["Turn 5", "Answer", "Turn 6", "Answer", "Turn 7"]);
 
+    // The thread view folds the covered messages behind the summary.
+    const view = (await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!;
+    expect(view.checkpoint).toEqual({ coveredCount: 8, turns: 4, summary: "Summary one" });
+    expect(view.messages).toHaveLength(14); // every message is still there to expand
+
     const inspector = await s.inspector();
     expect(inspector!.layers.find((l) => l.kind === "checkpoint")!.label).toBe("summary of turns\u00a01\u2060–\u20604");
   });
@@ -228,6 +233,7 @@ describe("condensing after a reply", () => {
     await s.t.finishAllScheduledFunctions(() => {});
     const forked = s.replyCalls().at(-1)!;
     expect(forked.messages.map((m) => text(m.content))).toEqual(["Turn 1, edited"]);
+    expect((await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!.checkpoint).toBeNull(); // no fold on this branch
   });
 
   test("the condense is metered as a side job and counted in the thread total, but not in the replies' hit rate", async () => {

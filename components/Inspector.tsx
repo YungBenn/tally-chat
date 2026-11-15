@@ -154,9 +154,9 @@ export function InspectorBody({
                   ? "last attempt failed"
                   : data.condense.state === "held"
                     ? "on hold"
-                  : data.condense.inTokens > 0
-                    ? `in ~${tokens(data.condense.inTokens)} tok`
-                    : "after more turns"
+                    : data.condense.inTokens > 0
+                      ? `in ~${tokens(data.condense.inTokens)} tok`
+                      : "after more turns"
           }
           title="Older turns are folded into a summary once the turns since the last summary pass the threshold in Settings"
         />

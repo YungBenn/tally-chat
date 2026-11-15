@@ -18,7 +18,8 @@ export const condenseSettings = (
   enabled: s?.condenseEnabled ?? CONDENSE_DEFAULTS.enabled,
   atTokens: s?.condenseAtTokens ?? CONDENSE_DEFAULTS.atTokens,
   keepTurns: s?.condenseKeepTurns ?? CONDENSE_DEFAULTS.keepTurns,
-  minThreadTokens: s?.condenseMinThreadTokens ?? CONDENSE_DEFAULTS.minThreadTokens,
+  minThreadTokens:
+    s?.condenseMinThreadTokens ?? CONDENSE_DEFAULTS.minThreadTokens,
   paybackTurns: s?.condensePaybackTurns ?? CONDENSE_DEFAULTS.paybackTurns,
 });
 
@@ -72,7 +73,10 @@ export function foldTranscript(messages: Doc<"messages">[]) {
     .join("\n\n");
 }
 
-export function summaryRequest(previousSummary: string | null, transcript: string) {
+export function summaryRequest(
+  previousSummary: string | null,
+  transcript: string,
+) {
   return (
     (previousSummary ? `Earlier summary:\n\n${previousSummary}\n\n` : "") +
     `Conversation to condense:\n\n${transcript}`
@@ -80,7 +84,11 @@ export function summaryRequest(previousSummary: string | null, transcript: strin
 }
 
 // Per-token USD prices the veto needs; null when the model has no price.
-export type ThreadPrices = { input: number; cacheRead: number; cacheWrite: number } | null;
+export type ThreadPrices = {
+  input: number;
+  cacheRead: number;
+  cacheWrite: number;
+} | null;
 export type SidePrices = { input: number; output: number } | null;
 
 // The cache veto (spec phase 6): how many later turns a condense needs to pay for itself, or
@@ -105,7 +113,8 @@ export function paybackTurns(x: {
     (x.caching
       ? newPrefix * x.thread.cacheWrite - x.oldPrefixTokens * x.thread.cacheRead
       : 0);
-  const perTurn = x.removedTokens * (x.caching ? x.thread.cacheRead : x.thread.input);
+  const perTurn =
+    x.removedTokens * (x.caching ? x.thread.cacheRead : x.thread.input);
   if (perTurn <= 0) return Infinity;
   return Math.max(0, cost / perTurn);
 }

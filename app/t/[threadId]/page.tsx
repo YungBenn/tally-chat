@@ -242,6 +242,52 @@ function UserMessage({
   );
 }
 
+// The turns a checkpoint covers, folded behind its summary (spec phase 6): the thread shows what
+// the model sees, and the original turns are one click away.
+function Condensed<M extends { _id: Id<"messages"> }>({
+  checkpoint,
+  messages,
+  render,
+}: {
+  checkpoint: { coveredCount: number; turns: number; summary: string } | null;
+  messages: M[];
+  render: (m: M) => React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!checkpoint) return null;
+  const covered = messages.slice(0, checkpoint.coveredCount);
+  return (
+    <section
+      aria-label="Condensed turns"
+      className="flex flex-col gap-3 rounded-[var(--primitive-radius-item)] border border-border bg-surface px-4 py-3"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-mono text-xs text-muted-foreground">
+          {checkpoint.turns === 1
+            ? "Turn 1 condensed"
+            : `Turns 1–${checkpoint.turns} condensed`}
+        </h3>
+        <button
+          type="button"
+          className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          {open ? "Hide the original turns" : "Show the original turns"}
+        </button>
+      </div>
+      <div className="text-sm text-muted-foreground">
+        <Markdown text={checkpoint.summary} />
+      </div>
+      {open && (
+        <div className="flex flex-col gap-5 border-t border-border pt-4">
+          {covered.map(render)}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function ThreadPage() {
   const { threadId } = useParams<{ threadId: Id<"threads"> }>();
   const thread = useQuery(api.chat.getThread, { threadId });
@@ -395,6 +441,108 @@ export default function ThreadPage() {
     );
   }
 
+  // One message on the branch, as the thread shows it (also inside the condensed fold).
+  const renderMessage = (m: NonNullable<typeof thread>["messages"][number]) =>
+    m.role === "user" ? (
+      <UserMessage
+        key={m._id}
+        id={m._id}
+        text={m.text}
+        images={m.images}
+        siblingIds={m.siblingIds}
+        busy={streaming}
+        onType={markActive}
+        breakCost={breakCosts.get(m._id) ?? null}
+        confirmAbove={settings?.cacheBreakConfirmMicroUsd ?? 100_000}
+        mode={mode}
+      />
+    ) : (
+      <MessageRow
+        key={m._id}
+        avatar={<span className="font-mono">t</span>}
+        author={m.modelName ?? m.model ?? "Assistant"}
+        latest={m._id === last?._id}
+        actions={
+          m.status !== "streaming" && (
+            <>
+              <CopyButton text={m.text} className="icon-action" />
+              <button
+                className="icon-action"
+                disabled={streaming}
+                onClick={() => void retry({ messageId: m._id, mode })}
+                aria-label="Retry"
+                title="Retry"
+              >
+                <IconRefresh />
+              </button>
+              <Versions ids={m.siblingIds} current={m._id} />
+            </>
+          )
+        }
+      >
+        {m.text ? (
+          <Markdown text={m.text} />
+        ) : (
+          m.status === "streaming" && (
+            <span className="leading-7 text-muted-foreground">Thinking…</span>
+          )
+        )}
+        {m.status === "streaming" && m.text && (
+          <span
+            aria-hidden
+            className="mt-1 inline-block size-2.5 animate-pulse rounded-full bg-foreground"
+          />
+        )}
+        {m.status === "stopped" && (
+          <p className="font-mono text-xs text-muted-foreground">stopped</p>
+        )}
+        {m.status === "error" && (
+          <p
+            role="alert"
+            className="rounded-[var(--primitive-radius-item)] border border-[var(--primitive-destructive-border)] px-3 py-2 text-sm text-primitive-destructive"
+          >
+            {m.error ?? "Something went wrong"}
+          </p>
+        )}
+        {m.status === "streaming"
+          ? m.text && (
+              <p className={meta}>~{tokens(estimateTokens(m.text))} out</p>
+            )
+          : m.usage && (
+              <button
+                type="button"
+                className={`${meta} self-start text-left hover:text-foreground`}
+                title="Open this reply in the inspector"
+                onClick={() => {
+                  setTurnId(m._id);
+                  openInspector();
+                }}
+              >
+                {metaLine(
+                  m.modelName ?? m.model ?? "",
+                  m.costMicroUsd,
+                  m.usage,
+                  m.effort,
+                )}
+              </button>
+            )}
+        {m.truncated && (
+          <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            Cut off at the length limit.
+            {m._id === last?._id && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void continueReply()}
+              >
+                Continue
+              </Button>
+            )}
+          </p>
+        )}
+      </MessageRow>
+    );
+
   return (
     <ChatShell
       header={
@@ -458,117 +606,16 @@ export default function ThreadPage() {
               }}
             >
               <div className="mx-auto flex max-w-3xl flex-col gap-5 px-4 pt-4 pb-10">
-                {thread?.messages.map((m) =>
-                  m.role === "user" ? (
-                    <UserMessage
-                      key={m._id}
-                      id={m._id}
-                      text={m.text}
-                      images={m.images}
-                      siblingIds={m.siblingIds}
-                      busy={streaming}
-                      onType={markActive}
-                      breakCost={breakCosts.get(m._id) ?? null}
-                      confirmAbove={
-                        settings?.cacheBreakConfirmMicroUsd ?? 100_000
-                      }
-                      mode={mode}
-                    />
-                  ) : (
-                    <MessageRow
-                      key={m._id}
-                      avatar={<span className="font-mono">t</span>}
-                      author={m.modelName ?? m.model ?? "Assistant"}
-                      latest={m._id === last?._id}
-                      actions={
-                        m.status !== "streaming" && (
-                          <>
-                            <CopyButton text={m.text} className="icon-action" />
-                            <button
-                              className="icon-action"
-                              disabled={streaming}
-                              onClick={() =>
-                                void retry({ messageId: m._id, mode })
-                              }
-                              aria-label="Retry"
-                              title="Retry"
-                            >
-                              <IconRefresh />
-                            </button>
-                            <Versions ids={m.siblingIds} current={m._id} />
-                          </>
-                        )
-                      }
-                    >
-                      {m.text ? (
-                        <Markdown text={m.text} />
-                      ) : (
-                        m.status === "streaming" && (
-                          <span className="leading-7 text-muted-foreground">
-                            Thinking…
-                          </span>
-                        )
-                      )}
-                      {m.status === "streaming" && m.text && (
-                        <span
-                          aria-hidden
-                          className="mt-1 inline-block size-2.5 animate-pulse rounded-full bg-foreground"
-                        />
-                      )}
-                      {m.status === "stopped" && (
-                        <p className="font-mono text-xs text-muted-foreground">
-                          stopped
-                        </p>
-                      )}
-                      {m.status === "error" && (
-                        <p
-                          role="alert"
-                          className="rounded-[var(--primitive-radius-item)] border border-[var(--primitive-destructive-border)] px-3 py-2 text-sm text-primitive-destructive"
-                        >
-                          {m.error ?? "Something went wrong"}
-                        </p>
-                      )}
-                      {m.status === "streaming"
-                        ? m.text && (
-                            <p className={meta}>
-                              ~{tokens(estimateTokens(m.text))} out
-                            </p>
-                          )
-                        : m.usage && (
-                            <button
-                              type="button"
-                              className={`${meta} self-start text-left hover:text-foreground`}
-                              title="Open this reply in the inspector"
-                              onClick={() => {
-                                setTurnId(m._id);
-                                openInspector();
-                              }}
-                            >
-                              {metaLine(
-                                m.modelName ?? m.model ?? "",
-                                m.costMicroUsd,
-                                m.usage,
-                                m.effort,
-                              )}
-                            </button>
-                          )}
-                      {m.truncated && (
-                        <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                          Cut off at the length limit.
-                          {m._id === last?._id && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => void continueReply()}
-                            >
-                              Continue
-                            </Button>
-                          )}
-                        </p>
-                      )}
-                    </MessageRow>
-                  ),
+                {thread && (
+                  <Condensed
+                    checkpoint={thread.checkpoint}
+                    messages={thread.messages}
+                    render={renderMessage}
+                  />
                 )}
+                {thread?.messages
+                  .slice(thread.checkpoint?.coveredCount ?? 0)
+                  .map(renderMessage)}
               </div>
             </div>
             {!atBottom && (

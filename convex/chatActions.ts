@@ -266,7 +266,9 @@ export const condense = internalAction({
       }
     } catch (err) {
       failure =
-        err instanceof ConvexError ? String(err.data) : "Could not reach the provider";
+        err instanceof ConvexError
+          ? String(err.data)
+          : "Could not reach the provider";
     }
     const summary = text.trim();
     if (!failure && truncated) failure = "the summary was cut off";

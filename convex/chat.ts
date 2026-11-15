@@ -183,6 +183,15 @@ export const getThread = query({
       providerId: v.id("providers"),
       modelId: v.string(),
       messages: v.array(messageView),
+      // The latest checkpoint on the branch: it covers the first coveredCount messages (spec phase 6).
+      checkpoint: v.union(
+        v.null(),
+        v.object({
+          coveredCount: v.number(),
+          turns: v.number(),
+          summary: v.string(),
+        }),
+      ),
       cacheManaged: v.boolean(), // Anthropic-style provider: tally.chat places its cache breakpoints
       vision: v.boolean(), // the thread's model accepts images
       cacheExpiresAt: v.union(v.null(), v.number()), // judge warm/cold/keepalive with lib/cacheStatus
@@ -245,11 +254,25 @@ export const getThread = query({
           : undefined,
       })),
     );
+    const { checkpoint } = await assembleHistory(
+      ctx,
+      thread._id,
+      branch.map((m) => m._id),
+    );
+    const coveredCount = checkpoint
+      ? branch.findIndex((m) => m._id === checkpoint.coversUpToId) + 1
+      : 0;
     return {
       title: thread.title,
       providerId: thread.providerId,
       modelId: thread.modelId,
       messages,
+      checkpoint: checkpoint && {
+        coveredCount,
+        turns: branch.slice(0, coveredCount).filter((m) => m.role === "user")
+          .length,
+        summary: checkpoint.summary,
+      },
       cacheManaged:
         (await ctx.db.get("providers", thread.providerId))?.apiStyle ===
         "anthropic",

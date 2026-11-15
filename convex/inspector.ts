@@ -221,7 +221,11 @@ async function condenseStatus(
   if (await condensePending(ctx, thread))
     return { state: "condensing" as const, inTokens };
   if (thread.condenseFailure)
-    return { state: "failed" as const, inTokens, failure: thread.condenseFailure };
+    return {
+      state: "failed" as const,
+      inTokens,
+      failure: thread.condenseFailure,
+    };
   if (plan.kind === "held")
     return {
       state: "held" as const,
