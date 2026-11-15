@@ -13,7 +13,7 @@ keeps that cache warm while you read, and shows you exactly what you're paying f
 [![Built with Convex](https://img.shields.io/badge/backend-Convex-f3b01c.svg)](https://convex.dev)
 [![Next.js](https://img.shields.io/badge/frontend-Next.js-000.svg)](https://nextjs.org)
 [![Bun](https://img.shields.io/badge/runtime-Bun-fbf0df.svg)](https://bun.sh)
-[![Tests](https://img.shields.io/badge/tests-218%20passing-2f7d4f.svg)](#development)
+[![Tests](https://img.shields.io/badge/tests-237%20passing-2f7d4f.svg)](#development)
 
 </div>
 
@@ -56,6 +56,7 @@ THIS THREAD
 - **Cache-break warnings**: editing an old message costs more than continuing; tally.chat says how much before you do it.
 - **Effort control**: pick how hard the model thinks per thread, and change it per message without losing the cache on models that support it.
 - **Output modes**: quick, normal or long replies, with Continue when a reply hits its limit.
+- **Cheaper replies**: send one message, or retry one reply, on another model, with what it would cost on each of your models side by side. The thread keeps its model and its warm cache; a new thread with a simple first question suggests a cheaper start.
 - **Background condenser**: long threads fold older turns into a summary on your cheap side-job model, but only when the cache math says it pays off (a condense rewrites the cached prefix). Pin anything that must stay word for word, or condense by hand from the inspector.
 
 ### Own everything
@@ -63,7 +64,8 @@ THIS THREAD
 - **Self-hosted and single-user**: your keys are encrypted at rest and never leave your server. A URL guard blocks private addresses unless you allowlist them.
 - **Branching that's free**: every message is an immutable node in a tree. Retry, edit and fork without rewriting history, so the cached prefix stays byte-identical.
 - **Images**, resized in the browser to what the model can actually read, then priced in the inspector before you send.
-- **Title search**, **installable as an app**, light and dark themes.
+- **Import your history** from a ChatGPT or Claude data export, branches and dates included. Imported messages never count as spend.
+- **Full-text search** over titles and messages, **installable as an app**, light and dark themes.
 
 ## How it works
 
@@ -116,7 +118,8 @@ The [self-hosting guide](docs/self-hosting.md) covers local models (Ollama, LM S
 | 4 | Effort, output modes, images, title search, installable app | ✅ |
 | 5 | Self-host packaging: Docker Compose and a setup guide | ✅ |
 | 6 | Background condenser, vetoed when it would break the cache | ✅ |
-| 7 | Model suggestions, documents, Gemini, chat import, full-text search | next |
+| 7 | Cheaper replies, model suggestions, full-text search, chat import | ✅ |
+| 8 | Documents, Gemini, tools | next |
 
 ## Development
 
@@ -137,7 +140,7 @@ Then open http://localhost:3000.
 
 ```bash
 bun run dev        # Convex + Next.js
-bun run test       # Vitest + convex-test (218 tests)
+bun run test       # Vitest + convex-test (237 tests)
 bun run typecheck
 bun run lint
 ```

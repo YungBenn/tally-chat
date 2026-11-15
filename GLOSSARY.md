@@ -28,6 +28,14 @@ _Avoid_: Edit, rewrite
 A new assistant message under the same user message, alongside the earlier reply.
 _Avoid_: Regenerate, redo
 
+**Cheaper reply**:
+A reply sent once to a model other than the thread's. The thread keeps its model and its cache.
+_Avoid_: Routing, model switch, override
+
+**Imported thread**:
+A thread brought in from another app's data export. Its messages carry no usage and never count as spend.
+_Avoid_: Migrated chat, archive
+
 **Pinned message**:
 A message that the condenser never folds into a summary.
 _Avoid_: Starred, saved
