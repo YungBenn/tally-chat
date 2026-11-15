@@ -21,7 +21,9 @@ import ChatShell from "@/components/ChatShell";
 import CostStrip from "@/components/CostStrip";
 import Composer from "@/components/Composer";
 import Inspector from "@/components/Inspector";
+import EffortControl from "@/components/EffortControl";
 import ModeControl from "@/components/ModeControl";
+import type { Effort } from "@/convex/lib/effort";
 import { OUTPUT_MODES, type OutputMode } from "@/convex/lib/outputModes";
 import Markdown, { CopyButton } from "@/components/Markdown";
 import { Button } from "@/components/wensity/button";
@@ -240,6 +242,41 @@ export default function ThreadPage() {
     "normal",
     OUTPUT_MODES,
   );
+  // A per-message effort change waiting for the next send, tied to its thread like `turn`.
+  const [pending, setPending] = useState<{
+    threadId: string;
+    effort: Effort;
+  } | null>(null);
+  const pendingEffort = pending?.threadId === threadId ? pending.effort : null;
+  const setPendingEffort = (effort: Effort | null) =>
+    setPending(effort && { threadId, effort });
+  const setThreadEffort = useMutation(api.chat.setThreadEffort);
+  const changeEffort = async (level: Effort) => {
+    if (!inspector?.effort) return;
+    if (inspector.perMessageEffort) {
+      // Applies from the next message; picking the level already in force cancels the change.
+      setPendingEffort(level === inspector.effort ? null : level);
+      return;
+    }
+    // No per-message effort on this model: the thread's level changes, rewriting the cache.
+    const p = inspector.next.prices;
+    const extra =
+      p && inspector.cache.managed && cache.state !== "cold"
+        ? Math.round(
+            inspector.next.prefixTokens * (p.cacheWrite - p.cacheRead) * 1e6,
+          )
+        : 0;
+    const threshold = settings?.cacheBreakConfirmMicroUsd ?? 100_000;
+    if (
+      extra > threshold &&
+      !confirm(
+        `Changing effort on this model breaks the prompt cache: the next send costs about ${usd(extra)} more. Change it anyway?`,
+      )
+    )
+      return;
+    await setThreadEffort({ threadId, effort: level });
+  };
+
   // Continue a cut-off reply: an ordinary next turn (5.5 models don't allow prefill).
   const continueReply = () => {
     setAtBottom(true);
@@ -530,11 +567,29 @@ export default function ThreadPage() {
                 onOpen={toggleInspector}
               />
             }
-            controls={<ModeControl value={mode} onChange={setMode} />}
+            controls={
+              <>
+                <ModeControl value={mode} onChange={setMode} />
+                {inspector?.effort && (
+                  <EffortControl
+                    value={pendingEffort ?? inspector.effort}
+                    pending={pendingEffort !== null}
+                    perMessage={inspector.perMessageEffort}
+                    onChange={(level) => void changeEffort(level)}
+                  />
+                )}
+              </>
+            }
             onSend={async (text) => {
               setAtBottom(true);
               try {
-                await send({ threadId, content: text, mode });
+                await send({
+                  threadId,
+                  content: text,
+                  mode,
+                  effort: pendingEffort ?? undefined,
+                });
+                setPendingEffort(null);
               } catch (err) {
                 throw new Error(
                   err instanceof ConvexError

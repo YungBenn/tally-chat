@@ -19,7 +19,8 @@ import {
   outputModeValidator,
   type OutputMode,
 } from "./lib/outputModes";
-import { DEFAULT_EFFORT, effortValidator } from "./lib/effort";
+import { supportsPerMessageEffort } from "./lib/anthropic";
+import { DEFAULT_EFFORT, effortValidator, type Effort } from "./lib/effort";
 import { meterCall } from "./lib/metering";
 import {
   appendChunk,
@@ -225,7 +226,9 @@ async function appendUserMessage(
   thread: Doc<"threads">,
   parent: Doc<"messages"> | null,
   text: string,
+  effort?: Effort, // a per-message effort change, made on this message and never changed after
 ) {
+  if (effort) await assertPerMessageEffort(ctx, thread);
   const id = await ctx.db.insert("messages", {
     ownerId: thread.ownerId,
     threadId: thread._id,
@@ -235,6 +238,7 @@ async function appendUserMessage(
     pinned: false,
     content: text,
     status: "done",
+    effort,
   });
   return (await ctx.db.get("messages", id))!;
 }
@@ -248,6 +252,37 @@ export const effortFor = (
   provider?.apiStyle === "anthropic"
     ? (thread.effort ?? DEFAULT_EFFORT)
     : undefined;
+
+// The effort in force for a reply to `user`: the latest per-message change on its branch, else
+// the thread's level (spec phase 4).
+async function effortInForce(
+  ctx: QueryCtx,
+  thread: Doc<"threads">,
+  user: Doc<"messages">,
+) {
+  const base = effortFor(
+    thread,
+    await ctx.db.get("providers", thread.providerId),
+  );
+  if (!base) return undefined;
+  if (user.effort) return user.effort;
+  const ancestors = await Promise.all(
+    user.ancestorIds.map((id) => ctx.db.get("messages", id)),
+  );
+  return (
+    ancestors.findLast((m) => m?.role === "user" && m.effort)?.effort ?? base
+  );
+}
+
+async function assertPerMessageEffort(ctx: QueryCtx, thread: Doc<"threads">) {
+  const provider = await ctx.db.get("providers", thread.providerId);
+  if (
+    provider?.apiStyle !== "anthropic" ||
+    !supportsPerMessageEffort(thread.modelId)
+  ) {
+    throw new ConvexError("This model can't change effort per message");
+  }
+}
 
 // A new streaming reply under `user`, made the active leaf, with generation scheduled.
 // Send, retry and edit all start their reply here, so the soft budget is enforced once.
@@ -271,7 +306,7 @@ async function startReply(
     model: thread.modelId,
     providerId: thread.providerId,
     outputMode,
-    effort: effortFor(thread, await ctx.db.get("providers", thread.providerId)),
+    effort: await effortInForce(ctx, thread, user),
   });
   // ponytail: first message as title until side-job titles land (ticket 11).
   const title = thread.activeLeafId ? thread.title : user.content.slice(0, 60);
@@ -300,9 +335,10 @@ export const send = mutation({
     threadId: v.id("threads"),
     content: v.string(),
     mode: v.optional(outputModeValidator),
+    effort: v.optional(effortValidator), // change effort from this message on (supported models)
   },
   returns: v.null(),
-  handler: async (ctx, { threadId, content, mode }) => {
+  handler: async (ctx, { threadId, content, mode, effort }) => {
     const ownerId = await requireOwner(ctx);
     const thread = await ownedThread(ctx, ownerId, threadId);
     const text = cleanText(content);
@@ -313,7 +349,7 @@ export const send = mutation({
     await startReply(
       ctx,
       thread,
-      await appendUserMessage(ctx, thread, parent, text),
+      await appendUserMessage(ctx, thread, parent, text, effort),
       mode,
     );
     return null;
@@ -347,9 +383,10 @@ export const edit = mutation({
     messageId: v.id("messages"),
     content: v.string(),
     mode: v.optional(outputModeValidator),
+    effort: v.optional(effortValidator),
   },
   returns: v.null(),
-  handler: async (ctx, { messageId, content, mode }) => {
+  handler: async (ctx, { messageId, content, mode, effort }) => {
     const ownerId = await requireOwner(ctx);
     const original = await ownedMessage(ctx, ownerId, messageId);
     if (original.role !== "user")
@@ -363,7 +400,14 @@ export const edit = mutation({
     await startReply(
       ctx,
       thread,
-      await appendUserMessage(ctx, thread, parent, text),
+      // The edited version keeps the original's effort change unless a new one is given.
+      await appendUserMessage(
+        ctx,
+        thread,
+        parent,
+        text,
+        effort ?? original.effort,
+      ),
       mode,
     );
     return null;
@@ -389,6 +433,26 @@ export const switchBranch = mutation({
       leaf = child;
     }
     await ctx.db.patch("threads", leaf.threadId, { activeLeafId: leaf._id });
+    return null;
+  },
+});
+
+// Changes a thread's effort level for every request from now on. This changes the top-level
+// request, so the history is written to the cache again; the composer uses it only for models
+// without per-message effort, after a cache-break hint (spec phase 4).
+export const setThreadEffort = mutation({
+  args: { threadId: v.id("threads"), effort: effortValidator },
+  returns: v.null(),
+  handler: async (ctx, { threadId, effort }) => {
+    const ownerId = await requireOwner(ctx);
+    const thread = await ownedThread(ctx, ownerId, threadId);
+    if (
+      (await ctx.db.get("providers", thread.providerId))?.apiStyle !==
+      "anthropic"
+    ) {
+      throw new ConvexError("This provider has no effort setting");
+    }
+    await ctx.db.patch("threads", threadId, { effort });
     return null;
   },
 });
@@ -543,6 +607,7 @@ export const generationInput = internalQuery({
         v.object({
           role: v.union(v.literal("user"), v.literal("assistant")),
           content: v.string(),
+          effort: v.optional(effortValidator),
         }),
       ),
       layerEnd: v.number(),

@@ -86,6 +86,7 @@ export const input = internalQuery({
         v.object({
           role: v.union(v.literal("user"), v.literal("assistant")),
           content: v.string(),
+          effort: v.optional(effortValidator),
         }),
       ),
       layerEnd: v.number(),

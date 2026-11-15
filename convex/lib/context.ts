@@ -16,10 +16,14 @@ export async function assembleHistory(
   ctx: QueryCtx,
   threadId: Id<"threads">,
   branchIds: Id<"messages">[],
-): Promise<{ messages: ChatMessage[]; layerEnd: number; checkpoint: Doc<"checkpoints"> | null }> {
-  const branch = (await Promise.all(branchIds.map((id) => ctx.db.get("messages", id)))).filter(
-    (m): m is Doc<"messages"> => m !== null,
-  );
+): Promise<{
+  messages: ChatMessage[];
+  layerEnd: number;
+  checkpoint: Doc<"checkpoints"> | null;
+}> {
+  const branch = (
+    await Promise.all(branchIds.map((id) => ctx.db.get("messages", id)))
+  ).filter((m): m is Doc<"messages"> => m !== null);
   const position = new Map(branch.map((m, i) => [m._id, i]));
   // ponytail: reads up to 100 checkpoints per thread; a condenser that rolls them keeps it far below that.
   const onBranch = (
@@ -30,15 +34,26 @@ export async function assembleHistory(
   ).filter((c) => position.has(c.coversUpToId));
   // Checkpoints roll, so the one covering the most of this branch is the latest. A fork made
   // before a checkpoint doesn't contain its coversUpToId, so it never sees it.
-  const latest = onBranch.sort((a, b) => position.get(b.coversUpToId)! - position.get(a.coversUpToId)!)[0];
+  const latest = onBranch.sort(
+    (a, b) => position.get(b.coversUpToId)! - position.get(a.coversUpToId)!,
+  )[0];
 
-  const toChat = (m: Doc<"messages">): ChatMessage => ({ role: m.role, content: m.content });
-  const verbatim = (ms: Doc<"messages">[]) => ms.filter((m) => m.content !== "").map(toChat);
-  if (!latest) return { messages: verbatim(branch), layerEnd: 0, checkpoint: null };
+  const toChat = (m: Doc<"messages">): ChatMessage =>
+    m.role === "user" && m.effort
+      ? { role: m.role, content: m.content, effort: m.effort }
+      : { role: m.role, content: m.content };
+  const verbatim = (ms: Doc<"messages">[]) =>
+    ms.filter((m) => m.content !== "").map(toChat);
+  if (!latest)
+    return { messages: verbatim(branch), layerEnd: 0, checkpoint: null };
   const cut = position.get(latest.coversUpToId)! + 1;
   const layer: ChatMessage[] = [
     { role: "user", content: SUMMARY_PREFIX + latest.summary },
     ...verbatim(branch.slice(0, cut).filter((m) => m.pinned)),
   ];
-  return { messages: [...layer, ...verbatim(branch.slice(cut))], layerEnd: layer.length, checkpoint: latest };
+  return {
+    messages: [...layer, ...verbatim(branch.slice(cut))],
+    layerEnd: layer.length,
+    checkpoint: latest,
+  };
 }

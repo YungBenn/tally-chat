@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { query, type QueryCtx } from "./_generated/server";
 import { activeBranch, effortFor } from "./chat";
+import { supportsPerMessageEffort } from "./lib/anthropic";
 import { effortValidator } from "./lib/effort";
 import { cacheExpiresAt, cacheTtlValidator } from "./lib/cacheStatus";
 import { assembleHistory } from "./lib/context";
@@ -104,6 +105,7 @@ export const get = query({
         lastReadTokens: v.union(v.null(), v.number()), // the latest reply's reported cache read
       }),
       effort: v.union(v.null(), effortValidator), // what the next send uses; null outside Anthropic style
+      perMessageEffort: v.boolean(), // effort can change per message without breaking the cache
       layers: v.array(layerValidator),
       next: v.object({
         prefixTokens: v.number(), // everything the next send repeats before the new message
@@ -154,7 +156,14 @@ export const get = query({
         ttl,
         lastReadTokens: replies.at(-1)?.usage?.cacheReadTokens ?? null,
       },
-      effort: effortFor(thread, provider) ?? null,
+      // The level in force for the next send: the latest per-message change, else the thread's.
+      effort: effortFor(thread, provider)
+        ? (branch.findLast((m) => m.role === "user" && m.effort)?.effort ??
+          effortFor(thread, provider)!)
+        : null,
+      perMessageEffort:
+        provider?.apiStyle === "anthropic" &&
+        supportsPerMessageEffort(thread.modelId),
       layers,
       next: {
         prefixTokens: layers.reduce((sum, l) => sum + l.tokens, 0),

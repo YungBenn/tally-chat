@@ -48,7 +48,40 @@ export async function fetchAnthropicModels(
   };
 }
 
-export type ChatMessage = { role: "user" | "assistant"; content: string };
+// effort: a per-message effort change made on this user message (spec phase 4), which the
+// Anthropic body emits as a beta effort-only system message right after it.
+export type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+  effort?: Effort;
+};
+
+const PER_MESSAGE_EFFORT_BETA = "mid-conversation-output-config-2026-07-01";
+// Models that accept per-message effort (Claude API reference, Nov 2026; Fable 5 itself doesn't).
+// ponytail: a list in code; read it from the Models API once it exposes the capability.
+const PER_MESSAGE_EFFORT_MODELS = new Set([
+  "claude-fable-5-1",
+  "claude-fable-5-2",
+  "claude-mythos-5-1",
+  "claude-mythos-5-2",
+  "claude-opus-5",
+  "claude-opus-5-5",
+  "claude-sonnet-5-5",
+  "claude-haiku-5-5",
+]);
+// Proxies prefix ids ("cc/claude-sonnet-5-5"); the model is the last segment.
+export const supportsPerMessageEffort = (model: string) =>
+  PER_MESSAGE_EFFORT_MODELS.has(model.split("/").at(-1) ?? model);
+
+// Request headers: the per-message effort beta only when a request carries such a message.
+const requestHeaders = (apiKey: string, messages: ChatMessage[]) => ({
+  "x-api-key": apiKey,
+  "anthropic-version": "2023-06-01",
+  "content-type": "application/json",
+  ...(messages.some((m) => m.effort)
+    ? { "anthropic-beta": PER_MESSAGE_EFFORT_BETA }
+    : {}),
+});
 
 // Where a request's cache breakpoints go (spec phase 2, "Request layout"). Every breakpoint
 // shares one TTL, so the longer-before-shorter rule can never be broken.
@@ -83,16 +116,25 @@ export function messagesBody(req: MessagesRequest, stream: boolean) {
     system: cc
       ? [{ type: "text" as const, text: req.system, cache_control: cc }]
       : req.system,
-    messages: req.messages.map((m, i) =>
-      marked.has(i)
-        ? {
-            role: m.role,
-            content: [
-              { type: "text" as const, text: m.content, cache_control: cc },
-            ],
-          }
-        : m,
-    ),
+    // Breakpoint indices count the branch's messages; effort messages are inserted after them.
+    messages: req.messages.flatMap((m, i) => {
+      const message = {
+        role: m.role,
+        content: marked.has(i)
+          ? [{ type: "text" as const, text: m.content, cache_control: cc }]
+          : m.content,
+      };
+      return m.effort
+        ? [
+            message,
+            {
+              role: "system" as const,
+              content: [] as never[],
+              output_config: { effort: m.effort },
+            },
+          ]
+        : [message];
+    }),
     ...(cc ? { cache_control: cc } : {}),
     stream,
   };
@@ -116,11 +158,7 @@ export async function* streamAnthropicMessage(
     {
       method: "POST",
       signal,
-      headers: {
-        "x-api-key": req.apiKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
+      headers: requestHeaders(req.apiKey, req.messages),
       body: JSON.stringify(messagesBody(req, true)),
     },
     guard,
@@ -209,11 +247,7 @@ export async function sendAnthropicKeepalive(
     `${req.baseUrl}/v1/messages`,
     {
       method: "POST",
-      headers: {
-        "x-api-key": req.apiKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
+      headers: requestHeaders(req.apiKey, messages),
       body: JSON.stringify(
         messagesBody({ ...req, messages, cache, maxTokens: 0 }, false),
       ),
