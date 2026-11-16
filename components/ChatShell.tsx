@@ -60,7 +60,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
 
 /**
  * One thread in the sidebar (design system: ThreadItem). The active one gets a subtle holo edge.
- * Its menu pins, renames (in place) or deletes it.
+ * Its menu (the ⋯ button, or a right-click) pins, renames (in place) or deletes it.
  */
 function ThreadItem({
   id,
@@ -81,6 +81,7 @@ function ThreadItem({
   const deleteThread = useMutation(api.chat.deleteThread);
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const fail = (title: string) => (err: unknown) =>
     toast({ title, body: err instanceof ConvexError ? String(err.data) : undefined, tone: "danger" });
 
@@ -96,6 +97,12 @@ function ThreadItem({
       data-active={active ? "true" : undefined}
       data-editing={editing ? "true" : undefined}
       className={cn("tc-thread", active && "holo-border holo-subtle")}
+      // Right-click opens the same menu as the ⋯ button.
+      onContextMenu={(e) => {
+        if (editing) return;
+        e.preventDefault();
+        setMenuOpen(true);
+      }}
     >
       {editing ? (
         <input
@@ -127,6 +134,8 @@ function ThreadItem({
       {!editing && (
         <Menu
           align="end"
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
           trigger={
             <IconButton
               icon={<IconDots />}
