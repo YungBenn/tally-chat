@@ -42,7 +42,8 @@
 .tc-btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
 .tc-btn-primary.holo-border::before { opacity: calc(0.9 * var(--holo-mul)); }
 .tc-btn-secondary { background: var(--surface-raised); border-color: var(--border); box-shadow: var(--shadow-raised); }
-.tc-btn-secondary:hover:not(:disabled) { background: var(--surface-hover); border-color: var(--border-strong); }
+/* The hover tint over the raised surface, so the button stays opaque wherever it floats. */
+.tc-btn-secondary:hover:not(:disabled) { background: linear-gradient(var(--surface-hover), var(--surface-hover)) var(--surface-raised); border-color: var(--border-strong); }
 .tc-btn-outline { border-color: var(--border-strong); }
 .tc-btn-outline:hover:not(:disabled) { background: var(--surface-hover); }
 .tc-btn-ghost { color: var(--foreground-muted); }
