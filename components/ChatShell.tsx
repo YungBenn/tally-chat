@@ -3,17 +3,23 @@
 import { useAuthActions } from "@convex-dev/auth/react";
 import {
   IconChartBar,
+  IconDots,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconLogout,
   IconMenu2,
   IconMessagePlus,
+  IconPencil,
+  IconPin,
+  IconPinnedOff,
   IconPlugConnected,
   IconSearch,
   IconSettings,
+  IconTrash,
   IconX,
 } from "@tabler/icons-react";
 import { useConvex, useMutation, useQuery } from "convex/react";
+import { ConvexError } from "convex/values";
 import type { FunctionReturnType } from "convex/server";
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
@@ -22,8 +28,10 @@ import BrandMark from "@/components/BrandMark";
 import BudgetMeter from "@/components/BudgetMeter";
 import { Button, IconButton } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/feedback";
-import { Sheet } from "@/components/ui/overlay";
+import { Dialog, Menu, MenuItem, MenuSeparator, Sheet } from "@/components/ui/overlay";
+import { toast } from "@/components/ui/toast";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { SHORTCUTS } from "@/lib/shortcuts";
 import { useMedia, NARROW } from "@/lib/useMedia";
 import { useShortcut, useShortcutLabel } from "@/lib/useShortcut";
@@ -50,28 +58,126 @@ function Highlight({ text, query }: { text: string; query: string }) {
   );
 }
 
-/** One thread in the sidebar (design system: ThreadItem). The active one gets a subtle holo edge. */
+/**
+ * One thread in the sidebar (design system: ThreadItem). The active one gets a subtle holo edge.
+ * Its menu pins, renames (in place) or deletes it.
+ */
 function ThreadItem({
-  href,
+  id,
   title,
+  pinned,
   active,
   onNavigate,
 }: {
-  href: string;
+  id: Id<"threads">;
   title: string;
+  pinned: boolean;
   active: boolean;
   onNavigate?: () => void;
 }) {
+  const router = useRouter();
+  const rename = useMutation(api.chat.renameThread);
+  const setPinned = useMutation(api.chat.setThreadPinned);
+  const deleteThread = useMutation(api.chat.deleteThread);
+  const [editing, setEditing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const fail = (title: string) => (err: unknown) =>
+    toast({ title, body: err instanceof ConvexError ? String(err.data) : undefined, tone: "danger" });
+
+  const save = (value: string) => {
+    setEditing(false);
+    const name = value.replace(/\s+/g, " ").trim();
+    if (name && name !== title)
+      void rename({ threadId: id, title: name }).catch(fail("Could not rename the thread"));
+  };
+
   return (
-    <Link
-      href={href}
-      onClick={onNavigate}
-      aria-current={active ? "page" : undefined}
+    <div
       data-active={active ? "true" : undefined}
+      data-editing={editing ? "true" : undefined}
       className={cn("tc-thread", active && "holo-border holo-subtle")}
     >
-      <span className="tc-thread-title">{title}</span>
-    </Link>
+      {editing ? (
+        <input
+          className="tc-thread-input"
+          aria-label="Thread name"
+          defaultValue={title}
+          maxLength={200}
+          autoFocus
+          onFocus={(e) => e.currentTarget.select()}
+          onBlur={(e) => save(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+            if (e.key === "Escape") {
+              e.stopPropagation();
+              setEditing(false);
+            }
+          }}
+        />
+      ) : (
+        <Link
+          href={`/t/${id}`}
+          onClick={onNavigate}
+          aria-current={active ? "page" : undefined}
+          className="tc-thread-link"
+        >
+          <span className="tc-thread-title">{title}</span>
+        </Link>
+      )}
+      {!editing && (
+        <Menu
+          align="end"
+          trigger={
+            <IconButton
+              icon={<IconDots />}
+              label="Thread actions"
+              size="sm"
+              className="tc-thread-menu"
+            />
+          }
+        >
+          <MenuItem
+            icon={pinned ? <IconPinnedOff size={16} stroke={1.5} /> : <IconPin size={16} stroke={1.5} />}
+            onClick={() =>
+              void setPinned({ threadId: id, pinned: !pinned }).catch(fail("Could not pin the thread"))
+            }
+          >
+            {pinned ? "Unpin" : "Pin"}
+          </MenuItem>
+          <MenuItem icon={<IconPencil size={16} stroke={1.5} />} onClick={() => setEditing(true)}>
+            Rename
+          </MenuItem>
+          <MenuSeparator />
+          <MenuItem danger icon={<IconTrash size={16} stroke={1.5} />} onClick={() => setConfirmDelete(true)}>
+            Delete
+          </MenuItem>
+        </Menu>
+      )}
+      <Dialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        tone="danger"
+        icon={<IconTrash size={18} stroke={1.5} />}
+        title="Delete this thread?"
+        description="Its messages are removed for good. Your spend history keeps its cost."
+        actions={
+          <>
+            <Button onClick={() => setConfirmDelete(false)}>Cancel</Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                setConfirmDelete(false);
+                // Leave first, so the open thread's page never queries a thread that no longer exists.
+                if (active) router.push("/");
+                void deleteThread({ threadId: id }).catch(fail("Could not delete the thread"));
+              }}
+            >
+              Delete thread
+            </Button>
+          </>
+        }
+      />
+    </div>
   );
 }
 
@@ -121,11 +227,15 @@ function Sidebar({
   }, [convex, query]);
   // The last answer stays up while the next is on its way, so typing doesn't flash the list.
   const results = query ? found?.result : undefined;
+  const pinned = threads?.filter((t) => t.pinned) ?? [];
   const groups = query
     ? results?.titles.length
       ? [{ label: "Threads", threads: results.titles }]
       : []
-    : groupThreads(threads ?? []);
+    : [
+        ...(pinned.length ? [{ label: "Pinned", threads: pinned }] : []),
+        ...groupThreads(threads?.filter((t) => !t.pinned) ?? []),
+      ];
   const path = usePathname();
   const router = useRouter();
   const { signOut } = useAuthActions();
@@ -197,13 +307,17 @@ function Sidebar({
       </div>
       <nav aria-label="Threads" className="min-h-0 flex-1 overflow-y-auto pb-2">
         {groups.map((g) => (
-          <section key={g.label}>
+          <section
+            key={g.label}
+            className={cn(g.label === "Pinned" && !query && "tc-sidebar-pinned")}
+          >
             <h2 className="tc-sidebar-cap">{g.label}</h2>
             {g.threads.map((t) => (
               <ThreadItem
                 key={t._id}
-                href={`/t/${t._id}`}
+                id={t._id}
                 title={t.title}
+                pinned={t.pinned}
                 active={t._id === threadId}
                 onNavigate={onNavigate}
               />
