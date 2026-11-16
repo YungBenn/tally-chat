@@ -124,12 +124,14 @@ export default function CostStrip({
   threadId,
   draft,
   draftImages,
+  draftDocTokens = 0,
   mode,
   onOpen,
 }: {
   threadId: Id<"threads">;
   draft: string;
   draftImages?: { width: number; height: number }[];
+  draftDocTokens?: number; // attached documents' text
   mode: OutputMode;
   onOpen: () => void;
 }) {
@@ -143,7 +145,7 @@ export default function CostStrip({
     prices: next.prices,
     history: !cache.managed ? "provider" : temp === "cold" ? "cold" : "warm",
     prefixTokens: next.prefixTokens,
-    draftTokens: estimateTokens(settled) + imagesTokens(draftImages) + (search ? SEARCH_TOKENS_ESTIMATE : 0),
+    draftTokens: estimateTokens(settled) + imagesTokens(draftImages) + draftDocTokens + (search ? SEARCH_TOKENS_ESTIMATE : 0),
     // A reply can't run past the chosen mode's limit.
     expectedOutputTokens:
       next.expectedOutputTokens === null ? null : Math.min(next.expectedOutputTokens, MODE_MAX_TOKENS[mode]),
@@ -157,11 +159,13 @@ export function NewThreadCostStrip({
   modelId,
   draft,
   draftImages,
+  draftDocTokens = 0,
 }: {
   providerId: Id<"providers">;
   modelId: string;
   draft: string;
   draftImages?: { width: number; height: number }[];
+  draftDocTokens?: number; // attached documents' text
 }) {
   const data = useQuery(api.inspector.newThread, { providerId, modelId });
   const settled = useDebounced(draft);
@@ -172,7 +176,7 @@ export function NewThreadCostStrip({
     history: "cold",
     prefixTokens: 0,
     draftTokens:
-      data.systemTokens + estimateTokens(settled) + imagesTokens(draftImages) + (search ? SEARCH_TOKENS_ESTIMATE : 0),
+      data.systemTokens + estimateTokens(settled) + imagesTokens(draftImages) + draftDocTokens + (search ? SEARCH_TOKENS_ESTIMATE : 0),
     expectedOutputTokens: null,
   });
   return <Strip cost={cost} cache={<span>new thread</span>} />;

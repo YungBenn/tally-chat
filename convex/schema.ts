@@ -7,6 +7,7 @@ import { imageValidator } from "./lib/images";
 import { outputModeValidator } from "./lib/outputModes";
 import { usageValidator } from "./lib/usage";
 import { searchResultValidator } from "./lib/webSearch";
+import { documentRefValidator } from "./lib/documents";
 
 export const importSourceValidator = v.union(
   v.literal("chatgpt"),
@@ -105,6 +106,7 @@ export default defineSchema({
     effort: v.optional(effortValidator), // user: a per-message change made here; replies: the level they ran at
     images: v.optional(v.array(imageValidator)), // user messages: images sent with it, fixed at creation
     search: v.optional(v.boolean()), // user messages: searched the web before the reply (see searches)
+    documents: v.optional(v.array(documentRefValidator)), // user messages: documents sent with it
   })
     .index("by_thread_parent", ["threadId", "parentId"])
     .index("by_status", ["status"])
@@ -114,6 +116,15 @@ export default defineSchema({
       searchField: "content",
       filterFields: ["ownerId"],
     }),
+  // A document's extracted text (lib/documents). threadId is set when a message first sends it;
+  // until then it is a composer attachment, swept after a day.
+  documents: defineTable({
+    ownerId: v.id("users"),
+    threadId: v.optional(v.id("threads")),
+    name: v.string(),
+    text: v.string(),
+    tokens: v.number(),
+  }).index("by_threadId", ["threadId"]),
   // The web search run for a user message (lib/webSearch), written once before its first reply.
   searches: defineTable({
     ownerId: v.id("users"),

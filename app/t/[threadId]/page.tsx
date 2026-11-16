@@ -11,6 +11,7 @@ import {
   IconArrowsExchange,
   IconTrash,
   IconDownload,
+  IconFileText,
 } from "@tabler/icons-react";
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
@@ -113,8 +114,10 @@ function UserMessage({
   highlighted,
   editRequest,
   search,
+  documents,
 }: {
   search?: React.ComponentProps<typeof SearchSources>["search"];
+  documents?: { name: string; tokens: number }[];
   editRequest: number | null; // bumped when ↑ in an empty composer asks to edit this message
   mode: OutputMode;
   highlighted: boolean;
@@ -202,6 +205,21 @@ function UserMessage({
             <div className="flex flex-wrap justify-end gap-2">
               {images.map((image, i) => (
                 <ImageThumb key={i} index={i} {...image} />
+              ))}
+            </div>
+          )}
+          {documents && documents.length > 0 && (
+            <div className="flex flex-wrap justify-end gap-2">
+              {documents.map((d, i) => (
+                <span key={i} className="tc-attach">
+                  <span className="tc-attach-thumb">
+                    <IconFileText size={16} stroke={1.5} />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block max-w-48 truncate">{d.name}</span>
+                    <small>~{tokens(d.tokens)} tok</small>
+                  </span>
+                </span>
               ))}
             </div>
           )}
@@ -333,6 +351,7 @@ export default function ThreadPage() {
   );
   const [draft, setDraft] = useState("");
   const [draftImages, setDraftImages] = useState<MessageImage[]>([]);
+  const [draftDocTokens, setDraftDocTokens] = useState(0);
   const [mode, setMode] = useStoredChoice<OutputMode>(
     `tally.mode.${threadId}`,
     "normal",
@@ -540,6 +559,7 @@ export default function ThreadPage() {
         highlighted={highlighted === m._id}
         editRequest={editTarget?.id === m._id ? editTarget.n : null}
         search={m.search}
+        documents={m.documents}
       />
     ) : (
       <article
@@ -778,6 +798,7 @@ export default function ThreadPage() {
                 threadId={threadId}
                 draft={draft}
                 draftImages={draftImages}
+                draftDocTokens={draftDocTokens}
                 mode={mode}
                 onOpen={toggleInspector}
               />
@@ -792,6 +813,7 @@ export default function ThreadPage() {
                     draftTokens={
                       estimateTokens(draft) +
                       draftImages.reduce((sum, i) => sum + imageTokens(i), 0) +
+                      draftDocTokens +
                       (webSearch.on ? SEARCH_TOKENS_ESTIMATE : 0)
                     }
                     maxOutputTokens={MODE_MAX_TOKENS[mode]}
@@ -826,6 +848,7 @@ export default function ThreadPage() {
             }
             canAttach={thread?.vision ?? false}
             onImagesChange={setDraftImages}
+            onDocumentsChange={setDraftDocTokens}
             attachNote={
               // The first image in a thread with history (spec phase 4). Wording provisional
               // until the real-API session (phase 2 ticket 06) confirms the cache effect.
@@ -835,7 +858,7 @@ export default function ThreadPage() {
                 ? "First image in this thread: the provider may write the history to the cache again."
                 : undefined
             }
-            onSend={async (text, images) => {
+            onSend={async (text, images, documents) => {
               setAtBottom(true);
               try {
                 await send({
@@ -847,6 +870,7 @@ export default function ThreadPage() {
                   images: images.length ? images : undefined,
                   model: oneOff ?? undefined,
                   search: webSearch.on || undefined,
+                  documents: documents.length ? documents : undefined,
                 });
                 if (oneOff) setReplyWith(null);
                 else setPendingEffort(null);
@@ -864,6 +888,7 @@ export default function ThreadPage() {
           threadId={threadId}
           draft={draft}
           draftImages={draftImages}
+          draftDocTokens={draftDocTokens}
           open={inspectorShown}
           compact={compact}
           onClose={() => (compact ? setSheetOpen(false) : setInspectorOpen(false))}

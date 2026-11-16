@@ -272,12 +272,14 @@ function InspectorBody({
   threadId,
   draft,
   draftImages,
+  draftDocTokens = 0,
   selected,
   setSelected,
 }: {
   threadId: Id<"threads">;
   draft: string;
   draftImages?: { width: number; height: number }[];
+  draftDocTokens?: number;
   selected: number | null; // held by Inspector, so it survives the column/sheet switch
   setSelected: (i: number) => void;
 }) {
@@ -299,6 +301,7 @@ function InspectorBody({
   const draftTokens =
     estimateTokens(draft) +
     (draftImages ?? []).reduce((sum, i) => sum + imageTokens(i), 0) +
+    draftDocTokens +
     (search ? SEARCH_TOKENS_ESTIMATE : 0);
   const rows: Layer[] = [
     ...layers.map((l) => ({
@@ -417,6 +420,7 @@ export default function Inspector({
   threadId,
   draft,
   draftImages,
+  draftDocTokens = 0,
   open,
   compact,
   onClose,
@@ -425,6 +429,7 @@ export default function Inspector({
   threadId: Id<"threads">;
   draft: string;
   draftImages?: { width: number; height: number }[];
+  draftDocTokens?: number;
   open: boolean;
   compact: boolean;
   onClose: () => void;
@@ -436,6 +441,7 @@ export default function Inspector({
       threadId={threadId}
       draft={draft}
       draftImages={draftImages}
+      draftDocTokens={draftDocTokens}
       selected={selected}
       setSelected={setSelected}
     />

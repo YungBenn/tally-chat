@@ -38,10 +38,12 @@ const estimateMessage = (m: {
   content: string;
   images?: { width: number; height: number }[];
   search?: boolean;
+  documents?: { tokens: number }[];
 }) =>
   estimateTokens(m.content) +
   (m.images ?? []).reduce((sum, i) => sum + imageTokens(i), 0) +
-  (m.search ? SEARCH_TOKENS_ESTIMATE : 0);
+  (m.search ? SEARCH_TOKENS_ESTIMATE : 0) +
+  (m.documents ?? []).reduce((sum, d) => sum + d.tokens, 0);
 const totalInput = (u: Usage) =>
   u.inputTokens +
   u.cacheReadTokens +

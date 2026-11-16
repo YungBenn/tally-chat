@@ -36,12 +36,14 @@ function StartCheaper({
   modelId,
   draft,
   imageCount,
+  withDocuments,
   onSwitch,
 }: {
   providerId: Id<"providers">;
   modelId: string;
   draft: string;
   imageCount: number;
+  withDocuments: boolean; // reading documents is never "simple"
   onSwitch: (modelId: string) => void;
 }) {
   const data = useQuery(api.inspector.newThread, { providerId, modelId });
@@ -54,6 +56,7 @@ function StartCheaper({
     !data ||
     !cheapest ||
     cheapest.modelId === modelId ||
+    withDocuments ||
     !looksSimple(draft, imageCount) ||
     !worthSuggesting(data.prices, cheapest.prices)
   )
@@ -163,6 +166,7 @@ export default function NewThread() {
   const paused = useSendingPaused();
   const [draft, setDraft] = useState("");
   const [draftImages, setDraftImages] = useState<MessageImage[]>([]);
+  const [draftDocTokens, setDraftDocTokens] = useState(0);
   const [mode, setMode] = useState<OutputMode>("normal");
   const [effort, setEffort] = useState<Effort>(DEFAULT_EFFORT);
   const selected = choice ?? options[0]?.value;
@@ -235,6 +239,7 @@ export default function NewThread() {
                     modelId={selected.split("|")[1]}
                     draft={draft}
                     imageCount={draftImages.length}
+                    withDocuments={draftDocTokens > 0}
                     onSwitch={(modelId) =>
                       setChoice(`${selected.split("|")[0]}|${modelId}`)
                     }
@@ -249,12 +254,14 @@ export default function NewThread() {
                   modelId={selected.split("|")[1]}
                   draft={draft}
                   draftImages={draftImages}
+                  draftDocTokens={draftDocTokens}
                 />
               )
             }
             canAttach={vision}
             onImagesChange={setDraftImages}
-            onSend={async (text, images) => {
+            onDocumentsChange={setDraftDocTokens}
+            onSend={async (text, images, documents) => {
               if (!selected) return;
               const [providerId, modelId] = selected.split("|");
               try {
@@ -269,6 +276,7 @@ export default function NewThread() {
                   mode,
                   images: images.length ? images : undefined,
                   search: webSearch.on || undefined,
+                  documents: documents.length ? documents : undefined,
                 });
                 router.push(`/t/${threadId}`);
               } catch (err) {

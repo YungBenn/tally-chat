@@ -1,11 +1,14 @@
 "use client";
 
-import { IconArrowUp, IconPaperclip, IconPlayerStopFilled, IconX } from "@tabler/icons-react";
-import { useMutation } from "convex/react";
+import { IconArrowUp, IconFileText, IconPaperclip, IconPlayerStopFilled, IconX } from "@tabler/icons-react";
+import { useAction, useMutation } from "convex/react";
+import { ConvexError } from "convex/values";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button, IconButton } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/feedback";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+import { DOCUMENT_ACCEPT, MAX_DOCUMENTS_PER_MESSAGE } from "@/convex/lib/documents";
 import { MAX_IMAGES_PER_MESSAGE, imageTokens, type MessageImage } from "@/convex/lib/images";
 import { tokens } from "@/lib/format";
 import { ACCEPT_ATTRIBUTE, prepareAndUpload } from "@/lib/imageUpload";
@@ -29,15 +32,17 @@ export default function Composer({
   controls,
   canAttach = false,
   onImagesChange,
+  onDocumentsChange,
   attachNote,
   streaming = false,
   disabled = false,
   paused = false,
   placeholder = "Message tally...",
 }: {
-  onSend: (text: string, images: MessageImage[]) => Promise<unknown>;
-  canAttach?: boolean; // the model accepts images (spec phase 4)
+  onSend: (text: string, images: MessageImage[], documents: Id<"documents">[]) => Promise<unknown>;
+  canAttach?: boolean; // the model accepts images (spec phase 4); documents work with any model
   onImagesChange?: (images: MessageImage[]) => void; // the cost strip prices attached images
+  onDocumentsChange?: (tokens: number) => void; // ...and attached documents' text
   attachNote?: string; // a cache note about the attached images
   onStop?: () => void;
   onType?: () => void;
@@ -54,24 +59,33 @@ export default function Composer({
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [focused, setFocused] = useState(false);
-  // Attached images: a local preview while uploading, the stored image once ready.
+  // Attachments: an image (a local preview while uploading, the stored image once ready) or a
+  // document (its extracted text's id and size once read).
   const [attached, setAttached] = useState<
-    { key: number; name: string; preview: string; image?: MessageImage }[]
+    (
+      | { kind: "image"; key: number; name: string; preview: string; image?: MessageImage }
+      | { kind: "document"; key: number; name: string; doc?: { id: Id<"documents">; tokens: number } }
+    )[]
   >([]);
   const [dragging, setDragging] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const uploadUrl = useMutation(api.chat.generateImageUploadUrl);
-  const uploading = attached.some((a) => !a.image);
-  const ready = attached.flatMap((a) => (a.image ? [a.image] : []));
+  const extract = useAction(api.documentActions.extract);
+  const uploading = attached.some((a) => (a.kind === "image" ? !a.image : !a.doc));
+  const ready = attached.flatMap((a) => (a.kind === "image" && a.image ? [a.image] : []));
+  const readyDocs = attached.flatMap((a) => (a.kind === "document" && a.doc ? [a.doc] : []));
   const off = disabled || paused;
   const attachKbd = useShortcutLabel(SHORTCUTS.attach);
 
   // Tell the page which images are ready (the cost strip prices them) after each change, never
   // from inside a state update.
   useEffect(() => {
-    onImagesChange?.(attached.flatMap((a) => (a.image ? [a.image] : [])));
-  }, [attached, onImagesChange]);
+    onImagesChange?.(attached.flatMap((a) => (a.kind === "image" && a.image ? [a.image] : [])));
+    onDocumentsChange?.(
+      attached.reduce((sum, a) => sum + (a.kind === "document" && a.doc ? a.doc.tokens : 0), 0),
+    );
+  }, [attached, onImagesChange, onDocumentsChange]);
 
   // Grow with the text up to the CSS max-height, then scroll.
   useLayoutEffect(() => {
@@ -82,22 +96,57 @@ export default function Composer({
   }, [text]);
 
   useShortcut(SHORTCUTS.focusComposer, () => box.current?.focus(), !off);
-  useShortcut(SHORTCUTS.attach, () => fileInput.current?.click(), canAttach && !off);
+  useShortcut(SHORTCUTS.attach, () => fileInput.current?.click(), !off);
 
-  async function attach(files: File[]) {
-    if (!canAttach) return;
-    const room = MAX_IMAGES_PER_MESSAGE - attached.length;
-    if (files.length > room) setError(`At most ${MAX_IMAGES_PER_MESSAGE} images per message`);
-    for (const file of files.slice(0, Math.max(0, room))) {
-      const key = Math.random();
-      const preview = URL.createObjectURL(file);
-      setAttached((list) => [...list, { key, name: file.name || "Pasted image", preview }]);
-      try {
-        const image = await prepareAndUpload(file, () => uploadUrl());
-        setAttached((list) => list.map((a) => (a.key === key ? { ...a, image } : a)));
-      } catch (err) {
-        setAttached((list) => list.filter((a) => a.key !== key));
-        setError(err instanceof Error ? err.message : "Could not attach the image");
+  async function attachImage(file: File) {
+    const key = Math.random();
+    const preview = URL.createObjectURL(file);
+    setAttached((list) => [...list, { kind: "image", key, name: file.name || "Pasted image", preview }]);
+    try {
+      const image = await prepareAndUpload(file, () => uploadUrl());
+      setAttached((list) => list.map((a) => (a.key === key ? { ...a, image } : a)));
+    } catch (err) {
+      setAttached((list) => list.filter((a) => a.key !== key));
+      setError(err instanceof Error ? err.message : "Could not attach the image");
+    }
+  }
+
+  // Uploads the file, then the server reads its text once (documents.extract).
+  async function attachDocument(file: File) {
+    const key = Math.random();
+    setAttached((list) => [...list, { kind: "document", key, name: file.name }]);
+    try {
+      const res = await fetch(await uploadUrl(), { method: "POST", body: file });
+      if (!res.ok) throw new Error(`Could not upload ${file.name}`);
+      const { storageId } = (await res.json()) as { storageId: Id<"_storage"> };
+      const doc = await extract({ storageId, name: file.name });
+      setAttached((list) =>
+        list.map((a) => (a.key === key ? { ...a, doc: { id: doc.documentId, tokens: doc.tokens } } : a)),
+      );
+    } catch (err) {
+      setAttached((list) => list.filter((a) => a.key !== key));
+      // A ConvexError says what is wrong with the file; anything else is a server fault.
+      setError(err instanceof ConvexError ? String(err.data) : `Could not read ${file.name}`);
+    }
+  }
+
+  function attach(files: File[]) {
+    setError(null);
+    let images = attached.filter((a) => a.kind === "image").length;
+    let documents = attached.length - images;
+    for (const file of files) {
+      if (file.type.startsWith("image/")) {
+        if (!canAttach) setError("This model can't read images");
+        else if (images >= MAX_IMAGES_PER_MESSAGE) setError(`At most ${MAX_IMAGES_PER_MESSAGE} images per message`);
+        else {
+          images++;
+          void attachImage(file);
+        }
+      } else if (documents >= MAX_DOCUMENTS_PER_MESSAGE) {
+        setError(`At most ${MAX_DOCUMENTS_PER_MESSAGE} documents per message`);
+      } else {
+        documents++;
+        void attachDocument(file);
       }
     }
   }
@@ -106,10 +155,10 @@ export default function Composer({
     if (!text.trim() || streaming || off || uploading) return;
     setError(null);
     try {
-      await onSend(text, ready);
+      await onSend(text, ready, readyDocs.map((d) => d.id));
       setText("");
       onDraftChange?.("");
-      attached.forEach((a) => URL.revokeObjectURL(a.preview));
+      attached.forEach((a) => a.kind === "image" && URL.revokeObjectURL(a.preview));
       setAttached([]);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Could not send";
@@ -133,22 +182,22 @@ export default function Composer({
           if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false);
         }}
         onDragOver={(e) => {
-          if (!canAttach || !e.dataTransfer.types.includes("Files")) return;
+          if (off || !e.dataTransfer.types.includes("Files")) return;
           e.preventDefault();
           setDragging(true);
         }}
         onDragLeave={() => setDragging(false)}
         onDrop={(e) => {
-          if (!canAttach) return;
+          if (off) return;
           e.preventDefault();
           setDragging(false);
-          void attach([...e.dataTransfer.files].filter((f) => f.type.startsWith("image/")));
+          attach([...e.dataTransfer.files]);
         }}
         onPaste={(e) => {
-          const files = [...e.clipboardData.files].filter((f) => f.type.startsWith("image/"));
-          if (!canAttach || files.length === 0) return;
+          const files = [...e.clipboardData.files];
+          if (off || files.length === 0) return;
           e.preventDefault();
-          void attach(files);
+          attach(files);
         }}
       >
         {attached.length > 0 && (
@@ -156,19 +205,25 @@ export default function Composer({
             {attached.map((a) => (
               <span key={a.key} className="tc-attach tc-pop-in">
                 <span className="tc-attach-thumb">
-                  {a.image ? (
+                  {a.kind === "image" && a.image ? (
                     // eslint-disable-next-line @next/next/no-img-element -- a local blob preview
                     <img src={a.preview} alt="" />
+                  ) : a.kind === "document" && a.doc ? (
+                    <IconFileText size={16} stroke={1.5} />
                   ) : (
-                    <Spinner size={14} label="Uploading" />
+                    <Spinner size={14} label={a.kind === "image" ? "Uploading" : "Reading"} />
                   )}
                 </span>
                 <span className="min-w-0">
                   <span className="block max-w-40 truncate">{a.name}</span>
                   <small>
-                    {a.image
-                      ? `${a.image.width}×${a.image.height} · ~${tokens(imageTokens(a.image))} tok`
-                      : "Uploading…"}
+                    {a.kind === "image"
+                      ? a.image
+                        ? `${a.image.width}×${a.image.height} · ~${tokens(imageTokens(a.image))} tok`
+                        : "Uploading…"
+                      : a.doc
+                        ? `~${tokens(a.doc.tokens)} tok`
+                        : "Reading…"}
                   </small>
                 </span>
                 <IconButton
@@ -176,7 +231,7 @@ export default function Composer({
                   label={`Remove ${a.name}`}
                   size="sm"
                   onClick={() => {
-                    URL.revokeObjectURL(a.preview);
+                    if (a.kind === "image") URL.revokeObjectURL(a.preview);
                     setAttached((list) => list.filter((x) => x.key !== a.key));
                   }}
                 />
@@ -213,29 +268,25 @@ export default function Composer({
           }}
         />
         <div className="tc-composer-bar">
-          {canAttach && (
-            <>
-              <IconButton
-                icon={<IconPaperclip />}
-                label="Attach images (or paste or drop them)"
-                kbd={attachKbd}
-                size="sm"
-                disabled={off}
-                onClick={() => fileInput.current?.click()}
-              />
-              <input
-                ref={fileInput}
-                type="file"
-                accept={ACCEPT_ATTRIBUTE}
-                multiple
-                hidden
-                onChange={(e) => {
-                  void attach([...(e.target.files ?? [])]);
-                  e.target.value = "";
-                }}
-              />
-            </>
-          )}
+          <IconButton
+            icon={<IconPaperclip />}
+            label={canAttach ? "Attach images or documents (or paste or drop them)" : "Attach documents (or drop them)"}
+            kbd={attachKbd}
+            size="sm"
+            disabled={off}
+            onClick={() => fileInput.current?.click()}
+          />
+          <input
+            ref={fileInput}
+            type="file"
+            accept={canAttach ? `${ACCEPT_ATTRIBUTE},${DOCUMENT_ACCEPT}` : DOCUMENT_ACCEPT}
+            multiple
+            hidden
+            onChange={(e) => {
+              attach([...(e.target.files ?? [])]);
+              e.target.value = "";
+            }}
+          />
           <div className="tc-composer-controls">{controls}</div>
           <span className="grow" />
           {streaming ? (

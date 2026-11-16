@@ -37,6 +37,10 @@ import {
 import { priceFor, usageValidator } from "./lib/usage";
 import { requireOwner } from "./owner";
 import { importSourceValidator } from "./schema";
+import {
+  MAX_DOCUMENTS_PER_MESSAGE,
+  type DocumentRef,
+} from "./lib/documents";
 
 async function ownedThread(
   ctx: QueryCtx,
@@ -153,6 +157,7 @@ const messageView = v.object({
       }),
     ),
   ),
+  documents: v.optional(v.array(v.object({ name: v.string(), tokens: v.number() }))),
   // User messages that searched the web: pending until the search before the reply finishes.
   search: v.optional(
     v.object({
@@ -252,6 +257,7 @@ export const getThread = query({
             )
           : undefined,
         search: m.search ? await searchView(ctx, m._id) : undefined,
+        documents: m.documents?.map(({ name, tokens }) => ({ name, tokens })),
       })),
     );
     const { checkpoint } = await assembleHistory(
@@ -310,6 +316,31 @@ const searchUrlOf = async (ctx: QueryCtx, ownerId: Id<"users">) =>
       .unique()
   )?.searchUrl;
 
+// Documents a send carries: the owner's, extracted and not yet sent. Sending ties each one to
+// the thread, so deleting the thread removes it and no other thread can send it.
+async function claimDocuments(
+  ctx: MutationCtx,
+  ownerId: Id<"users">,
+  thread: Doc<"threads">,
+  ids: Id<"documents">[],
+): Promise<DocumentRef[]> {
+  if (ids.length > MAX_DOCUMENTS_PER_MESSAGE)
+    throw new ConvexError(
+      `At most ${MAX_DOCUMENTS_PER_MESSAGE} documents per message`,
+    );
+  const refs: DocumentRef[] = [];
+  for (const id of ids) {
+    const doc = await ctx.db.get("documents", id);
+    if (!doc || doc.ownerId !== ownerId)
+      throw new ConvexError("Document not found");
+    if (doc.threadId)
+      throw new ConvexError(`${doc.name} was already sent; attach it again`);
+    await ctx.db.patch("documents", id, { threadId: thread._id });
+    refs.push({ id, name: doc.name, tokens: doc.tokens });
+  }
+  return refs;
+}
+
 async function searchView(ctx: QueryCtx, messageId: Id<"messages">) {
   const search = await ctx.db
     .query("searches")
@@ -332,6 +363,7 @@ async function appendUserMessage(
   images?: MessageImage[],
   replyModel?: ReplyModel, // the model answering it, when not the thread's
   search?: boolean,
+  documents?: DocumentRef[],
 ) {
   if (effort) await assertPerMessageEffort(ctx, thread);
   if (images?.length)
@@ -348,6 +380,7 @@ async function appendUserMessage(
     effort,
     images: images?.length ? images : undefined,
     search: search || undefined,
+    documents: documents?.length ? documents : undefined,
   });
   return (await ctx.db.get("messages", id))!;
 }
@@ -530,11 +563,12 @@ export const send = mutation({
     images: v.optional(v.array(imageValidator)),
     model: v.optional(replyModelValidator), // reply with this model once (spec phase 7)
     search: v.optional(v.boolean()), // search the web for this message before the reply
+    documents: v.optional(v.array(v.id("documents"))), // from documents.extract, sent once
   },
   returns: v.null(),
   handler: async (
     ctx,
-    { threadId, content, mode, effort, images, model, search },
+    { threadId, content, mode, effort, images, model, search, documents },
   ) => {
     const ownerId = await requireOwner(ctx);
     const thread = await ownedThread(ctx, ownerId, threadId);
@@ -546,6 +580,7 @@ export const send = mutation({
       );
     if (search && !(await searchUrlOf(ctx, ownerId)))
       throw new ConvexError("Set a SearXNG URL in Settings to search the web");
+    const docs = await claimDocuments(ctx, ownerId, thread, documents ?? []);
     const parent = thread.activeLeafId
       ? await ctx.db.get("messages", thread.activeLeafId)
       : null;
@@ -561,6 +596,7 @@ export const send = mutation({
         images,
         model,
         search,
+        docs,
       ),
       mode,
       model,
@@ -629,6 +665,7 @@ export const edit = mutation({
         undefined,
         // A searched message searches again for its new text, while search is still set up.
         original.search && !!(await searchUrlOf(ctx, ownerId)),
+        original.documents, // like images, the documents stay
       ),
       mode,
     );
@@ -746,6 +783,13 @@ export const purgeThread = internalMutation({
       if (m.streamId) await deleteStream(ctx, m.streamId);
       for (const image of m.images ?? [])
         await ctx.storage.delete(image.storageId);
+      if (m.search) {
+        const search = await ctx.db
+          .query("searches")
+          .withIndex("by_messageId", (q) => q.eq("messageId", m._id))
+          .unique();
+        if (search) await ctx.db.delete("searches", search._id);
+      }
       await ctx.db.delete("messages", m._id);
     }
     const checkpoints = await ctx.db
@@ -758,8 +802,13 @@ export const purgeThread = internalMutation({
       .withIndex("by_threadId", (q) => q.eq("threadId", threadId))
       .take(PURGE_BATCH);
     for (const j of sideJobs) await ctx.db.delete("sideJobs", j._id);
+    const documents = await ctx.db
+      .query("documents")
+      .withIndex("by_threadId", (q) => q.eq("threadId", threadId))
+      .take(PURGE_BATCH);
+    for (const d of documents) await ctx.db.delete("documents", d._id);
 
-    const more = [messages, checkpoints, sideJobs].some(
+    const more = [messages, checkpoints, sideJobs, documents].some(
       (rows) => rows.length === PURGE_BATCH,
     );
     // A reply that never finishes is closed by sweepStuckReplies, so waiting always ends.
