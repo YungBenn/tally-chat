@@ -36,6 +36,7 @@ import type * as lib_textStream from "../lib/textStream.js";
 import type * as lib_urlGuard from "../lib/urlGuard.js";
 import type * as lib_usage from "../lib/usage.js";
 import type * as lib_vault from "../lib/vault.js";
+import type * as lib_webSearch from "../lib/webSearch.js";
 import type * as migrations from "../migrations.js";
 import type * as owner from "../owner.js";
 import type * as providerActions from "../providerActions.js";
@@ -43,6 +44,7 @@ import type * as providers from "../providers.js";
 import type * as search from "../search.js";
 import type * as settings from "../settings.js";
 import type * as usage from "../usage.js";
+import type * as webSearch from "../webSearch.js";
 
 import type {
   ApiFromModules,
@@ -79,6 +81,7 @@ declare const fullApi: ApiFromModules<{
   "lib/urlGuard": typeof lib_urlGuard;
   "lib/usage": typeof lib_usage;
   "lib/vault": typeof lib_vault;
+  "lib/webSearch": typeof lib_webSearch;
   migrations: typeof migrations;
   owner: typeof owner;
   providerActions: typeof providerActions;
@@ -86,6 +89,7 @@ declare const fullApi: ApiFromModules<{
   search: typeof search;
   settings: typeof settings;
   usage: typeof usage;
+  webSearch: typeof webSearch;
 }>;
 
 /**

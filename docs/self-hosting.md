@@ -83,6 +83,20 @@ On Linux, Ollama and LM Studio listen on `127.0.0.1` by default, and containers 
 
 Use the machine's LAN address in both places, for example allowlist `192.168.1.20:11434` and use the base URL `http://192.168.1.20:11434/v1`. Make sure the server listens on its LAN interface, not only on localhost.
 
+## Web search
+
+Web search runs on SearXNG, a private metasearch engine that needs no API key. tally.chat ships one as an optional service:
+
+```bash
+docker compose --profile search up -d
+```
+
+Then open Settings and set **Web search** to `http://searxng:8080`. The composer gets a **Search** toggle: a message sent with it on is searched first, and the top results (titles, links and short snippets) go to the model with it. The sources show under your message.
+
+SearXNG asks other search engines on your behalf, so they still see your queries, though not who sent them. Engines such as Google sometimes block it for a while; a search then returns fewer or no results.
+
+Already run SearXNG? Point the setting at it instead. Its `settings.yml` must list `json` under `search.formats`, or every search fails with HTTP 403. Naming the URL in Settings trusts its host, so it doesn't need a private host allowlist entry.
+
 ## HTTPS behind a reverse proxy
 
 To use tally.chat from your phone or another machine, put it behind HTTPS. It needs three hostnames: one for the app and two for the backend (its API and its HTTP actions). This example uses Caddy on the same server, which gets certificates from Let's Encrypt automatically:

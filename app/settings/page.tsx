@@ -150,6 +150,39 @@ function CustomInstructions() {
   );
 }
 
+function WebSearch() {
+  const settings = useQuery(api.settings.get);
+  const setSearchUrl = useMutation(api.settings.setSearchUrl);
+  const [error, run] = useSave();
+  if (!settings) return null;
+  const commit = (text: string) => {
+    if (text.trim() !== settings.searchUrl)
+      run(setSearchUrl({ url: text }));
+  };
+  return (
+    <SettingsRow
+      title="Web search"
+      control={
+        <Input
+          key={settings.searchUrl}
+          aria-label="SearXNG URL"
+          mono
+          placeholder="http://searxng:8080"
+          defaultValue={settings.searchUrl}
+          error={error ?? undefined}
+          onBlur={(e) => commit(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && commit(e.currentTarget.value)}
+        />
+      }
+    >
+      Your SearXNG instance. With it set, the composer gets a Search toggle:
+      the message is searched before the reply, and the results are sent with
+      it. Run the bundled one with{" "}
+      <code className="tc-mono">docker compose --profile search up -d</code>.
+    </SettingsRow>
+  );
+}
+
 function SideJobModel() {
   const settings = useQuery(api.settings.get);
   const providers = useQuery(api.providers.list);
@@ -442,6 +475,7 @@ export default function SettingsPage() {
         <div className="tc-page-col max-w-[800px] gap-2!">
           <h1 className="mb-4 text-title">Settings</h1>
           <CustomInstructions />
+          <WebSearch />
           <SideJobModel />
           <Keepalive />
           <Condensing />

@@ -19,6 +19,7 @@ import { streamOpenAICompatible } from "./lib/openaiCompatible";
 import { appendChunk } from "./lib/textStream";
 import type { NormalizedUsage } from "./lib/usage";
 import { decryptSecret } from "./lib/vault";
+import { searchSearxng } from "./lib/webSearch";
 
 const FLUSH_MS = 100;
 // Loads each user message's stored images as base64 for the request (spec phase 4). The stored
@@ -53,6 +54,20 @@ export const generate = internalAction({
   args: { messageId: v.id("messages") },
   returns: v.null(),
   handler: async (ctx, { messageId }) => {
+    // Web search first (lib/webSearch): the reply's request carries the stored results.
+    const search = await ctx.runQuery(internal.webSearch.pending, {
+      replyId: messageId,
+    });
+    if (search)
+      await ctx.runMutation(internal.webSearch.save, {
+        messageId: search.messageId,
+        ...(search.url
+          ? await searchSearxng(search.url, search.query, {
+              allowlist: search.allowlist,
+              resolve: systemResolve,
+            })
+          : { query: search.query, results: [], error: "web search is off" }),
+      });
     const input = await ctx.runQuery(internal.chat.generationInput, {
       messageId,
     });

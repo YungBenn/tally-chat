@@ -25,6 +25,7 @@ import Composer from "@/components/Composer";
 import Inspector from "@/components/Inspector";
 import EffortControl from "@/components/EffortControl";
 import ModeControl from "@/components/ModeControl";
+import { SearchSources, SearchToggle, useWebSearch } from "@/components/WebSearch";
 import ModelMenu, { ModelPickerButton, sameModel, type ModelChoice } from "@/components/ModelMenu";
 import { Button as UiButton, IconButton } from "@/components/ui/button";
 import { Badge, EmptyState, ErrorState } from "@/components/ui/feedback";
@@ -47,6 +48,7 @@ import { useShortcut, useShortcutLabel } from "@/lib/useShortcut";
 import { COMPACT, useMedia } from "@/lib/useMedia";
 import { toast } from "@/components/ui/toast";
 import { imageTokens } from "@/convex/lib/images";
+import { SEARCH_TOKENS_ESTIMATE } from "@/convex/lib/webSearch";
 import type { Effort } from "@/convex/lib/effort";
 import type { MessageImage } from "@/convex/lib/images";
 import {
@@ -110,7 +112,9 @@ function UserMessage({
   mode,
   highlighted,
   editRequest,
+  search,
 }: {
+  search?: React.ComponentProps<typeof SearchSources>["search"];
   editRequest: number | null; // bumped when ↑ in an empty composer asks to edit this message
   mode: OutputMode;
   highlighted: boolean;
@@ -202,6 +206,7 @@ function UserMessage({
             </div>
           )}
           <div className="tc-user-bubble">{text}</div>
+          {search && <SearchSources search={search} />}
           <MessageActions>
             <BranchSwitcher ids={siblingIds} current={id} />
             {breakCost !== null && (
@@ -306,6 +311,7 @@ export default function ThreadPage() {
   const switchBranch = useMutation(api.chat.switchBranch);
   const switchedFor = useRef<Id<"messages"> | null>(null);
   const send = useMutation(api.chat.send);
+  const webSearch = useWebSearch();
   const stop = useMutation(api.chat.stop);
   const retry = useMutation(api.chat.retry);
   const deleteThread = useMutation(api.chat.deleteThread);
@@ -533,6 +539,7 @@ export default function ThreadPage() {
         mode={mode}
         highlighted={highlighted === m._id}
         editRequest={editTarget?.id === m._id ? editTarget.n : null}
+        search={m.search}
       />
     ) : (
       <article
@@ -784,7 +791,8 @@ export default function ThreadPage() {
                     hotkey
                     draftTokens={
                       estimateTokens(draft) +
-                      draftImages.reduce((sum, i) => sum + imageTokens(i), 0)
+                      draftImages.reduce((sum, i) => sum + imageTokens(i), 0) +
+                      (webSearch.on ? SEARCH_TOKENS_ESTIMATE : 0)
                     }
                     maxOutputTokens={MODE_MAX_TOKENS[mode]}
                     selected={oneOff ?? threadModel}
@@ -811,6 +819,9 @@ export default function ThreadPage() {
                   />
                 )}
                 <ModeControl value={mode} onChange={setMode} />
+                {webSearch.available && (
+                  <SearchToggle on={webSearch.on} onChange={webSearch.setOn} />
+                )}
               </>
             }
             canAttach={thread?.vision ?? false}
@@ -835,6 +846,7 @@ export default function ThreadPage() {
                   effort: oneOff ? undefined : (pendingEffort ?? undefined),
                   images: images.length ? images : undefined,
                   model: oneOff ?? undefined,
+                  search: webSearch.on || undefined,
                 });
                 if (oneOff) setReplyWith(null);
                 else setPendingEffort(null);

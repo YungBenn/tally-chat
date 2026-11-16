@@ -1,6 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import type { ChatMessage } from "./anthropic";
+import { searchBlock } from "./webSearch";
 
 // Prefix for the summary message. Changing it changes every request's bytes after the
 // system prompt, so treat it like a system prompt: version it if it ever changes.
@@ -39,11 +40,33 @@ export async function assembleHistory(
     (a, b) => position.get(b.coversUpToId)! - position.get(a.coversUpToId)!,
   )[0];
 
+  // A searched message carries its stored results after its text (lib/webSearch), the same
+  // bytes on every request. ponytail: kept whole on later turns rather than digested; at about
+  // 1k tokens of snippets that mostly costs cache reads. Digest when results grow (page text).
+  const searches = new Map(
+    await Promise.all(
+      branch
+        .filter((m) => m.search)
+        .map(
+          async (m) =>
+            [
+              m._id,
+              await ctx.db
+                .query("searches")
+                .withIndex("by_messageId", (q) => q.eq("messageId", m._id))
+                .unique(),
+            ] as const,
+        ),
+    ),
+  );
+
   // Per-message effort and images ride along on user messages; the adapter turns them into
   // their own blocks, so request bytes depend only on stored data.
   const toChat = (m: Doc<"messages">): ChatMessage => ({
     role: m.role,
-    content: m.content,
+    content: searches.get(m._id)
+      ? `${m.content}\n\n${searchBlock(searches.get(m._id)!)}`
+      : m.content,
     ...(m.role === "user" && m.effort ? { effort: m.effort } : {}),
     ...(m.role === "user" && m.images?.length ? { images: m.images } : {}),
   });

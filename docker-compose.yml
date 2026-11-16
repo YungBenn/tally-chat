@@ -74,5 +74,20 @@ services:
     depends_on:
       backend: { condition: service_healthy }
 
+  # Optional web search: `docker compose --profile search up -d`, then set the SearXNG URL in
+  # Settings to http://searxng:8080. Reachable only inside this compose network.
+  searxng:
+    image: searxng/searxng@sha256:932f69dca010db9880bddebb2171f05d8e1a25d04a59149ff65409993d680024
+    profiles: [search]
+    restart: unless-stopped
+    # SearXNG won't start without a secret. It only signs the image proxy and the bot limiter,
+    # both off in settings.yml, so a fresh one on every start is enough.
+    entrypoint:
+      - sh
+      - -c
+      - SEARXNG_SECRET=$$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n') exec /usr/local/searxng/entrypoint.sh
+    volumes:
+      - ./selfhost/searxng/settings.yml:/etc/searxng/settings.yml:ro
+
 volumes:
   data:

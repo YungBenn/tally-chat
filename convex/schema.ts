@@ -6,6 +6,7 @@ import { effortValidator } from "./lib/effort";
 import { imageValidator } from "./lib/images";
 import { outputModeValidator } from "./lib/outputModes";
 import { usageValidator } from "./lib/usage";
+import { searchResultValidator } from "./lib/webSearch";
 
 export const importSourceValidator = v.union(
   v.literal("chatgpt"),
@@ -103,6 +104,7 @@ export default defineSchema({
     truncated: v.optional(v.boolean()), // replies that stopped at that limit
     effort: v.optional(effortValidator), // user: a per-message change made here; replies: the level they ran at
     images: v.optional(v.array(imageValidator)), // user messages: images sent with it, fixed at creation
+    search: v.optional(v.boolean()), // user messages: searched the web before the reply (see searches)
   })
     .index("by_thread_parent", ["threadId", "parentId"])
     .index("by_status", ["status"])
@@ -112,6 +114,14 @@ export default defineSchema({
       searchField: "content",
       filterFields: ["ownerId"],
     }),
+  // The web search run for a user message (lib/webSearch), written once before its first reply.
+  searches: defineTable({
+    ownerId: v.id("users"),
+    messageId: v.id("messages"),
+    query: v.string(),
+    results: v.array(searchResultValidator),
+    error: v.optional(v.string()),
+  }).index("by_messageId", ["messageId"]),
   // A summary standing in for every message up to coversUpToId on any branch containing it
   // (ADR 0001). Stored outside the tree so condensing never rewrites messages.
   checkpoints: defineTable({
@@ -185,6 +195,7 @@ export default defineSchema({
   settings: defineTable({
     ownerId: v.id("users"),
     customInstructions: v.optional(v.string()), // copied onto each new thread; absent = none
+    searchUrl: v.optional(v.string()), // the owner's SearXNG, e.g. http://searxng:8080; absent = no web search
     allowlistedHosts: v.array(v.string()), // private hosts the URL guard lets through, e.g. "192.168.1.20:11434"
     // Model for work the user didn't ask for directly (titles now, condensing later).
     // Unset: the cheapest priced model of the thread's own provider.

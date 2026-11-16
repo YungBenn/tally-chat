@@ -153,6 +153,18 @@ const messageView = v.object({
       }),
     ),
   ),
+  // User messages that searched the web: pending until the search before the reply finishes.
+  search: v.optional(
+    v.object({
+      status: v.union(
+        v.literal("pending"),
+        v.literal("done"),
+        v.literal("failed"),
+      ),
+      results: v.array(v.object({ title: v.string(), url: v.string() })),
+      error: v.optional(v.string()),
+    }),
+  ),
 });
 
 // null when the thread doesn't exist (or was deleted), so a page left open on another
@@ -239,6 +251,7 @@ export const getThread = query({
               })),
             )
           : undefined,
+        search: m.search ? await searchView(ctx, m._id) : undefined,
       })),
     );
     const { checkpoint } = await assembleHistory(
@@ -289,6 +302,27 @@ function cleanText(content: string) {
   return text;
 }
 
+const searchUrlOf = async (ctx: QueryCtx, ownerId: Id<"users">) =>
+  (
+    await ctx.db
+      .query("settings")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+      .unique()
+  )?.searchUrl;
+
+async function searchView(ctx: QueryCtx, messageId: Id<"messages">) {
+  const search = await ctx.db
+    .query("searches")
+    .withIndex("by_messageId", (q) => q.eq("messageId", messageId))
+    .unique();
+  if (!search) return { status: "pending" as const, results: [] };
+  return {
+    status: search.error ? ("failed" as const) : ("done" as const),
+    results: search.results.map(({ title, url }) => ({ title, url })),
+    ...(search.error ? { error: search.error } : {}),
+  };
+}
+
 async function appendUserMessage(
   ctx: MutationCtx,
   thread: Doc<"threads">,
@@ -297,6 +331,7 @@ async function appendUserMessage(
   effort?: Effort, // a per-message effort change, made on this message and never changed after
   images?: MessageImage[],
   replyModel?: ReplyModel, // the model answering it, when not the thread's
+  search?: boolean,
 ) {
   if (effort) await assertPerMessageEffort(ctx, thread);
   if (images?.length)
@@ -312,6 +347,7 @@ async function appendUserMessage(
     status: "done",
     effort,
     images: images?.length ? images : undefined,
+    search: search || undefined,
   });
   return (await ctx.db.get("messages", id))!;
 }
@@ -493,9 +529,13 @@ export const send = mutation({
     effort: v.optional(effortValidator), // change effort from this message on (supported models)
     images: v.optional(v.array(imageValidator)),
     model: v.optional(replyModelValidator), // reply with this model once (spec phase 7)
+    search: v.optional(v.boolean()), // search the web for this message before the reply
   },
   returns: v.null(),
-  handler: async (ctx, { threadId, content, mode, effort, images, model }) => {
+  handler: async (
+    ctx,
+    { threadId, content, mode, effort, images, model, search },
+  ) => {
     const ownerId = await requireOwner(ctx);
     const thread = await ownedThread(ctx, ownerId, threadId);
     const text = cleanText(content);
@@ -504,13 +544,24 @@ export const send = mutation({
       throw new ConvexError(
         "Change effort on a reply from the thread's own model",
       );
+    if (search && !(await searchUrlOf(ctx, ownerId)))
+      throw new ConvexError("Set a SearXNG URL in Settings to search the web");
     const parent = thread.activeLeafId
       ? await ctx.db.get("messages", thread.activeLeafId)
       : null;
     await startReply(
       ctx,
       thread,
-      await appendUserMessage(ctx, thread, parent, text, effort, images, model),
+      await appendUserMessage(
+        ctx,
+        thread,
+        parent,
+        text,
+        effort,
+        images,
+        model,
+        search,
+      ),
       mode,
       model,
     );
@@ -575,6 +626,9 @@ export const edit = mutation({
         text,
         effort ?? original.effort,
         original.images, // an edit changes the text; the images stay
+        undefined,
+        // A searched message searches again for its new text, while search is still set up.
+        original.search && !!(await searchUrlOf(ctx, ownerId)),
       ),
       mode,
     );

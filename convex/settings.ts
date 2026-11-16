@@ -42,6 +42,7 @@ export const get = query({
   args: {},
   returns: v.object({
     customInstructions: v.string(),
+    searchUrl: v.string(),
     allowlistedHosts: v.array(v.string()),
     sideJobModel: v.union(v.null(), sideJobModelValidator),
     timeZone: v.union(v.null(), v.string()),
@@ -58,6 +59,7 @@ export const get = query({
     const settings = await settingsFor(ctx, await requireOwner(ctx));
     return {
       customInstructions: settings?.customInstructions ?? "",
+      searchUrl: settings?.searchUrl ?? "",
       allowlistedHosts: settings?.allowlistedHosts ?? [],
       sideJobModel: settings?.sideJobModel ?? null,
       timeZone: settings?.timeZone ?? null,
@@ -134,6 +136,41 @@ export const setCustomInstructions = mutation({
         ownerId,
         allowlistedHosts: [],
         customInstructions,
+      });
+    return null;
+  },
+});
+
+// The owner's SearXNG for web search (empty text turns search off). Naming it trusts its host,
+// so searches reach it even on a private address without a separate allowlist entry.
+export const setSearchUrl = mutation({
+  args: { url: v.string() },
+  returns: v.null(),
+  handler: async (ctx, { url }) => {
+    const ownerId = await requireOwner(ctx);
+    let searchUrl: string | undefined;
+    if (url.trim()) {
+      let parsed: URL;
+      try {
+        parsed = new URL(url.trim());
+      } catch {
+        throw new ConvexError("Enter a URL like http://searxng:8080");
+      }
+      if (
+        !["http:", "https:"].includes(parsed.protocol) ||
+        parsed.username ||
+        parsed.password
+      )
+        throw new ConvexError("Enter a URL like http://searxng:8080");
+      searchUrl = `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, "");
+    }
+    const settings = await settingsFor(ctx, ownerId);
+    if (settings) await ctx.db.patch("settings", settings._id, { searchUrl });
+    else
+      await ctx.db.insert("settings", {
+        ownerId,
+        allowlistedHosts: [],
+        searchUrl,
       });
     return null;
   },
