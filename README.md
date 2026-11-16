@@ -13,7 +13,7 @@ Chat with any model and see what every turn costs, before and after you send.
 [![Built with Convex](https://img.shields.io/badge/backend-Convex-f3b01c.svg)](https://convex.dev)
 [![Next.js](https://img.shields.io/badge/frontend-Next.js-000.svg)](https://nextjs.org)
 [![Bun](https://img.shields.io/badge/runtime-Bun-fbf0df.svg)](https://bun.sh)
-[![Tests](https://img.shields.io/badge/tests-252%20passing-2f7d4f.svg)](#development)
+[![Tests](https://img.shields.io/badge/tests-280%20passing-2f7d4f.svg)](#development)
 
 [**Quick start**](#quick-start) · [**Features**](#features) · [**How it works**](#how-it-works) · [**Self-hosting guide**](docs/self-hosting.md) · [**Design doc**](docs/tallychat-design-doc.md)
 
@@ -97,6 +97,12 @@ What's in the context window, what's cached, and what every reply cost, down to 
 - **Branching that's free**: every message is an immutable node in a tree. Retry, edit and fork without rewriting history, so the cached prefix stays byte-identical.
 - **Images**, resized in the browser to what the model can actually read, then priced in the inspector before you send.
 - **Import your history** from a ChatGPT or Claude data export, branches and dates included. Imported messages never count as spend.
+- **Export any thread** as Markdown or JSON, with each reply's model, tokens and cost.
+- **Custom instructions** for every new thread. Each thread keeps the ones it started with, so editing them never breaks a warm cache.
+- **Web search on your own SearXNG**: toggle Search and the message is searched before the reply, with its sources shown under it. Results are stored once, so a retry or a later turn sends the same bytes.
+- **Math and diagrams**: LaTeX renders with KaTeX and Mermaid blocks draw as diagrams.
+- **Documents**: attach PDFs and text files (Markdown, CSV, JSON, code), priced in tokens before you send. The text is read once and sent the same way every turn, so it stays cached.
+- **Pin, rename and delete** any thread from the sidebar, by its menu or a right-click.
 - **Full-text search** over titles and messages, **installable as an app**, light and dark themes.
 
 ## How it works
@@ -137,7 +143,9 @@ The first run builds the app, starts a pinned Convex backend and generates every
 > [!IMPORTANT]
 > Back up `selfhost/secrets/` along with your data: it holds the key that encrypts your provider keys. `./selfhost/backup.sh` saves both.
 
-The [self-hosting guide](docs/self-hosting.md) covers local models (Ollama, LM Studio), HTTPS behind a reverse proxy, backups and restores, upgrades and the smoke check.
+For web search, start the bundled SearXNG with `docker compose --profile search up -d` and set its URL in Settings to `http://searxng:8080`.
+
+The [self-hosting guide](docs/self-hosting.md) covers local models (Ollama, LM Studio), web search, HTTPS behind a reverse proxy, backups and restores, upgrades and the smoke check.
 
 > [!NOTE]
 > **Subscriptions are not API keys.** A ChatGPT Plus or Claude Pro subscription doesn't grant API access; API usage is billed separately from the provider's developer console.
@@ -154,7 +162,8 @@ The [self-hosting guide](docs/self-hosting.md) covers local models (Ollama, LM S
 | 6 | Background condenser, vetoed when it would break the cache | ✅ |
 | 7 | Cheaper replies, model suggestions, full-text search, chat import | ✅ |
 | 8 | Redesign on the tally.chat design system: holo lines, motion, mobile | ✅ |
-| 9 | Documents, Gemini, tools | next |
+| 9 | Custom instructions, export, web search on SearXNG, math and Mermaid, documents, thread pin and rename | ✅ |
+| 10 | Gemini, a tool loop | next |
 
 ## Development
 
