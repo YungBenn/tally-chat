@@ -311,6 +311,15 @@ textarea.tc-input { height: auto; min-height: 84px; padding: 10px 12px; resize: 
 .tc-effort i { width: 3px; border-radius: 1px; background: var(--border-strong); }
 .tc-effort i[data-on="true"] { background: var(--foreground-muted); }
 .tc-send { width: 32px; height: 32px; border-radius: 9px; }
+.tc-picker[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-strong); }
+
+/* Web search sources under a searched message */
+.tc-sources { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; font: 400 12.5px/18px var(--font-sans); color: var(--foreground-muted); }
+.tc-sources[data-failed="true"] { color: var(--danger); }
+.tc-source { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--surface-sunken); color: var(--foreground-muted); text-decoration: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-source-n { margin-right: 5px; color: var(--foreground-subtle); font-variant-numeric: tabular-nums; }
+.tc-source:hover { color: var(--foreground); border-color: var(--border-strong); }
+.tc-source:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 
 /* Cost strip */
 .tc-cost { display: flex; align-items: center; gap: 10px; justify-content: space-between; padding: 8px 4px 0; font: 400 12px/18px var(--font-mono); color: var(--foreground-muted); font-variant-numeric: tabular-nums; font-variant-ligatures: none; }

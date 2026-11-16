@@ -12,6 +12,7 @@ import ChatShell from "@/components/ChatShell";
 import { EmptyState } from "@/components/ui/feedback";
 import Composer from "@/components/Composer";
 import ModeControl from "@/components/ModeControl";
+import { SearchToggle, useWebSearch } from "@/components/WebSearch";
 import { DEFAULT_EFFORT, type Effort } from "@/convex/lib/effort";
 import type { MessageImage } from "@/convex/lib/images";
 import type { OutputMode } from "@/convex/lib/outputModes";
@@ -148,6 +149,7 @@ export default function NewThread() {
   const providers = useQuery(api.providers.list);
   const createThread = useMutation(api.chat.createThread);
   const send = useMutation(api.chat.send);
+  const webSearch = useWebSearch();
   const router = useRouter();
   const options = (providers ?? []).flatMap((p) =>
     p.models
@@ -218,6 +220,9 @@ export default function NewThread() {
                     <EffortControl value={effort} onChange={setEffort} />
                   )}
                   <ModeControl value={mode} onChange={setMode} />
+                  {webSearch.available && (
+                    <SearchToggle on={webSearch.on} onChange={webSearch.setOn} />
+                  )}
                 </>
               )
             }
@@ -263,6 +268,7 @@ export default function NewThread() {
                   content: text,
                   mode,
                   images: images.length ? images : undefined,
+                  search: webSearch.on || undefined,
                 });
                 router.push(`/t/${threadId}`);
               } catch (err) {

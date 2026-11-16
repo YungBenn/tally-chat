@@ -26,6 +26,8 @@ import { ctxScale } from "@/lib/scale";
 import { estimateTokens, tokens, usd } from "@/lib/format";
 import { transition } from "@/lib/motion";
 import { cn } from "@/lib/utils";
+import { useWebSearch } from "@/components/WebSearch";
+import { SEARCH_TOKENS_ESTIMATE } from "@/convex/lib/webSearch";
 
 type State = "cached" | "write" | "provider" | "fresh";
 const BADGE: Record<State, { tone?: BadgeTone; label: string }> = {
@@ -279,6 +281,7 @@ function InspectorBody({
   selected: number | null; // held by Inspector, so it survives the column/sheet switch
   setSelected: (i: number) => void;
 }) {
+  const search = useWebSearch().on;
   const data = useQuery(api.inspector.get, { threadId });
   const cache = useCacheTemp(data?.cache ?? { expiresAt: null, keepaliveScheduled: false, lastActiveAt: null });
   if (!data)
@@ -293,7 +296,10 @@ function InspectorBody({
     const t = perToken(s);
     return t === undefined ? "—" : usd(Math.round(t * n * 1e6));
   };
-  const draftTokens = estimateTokens(draft) + (draftImages ?? []).reduce((sum, i) => sum + imageTokens(i), 0);
+  const draftTokens =
+    estimateTokens(draft) +
+    (draftImages ?? []).reduce((sum, i) => sum + imageTokens(i), 0) +
+    (search ? SEARCH_TOKENS_ESTIMATE : 0);
   const rows: Layer[] = [
     ...layers.map((l) => ({
       key: l.kind,

@@ -11,6 +11,8 @@ import { imageTokens } from "@/convex/lib/images";
 import { estimateTokens, usd } from "@/lib/format";
 import { nextSendMicroUsd } from "@/lib/nextSend";
 import { rollCells } from "@/lib/rolling";
+import { useWebSearch } from "@/components/WebSearch";
+import { SEARCH_TOKENS_ESTIMATE } from "@/convex/lib/webSearch";
 
 const NO_CACHE = { expiresAt: null, keepaliveScheduled: false, lastActiveAt: null };
 
@@ -134,13 +136,14 @@ export default function CostStrip({
   const data = useQuery(api.inspector.get, { threadId });
   const { temp } = useCacheTemp(data?.cache ?? NO_CACHE);
   const settled = useDebounced(draft);
+  const search = useWebSearch().on;
   if (!data) return <div className="tc-cost" aria-hidden />;
   const { cache, next, thread } = data;
   const cost = nextSendMicroUsd({
     prices: next.prices,
     history: !cache.managed ? "provider" : temp === "cold" ? "cold" : "warm",
     prefixTokens: next.prefixTokens,
-    draftTokens: estimateTokens(settled) + imagesTokens(draftImages),
+    draftTokens: estimateTokens(settled) + imagesTokens(draftImages) + (search ? SEARCH_TOKENS_ESTIMATE : 0),
     // A reply can't run past the chosen mode's limit.
     expectedOutputTokens:
       next.expectedOutputTokens === null ? null : Math.min(next.expectedOutputTokens, MODE_MAX_TOKENS[mode]),
@@ -162,12 +165,14 @@ export function NewThreadCostStrip({
 }) {
   const data = useQuery(api.inspector.newThread, { providerId, modelId });
   const settled = useDebounced(draft);
+  const search = useWebSearch().on;
   if (!data) return <div className="tc-cost" aria-hidden />;
   const cost = nextSendMicroUsd({
     prices: data.prices,
     history: "cold",
     prefixTokens: 0,
-    draftTokens: data.systemTokens + estimateTokens(settled) + imagesTokens(draftImages),
+    draftTokens:
+      data.systemTokens + estimateTokens(settled) + imagesTokens(draftImages) + (search ? SEARCH_TOKENS_ESTIMATE : 0),
     expectedOutputTokens: null,
   });
   return <Strip cost={cost} cache={<span>new thread</span>} />;

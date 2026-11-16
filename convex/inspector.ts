@@ -29,6 +29,7 @@ import {
   type Usage,
 } from "./lib/usage";
 import { requireOwner } from "./owner";
+import { SEARCH_TOKENS_ESTIMATE } from "./lib/webSearch";
 
 // Rough token count for text no provider has measured (characters ÷ 4; spec phase 3).
 export const estimateTokens = (text: string) => Math.ceil(text.length / 4);
@@ -36,9 +37,11 @@ export const estimateTokens = (text: string) => Math.ceil(text.length / 4);
 const estimateMessage = (m: {
   content: string;
   images?: { width: number; height: number }[];
+  search?: boolean;
 }) =>
   estimateTokens(m.content) +
-  (m.images ?? []).reduce((sum, i) => sum + imageTokens(i), 0);
+  (m.images ?? []).reduce((sum, i) => sum + imageTokens(i), 0) +
+  (m.search ? SEARCH_TOKENS_ESTIMATE : 0);
 const totalInput = (u: Usage) =>
   u.inputTokens +
   u.cacheReadTokens +
