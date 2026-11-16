@@ -5,7 +5,7 @@ import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
 import { messageDelta, messageStart, messageStop, oaiDelta, oaiDone, oaiFinish, sse, textDelta } from "../test/sse";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { encryptSecret } from "./lib/vault";
 import schema from "./schema";
 
@@ -151,5 +151,24 @@ describe("side-job titles", () => {
     await s.owner.mutation(api.settings.setSideJobModel, { sideJobModel: { providerId: s.openaiId, modelId: "gpt-5" } });
     await s.owner.mutation(api.settings.setSideJobModel, { sideJobModel: null });
     expect((await s.owner.query(api.settings.get, {})).sideJobModel).toBeNull();
+  });
+});
+
+describe("renaming a thread", () => {
+  test("the owner's name is tidied, checked, and never replaced by a side-job title", async () => {
+    const s = await setup();
+    await s.owner.mutation(api.chat.renameThread, { threadId: s.threadId, title: "  Kyoto\n trip  " });
+    expect(await s.title()).toBe("Kyoto trip");
+    await expect(s.owner.mutation(api.chat.renameThread, { threadId: s.threadId, title: " " })).rejects.toThrow("A thread needs a name");
+    await expect(s.owner.mutation(api.chat.renameThread, { threadId: s.threadId, title: "x".repeat(201) })).rejects.toThrow("under 200");
+    await expect(s.t.mutation(api.chat.renameThread, { threadId: s.threadId, title: "x" })).rejects.toThrow("Not logged in");
+
+    // Renamed before the first reply: no title call is made.
+    fake = fakeFetch({ [ANTHROPIC]: anthropicResponder("Machine title") });
+    await s.chat("Plan a day in Kyoto for me please");
+    expect(s.titleCalls()).toHaveLength(0);
+    // A title job already in flight when the owner renamed still doesn't overwrite it.
+    await s.t.mutation(internal.chat.saveTitle, { threadId: s.threadId, providerId: s.anthropicId, model: "claude-haiku-5-5", title: "Machine title" });
+    expect(await s.title()).toBe("Kyoto trip");
   });
 });

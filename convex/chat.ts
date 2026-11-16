@@ -71,25 +71,72 @@ export const threadRow = v.object({
   _id: v.id("threads"),
   startedAt: v.number(),
   title: v.string(),
+  pinned: v.boolean(),
 });
 export const toRow = (t: Doc<"threads">) => ({
   _id: t._id,
   startedAt: t.startedAt ?? t._creationTime,
   title: t.title,
+  pinned: t.pinnedAt !== undefined,
 });
 
-// The owner's 100 most recently started threads, newest first.
+// Pinned threads (most recently pinned first), then the owner's 100 most recently started
+// unpinned threads, newest first.
 export const listThreads = query({
   args: {},
   returns: v.array(threadRow),
   handler: async (ctx) => {
     const ownerId = await requireOwner(ctx);
-    const threads = await ctx.db
+    const pinned = await ctx.db
+      .query("threads")
+      .withIndex("by_ownerId_and_pinnedAt", (q) =>
+        q.eq("ownerId", ownerId).gt("pinnedAt", 0),
+      )
+      .order("desc")
+      .take(100);
+    const recent = await ctx.db
       .query("threads")
       .withIndex("by_ownerId_and_startedAt", (q) => q.eq("ownerId", ownerId))
       .order("desc")
       .take(100);
-    return threads.map(toRow);
+    return [...pinned, ...recent.filter((t) => t.pinnedAt === undefined)].map(
+      toRow,
+    );
+  },
+});
+
+export const MAX_TITLE_LENGTH = 200;
+
+// The owner's own name for a thread; the one-time side-job title never overwrites it.
+export const renameThread = mutation({
+  args: { threadId: v.id("threads"), title: v.string() },
+  returns: v.null(),
+  handler: async (ctx, { threadId, title }) => {
+    const ownerId = await requireOwner(ctx);
+    const thread = await ownedThread(ctx, ownerId, threadId);
+    const name = title.replace(/\s+/g, " ").trim();
+    if (!name) throw new ConvexError("A thread needs a name");
+    if (name.length > MAX_TITLE_LENGTH)
+      throw new ConvexError(`Keep the name under ${MAX_TITLE_LENGTH} characters`);
+    await ctx.db.patch("threads", thread._id, {
+      title: name,
+      renamed: true,
+      titleRequested: true, // no title job spends money on a thread that has a name
+    });
+    return null;
+  },
+});
+
+export const setThreadPinned = mutation({
+  args: { threadId: v.id("threads"), pinned: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, { threadId, pinned }) => {
+    const ownerId = await requireOwner(ctx);
+    const thread = await ownedThread(ctx, ownerId, threadId);
+    await ctx.db.patch("threads", thread._id, {
+      pinnedAt: pinned ? Date.now() : undefined,
+    });
+    return null;
   },
 });
 
@@ -533,7 +580,10 @@ async function startReply(
     effort: await effortInForce(ctx, thread, user, provider),
   });
   // ponytail: first message as title until side-job titles land (ticket 11).
-  const title = thread.activeLeafId ? thread.title : user.content.slice(0, 60);
+  const title =
+    thread.activeLeafId || thread.renamed
+      ? thread.title
+      : user.content.slice(0, 60);
   await ctx.db.patch("threads", thread._id, {
     activeLeafId: assistantId,
     title,
@@ -1180,7 +1230,8 @@ export const saveTitle = internalMutation({
   ) => {
     const thread = await ctx.db.get("threads", threadId);
     if (!thread) return null; // deleted meanwhile: nothing left to title or bill against
-    if (title) await ctx.db.patch("threads", threadId, { title });
+    if (title && !thread.renamed)
+      await ctx.db.patch("threads", threadId, { title });
     if (usage) {
       const cost = await meterCall(ctx, {
         ownerId: thread.ownerId,

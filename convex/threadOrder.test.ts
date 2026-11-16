@@ -39,3 +39,34 @@ test("threads list by start time, and the backfill gives old threads their creat
   expect(list.map((r) => r.title)).toEqual(["New thread", "legacy", "imported"]);
   expect(list[2].startedAt).toBe(1000);
 });
+
+test("pinned threads list first, most recently pinned on top, until unpinned", async () => {
+  const t = convexTest(schema, modules);
+  const ownerId = await t.run((ctx) => ctx.db.insert("users", { email: "owner" }));
+  const providerId = await t.run((ctx) =>
+    ctx.db.insert("providers", {
+      ownerId, name: "A", apiStyle: "anthropic", baseUrl: "https://api.anthropic.com", apiKeyEncrypted: "", detected: "",
+      keyCheckedAt: 0, models: [{ id: "m", displayName: "M", hidden: false }],
+    }),
+  );
+  const owner = t.withIdentity({ subject: `${ownerId}|session` });
+  const [a, b, c] = await t.run(async (ctx) =>
+    Promise.all(["a", "b", "c"].map((title, i) =>
+      ctx.db.insert("threads", { ownerId, title, providerId, modelId: "m", systemPromptVersion: 2, startedAt: 1000 + i }),
+    )),
+  );
+  const titles = async () => (await owner.query(api.chat.listThreads, {})).map((r) => `${r.title}${r.pinned ? "*" : ""}`);
+  expect(await titles()).toEqual(["c", "b", "a"]);
+
+  await owner.mutation(api.chat.setThreadPinned, { threadId: a, pinned: true });
+  await new Promise((r) => setTimeout(r, 2));
+  await owner.mutation(api.chat.setThreadPinned, { threadId: b, pinned: true });
+  expect(await titles()).toEqual(["b*", "a*", "c"]);
+
+  await owner.mutation(api.chat.setThreadPinned, { threadId: b, pinned: false });
+  expect(await titles()).toEqual(["a*", "c", "b"]);
+
+  const strangerId = await t.run((ctx) => ctx.db.insert("users", { email: "other" }));
+  const stranger = t.withIdentity({ subject: `${strangerId}|session` });
+  await expect(stranger.mutation(api.chat.setThreadPinned, { threadId: c, pinned: true })).rejects.toThrow("Thread not found");
+});

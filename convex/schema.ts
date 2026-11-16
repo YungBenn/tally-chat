@@ -50,6 +50,8 @@ export default defineSchema({
     instructions: v.optional(v.string()), // the owner's custom instructions when the thread began
     activeLeafId: v.optional(v.id("messages")),
     titleRequested: v.optional(v.boolean()), // the side-job title runs once per thread
+    renamed: v.optional(v.boolean()), // the owner named it; a side-job title never replaces that
+    pinnedAt: v.optional(v.number()), // pinned threads list first, most recently pinned on top
     lastActiveAt: v.optional(v.number()), // owner focused on or typing in the thread (keepalive presence)
     // Start time of the last request that read or wrote this thread's prompt cache, and the
     // lifetime it asked for: the cache is warm until cacheTouchedAt + cacheTtl.
@@ -68,6 +70,7 @@ export default defineSchema({
     ),
   })
     .index("by_ownerId_and_startedAt", ["ownerId", "startedAt"])
+    .index("by_ownerId_and_pinnedAt", ["ownerId", "pinnedAt"])
     .index("by_ownerId_and_importedFrom", [
       "ownerId",
       "importedFrom.source",
