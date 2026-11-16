@@ -146,6 +146,17 @@ describe("searching before a reply", () => {
     await s.settle();
   });
 
+  test("deleting the thread removes its stored searches", async () => {
+    const s = await setup();
+    await s.owner.mutation(api.settings.setSearchUrl, { url: SEARXNG });
+    fake = fakeFetch(fixtures({ [searchKey("Hi")]: { body: RESULTS } }));
+    await s.send("Hi");
+    expect(await s.t.run((ctx) => ctx.db.query("searches").collect())).toHaveLength(1);
+    await s.owner.mutation(api.chat.deleteThread, { threadId: s.threadId });
+    await s.settle();
+    expect(await s.t.run((ctx) => ctx.db.query("searches").collect())).toHaveLength(0);
+  });
+
   test("a failed search still gets a reply, told that the search failed", async () => {
     const s = await setup();
     await s.owner.mutation(api.settings.setSearchUrl, { url: SEARXNG });

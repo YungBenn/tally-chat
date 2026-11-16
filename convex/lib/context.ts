@@ -1,6 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import type { ChatMessage } from "./anthropic";
+import { documentBlock } from "./documents";
 import { searchBlock } from "./webSearch";
 
 // Prefix for the summary message. Changing it changes every request's bytes after the
@@ -60,13 +61,29 @@ export async function assembleHistory(
     ),
   );
 
+  // Documents go before the message text, whole (lib/documents), in the order they were sent.
+  const documents = new Map(
+    await Promise.all(
+      branch
+        .flatMap((m) => m.documents ?? [])
+        .map(async (ref) => [ref.id, await ctx.db.get("documents", ref.id)] as const),
+    ),
+  );
+  const withAttachments = (m: Doc<"messages">) =>
+    [
+      ...(m.documents ?? []).flatMap((ref) => {
+        const doc = documents.get(ref.id);
+        return doc ? [documentBlock(doc.name, doc.text)] : [];
+      }),
+      m.content,
+      ...(searches.get(m._id) ? [searchBlock(searches.get(m._id)!)] : []),
+    ].join("\n\n");
+
   // Per-message effort and images ride along on user messages; the adapter turns them into
   // their own blocks, so request bytes depend only on stored data.
   const toChat = (m: Doc<"messages">): ChatMessage => ({
     role: m.role,
-    content: searches.get(m._id)
-      ? `${m.content}\n\n${searchBlock(searches.get(m._id)!)}`
-      : m.content,
+    content: withAttachments(m),
     ...(m.role === "user" && m.effort ? { effort: m.effort } : {}),
     ...(m.role === "user" && m.images?.length ? { images: m.images } : {}),
   });
