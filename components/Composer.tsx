@@ -11,6 +11,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { DOCUMENT_ACCEPT, MAX_DOCUMENTS_PER_MESSAGE } from "@/convex/lib/documents";
 import { MAX_IMAGES_PER_MESSAGE, imageTokens, type MessageImage } from "@/convex/lib/images";
 import { tokens } from "@/lib/format";
+import { reachable } from "@/lib/backendUrl";
 import { ACCEPT_ATTRIBUTE, prepareAndUpload } from "@/lib/imageUpload";
 import { SHORTCUTS } from "@/lib/shortcuts";
 import { useShortcut, useShortcutLabel } from "@/lib/useShortcut";
@@ -145,7 +146,7 @@ export default function Composer({
     const key = ++lastKey.current;
     setAttached((list) => [...list, { kind: "document", key, name: file.name }]);
     try {
-      const res = await fetch(await uploadUrl(), { method: "POST", body: file });
+      const res = await fetch(reachable(await uploadUrl()), { method: "POST", body: file });
       if (!res.ok) throw new Error(`Could not upload ${file.name}`);
       const { storageId } = (await res.json()) as { storageId: Id<"_storage"> };
       const doc = await extract({ storageId, name: file.name });

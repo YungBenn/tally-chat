@@ -1,6 +1,7 @@
 "use client";
 
 import { MAX_IMAGE_EDGE, type MessageImage } from "@/convex/lib/images";
+import { reachable } from "@/lib/backendUrl";
 
 const ACCEPTED = [
   "image/jpeg",
@@ -31,7 +32,7 @@ export async function prepareAndUpload(
   bitmap.close();
   const mediaType = file.type === "image/jpeg" ? "image/jpeg" : "image/png";
   const blob = await canvas.convertToBlob({ type: mediaType, quality: 0.9 });
-  const res = await fetch(await uploadUrl(), {
+  const res = await fetch(reachable(await uploadUrl()), {
     method: "POST",
     headers: { "Content-Type": mediaType },
     body: blob,

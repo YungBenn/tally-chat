@@ -3,6 +3,7 @@
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { useRef, useState } from "react";
+import { reachable } from "@/lib/backendUrl";
 import ChatShell from "@/components/ChatShell";
 import { IconFileUpload } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
@@ -57,7 +58,7 @@ export default function ImportPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(await uploadUrl(), {
+      const res = await fetch(reachable(await uploadUrl()), {
         method: "POST",
         headers: { "Content-Type": file.type || "application/json" },
         body: file,

@@ -10,6 +10,7 @@ import {
 } from "@tabler/icons-react";
 import { useMutation, useQuery } from "convex/react";
 import { useEffect, useId, useRef, useState } from "react";
+import { reachable } from "@/lib/backendUrl";
 import { Button } from "@/components/ui/button";
 import { Badge, HoloGradient } from "@/components/ui/feedback";
 import { Dialog, Popover } from "@/components/ui/overlay";
@@ -292,7 +293,7 @@ export function ImageThumb({
   return (
     <a href={url} target="_blank" rel="noreferrer" className="tc-thumb" title="Open full size">
       {/* eslint-disable-next-line @next/next/no-img-element -- a stored upload, already downscaled */}
-      <img src={url} alt={`Attached image ${index + 1}`} width={width} height={height} />
+      <img src={reachable(url)} alt={`Attached image ${index + 1}`} width={width} height={height} />
       <span className="tc-thumb-meta tc-mono">
         {width}×{height}
       </span>
