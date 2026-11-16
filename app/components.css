@@ -224,7 +224,7 @@ textarea.tc-input { height: auto; min-height: 84px; padding: 10px 12px; resize: 
 .tc-col-msg { max-width: var(--layout-message); margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-8); }
 
 .tc-user { align-self: flex-end; max-width: 85%; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-.tc-user-bubble { background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-card); border-bottom-right-radius: 6px; padding: 10px 14px; font: 400 15.5px/26px var(--font-sans); box-shadow: var(--shadow-raised); white-space: pre-wrap; }
+.tc-user-bubble { background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-card); border-bottom-right-radius: 6px; padding: 10px 14px; font: 400 15px/24px var(--font-sans); box-shadow: var(--shadow-raised); white-space: pre-wrap; }
 .tc-assistant { display: flex; flex-direction: column; gap: 10px; }
 .tc-assistant[data-streaming="true"] .tc-prose { position: relative; }
 .tc-msg-actions { display: flex; align-items: center; gap: 2px; color: var(--foreground-subtle); }
@@ -234,12 +234,12 @@ textarea.tc-input { height: auto; min-height: 84px; padding: 10px 12px; resize: 
 .tc-stream-rail { position: absolute; left: -18px; top: 6px; bottom: 6px; width: 1.5px; border-radius: 2px; }
 
 /* Prose / markdown */
-.tc-prose { font: 400 16px/28px var(--font-sans); letter-spacing: -0.003em; color: var(--foreground); max-width: var(--layout-message); }
+.tc-prose { font: 400 15px/26px var(--font-sans); letter-spacing: -0.003em; color: var(--foreground); max-width: var(--layout-message); }
 .tc-prose > * { margin: 0 0 14px; }
 .tc-prose > .tc-code { margin: 4px 0 18px; }
 .tc-prose > *:last-child { margin-bottom: 0; }
-.tc-prose h2 { font: 600 19px/28px var(--font-sans); letter-spacing: -0.012em; margin-top: 26px; }
-.tc-prose h3 { font: 600 16px/24px var(--font-sans); margin-top: 22px; }
+.tc-prose h2 { font: 600 18px/26px var(--font-sans); letter-spacing: -0.012em; margin-top: 26px; }
+.tc-prose h3 { font: 600 15px/24px var(--font-sans); margin-top: 22px; }
 .tc-prose ul, .tc-prose ol { padding-left: 22px; }
 .tc-prose li { margin: 4px 0; }
 .tc-prose li::marker { color: var(--foreground-subtle); }
