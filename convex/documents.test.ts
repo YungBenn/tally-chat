@@ -7,6 +7,7 @@ import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
 import { messageStop, sse, textDelta } from "../test/sse";
 import { api } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { encryptSecret } from "./lib/vault";
 import schema from "./schema";
 
@@ -127,5 +128,60 @@ describe("sending with documents", () => {
     await s.owner.mutation(api.chat.deleteThread, { threadId: s.threadId });
     await s.settle();
     expect(await s.t.run((ctx) => ctx.db.get("documents", doc.documentId))).toBeNull();
+  });
+});
+
+describe("mentioning a thread", () => {
+  // A finished thread with the given turns on its active branch, inserted directly.
+  async function threadWith(s: Awaited<ReturnType<typeof setup>>, title: string, contents: string[]) {
+    return s.t.run(async (ctx) => {
+      const base = (await ctx.db.get("threads", s.threadId))!;
+      const id = await ctx.db.insert("threads", {
+        ownerId: base.ownerId, title, providerId: base.providerId, modelId: base.modelId, systemPromptVersion: 2, startedAt: Date.UTC(2026, 10, 1),
+      });
+      const ids: Id<"messages">[] = [];
+      for (const [i, content] of contents.entries())
+        ids.push(await ctx.db.insert("messages", {
+          ownerId: base.ownerId, threadId: id, parentId: ids.at(-1), ancestorIds: [...ids], role: i % 2 ? "assistant" : "user",
+          pinned: false, content, status: "done", ...(i % 2 ? { model: "claude-sonnet-5-5" } : {}),
+        }));
+      await ctx.db.patch("threads", id, { activeLeafId: ids.at(-1) });
+      return { id, ids };
+    });
+  }
+
+  test("sends a frozen copy of the thread's branch, linked back to it", async () => {
+    const s = await setup();
+    fake = fakeFetch({ [MESSAGES_URL]: { body: sse(textDelta("ok"), messageStop) } });
+    const source = await threadWith(s, "Kyoto trip", ["Plan Kyoto", "Day 1: Fushimi Inari"]);
+    const doc = await s.owner.mutation(api.documents.fromThread, { threadId: source.id });
+    expect(doc.name).toBe("Kyoto trip");
+    await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Shorten it", documents: [doc.documentId] });
+    await s.settle();
+    expect(s.firstUserText()).toBe(
+      '<document name="Kyoto trip">\nConversation from the thread "Kyoto trip", started 2026-11-01.\n\nUser:\nPlan Kyoto\n\n' +
+        "Assistant (claude-sonnet-5-5):\nDay 1: Fushimi Inari\n</document>\n\nShorten it",
+    );
+    expect((await s.thread()).messages[0].documents).toEqual([{ name: "Kyoto trip", tokens: doc.tokens, fromThreadId: source.id }]);
+
+    const stranger = s.t.withIdentity({ subject: `${await s.t.run((ctx) => ctx.db.insert("users", { email: "x" }))}|session` });
+    await expect(stranger.mutation(api.documents.fromThread, { threadId: source.id })).rejects.toThrow("Thread not found");
+  });
+
+  test("a long thread goes as its condense summary plus later turns; without one it is refused", async () => {
+    const s = await setup();
+    const long = "z".repeat(400_000);
+    const source = await threadWith(s, "Long", [long, "reply", "Next question", "Next answer"]);
+    await expect(s.owner.mutation(api.documents.fromThread, { threadId: source.id })).rejects.toThrow("Long is about 100k tokens; the limit is 100k. Condense it first.");
+
+    await s.t.run(async (ctx) => {
+      const ownerId = (await ctx.db.get("threads", source.id))!.ownerId;
+      await ctx.db.insert("checkpoints", { ownerId, threadId: source.id, coversUpToId: source.ids[1], summary: "They talked at length.", tokens: 5 });
+    });
+    const doc = await s.owner.mutation(api.documents.fromThread, { threadId: source.id });
+    expect(await s.t.run(async (ctx) => (await ctx.db.get("documents", doc.documentId))!.text)).toBe(
+      'Conversation from the thread "Long", started 2026-11-01.\n\nSummary of the earlier conversation:\nThey talked at length.\n\n' +
+        "User:\nNext question\n\nAssistant (claude-sonnet-5-5):\nNext answer",
+    );
   });
 });

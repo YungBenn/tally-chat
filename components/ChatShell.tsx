@@ -26,6 +26,7 @@ import { useParams, usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import BrandMark from "@/components/BrandMark";
 import BudgetMeter from "@/components/BudgetMeter";
+import { THREAD_DRAG_TYPE } from "@/components/Composer";
 import { Button, IconButton } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/feedback";
 import { Dialog, Menu, MenuItem, MenuSeparator, Sheet } from "@/components/ui/overlay";
@@ -127,6 +128,11 @@ function ThreadItem({
           onClick={onNavigate}
           aria-current={active ? "page" : undefined}
           className="tc-thread-link"
+          // Dropped on the composer, it mentions this thread.
+          onDragStart={(e) => {
+            e.dataTransfer.setData(THREAD_DRAG_TYPE, JSON.stringify({ id, title }));
+            e.dataTransfer.effectAllowed = "copyLink";
+          }}
         >
           <span className="tc-thread-title">{title}</span>
         </Link>

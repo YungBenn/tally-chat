@@ -127,6 +127,7 @@ export default defineSchema({
     name: v.string(),
     text: v.string(),
     tokens: v.number(),
+    fromThreadId: v.optional(v.id("threads")), // a mentioned thread's copy (documents.fromThread)
   }).index("by_threadId", ["threadId"]),
   // The web search run for a user message (lib/webSearch), written once before its first reply.
   searches: defineTable({
