@@ -45,6 +45,7 @@ export default defineSchema({
     providerId: v.id("providers"),
     modelId: v.string(),
     systemPromptVersion: v.number(),
+    instructions: v.optional(v.string()), // the owner's custom instructions when the thread began
     activeLeafId: v.optional(v.id("messages")),
     titleRequested: v.optional(v.boolean()), // the side-job title runs once per thread
     lastActiveAt: v.optional(v.number()), // owner focused on or typing in the thread (keepalive presence)
@@ -183,6 +184,7 @@ export default defineSchema({
   }).index("by_ownerId", ["ownerId"]),
   settings: defineTable({
     ownerId: v.id("users"),
+    customInstructions: v.optional(v.string()), // copied onto each new thread; absent = none
     allowlistedHosts: v.array(v.string()), // private hosts the URL guard lets through, e.g. "192.168.1.20:11434"
     // Model for work the user didn't ask for directly (titles now, condensing later).
     // Unset: the cheapest priced model of the thread's own provider.

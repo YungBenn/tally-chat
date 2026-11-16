@@ -16,7 +16,6 @@ import {
   SUMMARY_PROMPTS,
 } from "./lib/condense";
 import { streamOpenAICompatible } from "./lib/openaiCompatible";
-import { SYSTEM_PROMPTS } from "./lib/systemPrompts";
 import { appendChunk } from "./lib/textStream";
 import type { NormalizedUsage } from "./lib/usage";
 import { decryptSecret } from "./lib/vault";
@@ -102,7 +101,7 @@ export const generate = internalAction({
           baseUrl: input.provider.baseUrl,
           apiKey: await decryptSecret(input.provider.apiKeyEncrypted),
           model: input.model,
-          system: SYSTEM_PROMPTS[input.systemPromptVersion],
+          system: input.system,
           messages: await loadImages(ctx, input.history),
           maxTokens: input.maxTokens,
           effort: input.effort,
@@ -308,7 +307,7 @@ export const keepalive = internalAction({
           baseUrl: input.provider.baseUrl,
           apiKey: await decryptSecret(input.provider.apiKeyEncrypted),
           model: input.model,
-          system: SYSTEM_PROMPTS[input.systemPromptVersion],
+          system: input.system,
           messages: await loadImages(ctx, input.history),
           effort: input.effort,
           cache: { ttl: input.ttl, layerEnd: input.layerEnd },
