@@ -1,7 +1,7 @@
 "use client";
 
-import { IconArrowUp, IconFileText, IconPaperclip, IconPlayerStopFilled, IconX } from "@tabler/icons-react";
-import { useAction, useMutation } from "convex/react";
+import { IconArrowUp, IconFileText, IconMessages, IconPaperclip, IconPlayerStopFilled, IconX } from "@tabler/icons-react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button, IconButton } from "@/components/ui/button";
@@ -15,6 +15,15 @@ import { ACCEPT_ATTRIBUTE, prepareAndUpload } from "@/lib/imageUpload";
 import { SHORTCUTS } from "@/lib/shortcuts";
 import { useShortcut, useShortcutLabel } from "@/lib/useShortcut";
 import { cn } from "@/lib/utils";
+
+// Dragged from the sidebar onto the composer to mention a thread: {"id", "title"}.
+export const THREAD_DRAG_TYPE = "application/x-tally-thread";
+
+// "@query" right before the caret, at the start or after whitespace: a thread mention being typed.
+function mentionAt(value: string, caret: number) {
+  const m = /(?:^|\s)@([^@\n]{0,40})$/.exec(value.slice(0, caret));
+  return m ? { start: caret - m[1].length - 1, query: m[1] } : null;
+}
 
 /**
  * Where the user writes (design system: Composer). Raised at rest; while focused the edge becomes
@@ -34,6 +43,7 @@ export default function Composer({
   onImagesChange,
   onDocumentsChange,
   attachNote,
+  threadId,
   streaming = false,
   disabled = false,
   paused = false,
@@ -44,6 +54,7 @@ export default function Composer({
   onImagesChange?: (images: MessageImage[]) => void; // the cost strip prices attached images
   onDocumentsChange?: (tokens: number) => void; // ...and attached documents' text
   attachNote?: string; // a cache note about the attached images
+  threadId?: Id<"threads">; // the open thread, which can't mention itself
   onStop?: () => void;
   onType?: () => void;
   onDraftChange?: (text: string) => void; // the inspector and cost strip price the draft
@@ -64,14 +75,32 @@ export default function Composer({
   const [attached, setAttached] = useState<
     (
       | { kind: "image"; key: number; name: string; preview: string; image?: MessageImage }
-      | { kind: "document"; key: number; name: string; doc?: { id: Id<"documents">; tokens: number } }
+      | {
+          kind: "document";
+          key: number;
+          name: string;
+          thread?: Id<"threads">; // a mentioned thread rather than a file
+          doc?: { id: Id<"documents">; tokens: number };
+        }
     )[]
   >([]);
   const [dragging, setDragging] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
+  const lastKey = useRef(0); // attachment keys
   const uploadUrl = useMutation(api.chat.generateImageUploadUrl);
   const extract = useAction(api.documentActions.extract);
+  const fromThread = useMutation(api.documents.fromThread);
+  const threads = useQuery(api.chat.listThreads);
+  // The @ thread picker: open while "@query" sits before the caret and some title matches.
+  const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
+  const [pick, setPick] = useState(0);
+  const matches =
+    mention && threads
+      ? threads
+          .filter((t) => t._id !== threadId && t.title.toLowerCase().includes(mention.query.trim().toLowerCase()))
+          .slice(0, 6)
+      : [];
   const uploading = attached.some((a) => (a.kind === "image" ? !a.image : !a.doc));
   const ready = attached.flatMap((a) => (a.kind === "image" && a.image ? [a.image] : []));
   const readyDocs = attached.flatMap((a) => (a.kind === "document" && a.doc ? [a.doc] : []));
@@ -99,7 +128,7 @@ export default function Composer({
   useShortcut(SHORTCUTS.attach, () => fileInput.current?.click(), !off);
 
   async function attachImage(file: File) {
-    const key = Math.random();
+    const key = ++lastKey.current;
     const preview = URL.createObjectURL(file);
     setAttached((list) => [...list, { kind: "image", key, name: file.name || "Pasted image", preview }]);
     try {
@@ -113,7 +142,7 @@ export default function Composer({
 
   // Uploads the file, then the server reads its text once (documents.extract).
   async function attachDocument(file: File) {
-    const key = Math.random();
+    const key = ++lastKey.current;
     setAttached((list) => [...list, { kind: "document", key, name: file.name }]);
     try {
       const res = await fetch(await uploadUrl(), { method: "POST", body: file });
@@ -128,6 +157,38 @@ export default function Composer({
       // A ConvexError says what is wrong with the file; anything else is a server fault.
       setError(err instanceof ConvexError ? String(err.data) : `Could not read ${file.name}`);
     }
+  }
+
+  // Copies the thread's branch into a document now (documents.fromThread), priced like a file.
+  async function mentionThread(id: Id<"threads">, title: string) {
+    setError(null);
+    if (id === threadId) return setError("A thread can't mention itself");
+    if (attached.some((a) => a.kind === "document" && a.thread === id)) return;
+    if (attached.filter((a) => a.kind === "document").length >= MAX_DOCUMENTS_PER_MESSAGE)
+      return setError(`At most ${MAX_DOCUMENTS_PER_MESSAGE} documents per message`);
+    const key = ++lastKey.current;
+    setAttached((list) => [...list, { kind: "document", key, name: title, thread: id }]);
+    try {
+      const doc = await fromThread({ threadId: id });
+      setAttached((list) =>
+        list.map((a) => (a.key === key ? { ...a, doc: { id: doc.documentId, tokens: doc.tokens } } : a)),
+      );
+    } catch (err) {
+      setAttached((list) => list.filter((a) => a.key !== key));
+      setError(err instanceof ConvexError ? String(err.data) : `Could not mention ${title}`);
+    }
+  }
+
+  // Replaces the typed "@query" with nothing and mentions the chosen thread.
+  function chooseMention(t: { _id: Id<"threads">; title: string }) {
+    if (!mention) return;
+    const end = mention.start + 1 + mention.query.length;
+    const next = text.slice(0, mention.start) + text.slice(end);
+    setText(next);
+    onDraftChange?.(next);
+    setMention(null);
+    requestAnimationFrame(() => box.current?.setSelectionRange(mention.start, mention.start));
+    void mentionThread(t._id, t.title);
   }
 
   function attach(files: File[]) {
@@ -182,7 +243,8 @@ export default function Composer({
           if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false);
         }}
         onDragOver={(e) => {
-          if (off || !e.dataTransfer.types.includes("Files")) return;
+          const types = e.dataTransfer.types;
+          if (off || !(types.includes("Files") || types.includes(THREAD_DRAG_TYPE))) return;
           e.preventDefault();
           setDragging(true);
         }}
@@ -191,7 +253,11 @@ export default function Composer({
           if (off) return;
           e.preventDefault();
           setDragging(false);
-          attach([...e.dataTransfer.files]);
+          const thread = e.dataTransfer.getData(THREAD_DRAG_TYPE);
+          if (thread) {
+            const { id, title } = JSON.parse(thread) as { id: Id<"threads">; title: string };
+            void mentionThread(id, title);
+          } else attach([...e.dataTransfer.files]);
         }}
         onPaste={(e) => {
           const files = [...e.clipboardData.files];
@@ -209,7 +275,7 @@ export default function Composer({
                     // eslint-disable-next-line @next/next/no-img-element -- a local blob preview
                     <img src={a.preview} alt="" />
                   ) : a.kind === "document" && a.doc ? (
-                    <IconFileText size={16} stroke={1.5} />
+                    a.thread ? <IconMessages size={16} stroke={1.5} /> : <IconFileText size={16} stroke={1.5} />
                   ) : (
                     <Spinner size={14} label={a.kind === "image" ? "Uploading" : "Reading"} />
                   )}
@@ -240,6 +306,29 @@ export default function Composer({
           </div>
         )}
         {attachNote && attached.length > 0 && <p className="tc-composer-note">{attachNote}</p>}
+        {matches.length > 0 && (
+          <div id="mention-list" role="listbox" aria-label="Mention a thread" className="tc-float tc-menu tc-mention tc-pop">
+            {matches.map((t, i) => (
+              <div
+                key={t._id}
+                id={`mention-${i}`}
+                role="option"
+                aria-selected={i === Math.min(pick, matches.length - 1)}
+                data-highlighted={i === Math.min(pick, matches.length - 1) ? "true" : undefined}
+                className="tc-menu-item"
+                // mousedown, not click: keep the caret in the box.
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  chooseMention(t);
+                }}
+                onMouseEnter={() => setPick(i)}
+              >
+                <IconMessages size={16} stroke={1.5} className="shrink-0 text-foreground-subtle" />
+                <span className="tc-menu-text truncate">{t.title}</span>
+              </div>
+            ))}
+          </div>
+        )}
         <textarea
           ref={box}
           id="composer"
@@ -249,12 +338,39 @@ export default function Composer({
           value={text}
           disabled={off}
           placeholder={paused ? "Paused by daily budget" : placeholder}
+          role="combobox"
+          aria-expanded={matches.length > 0}
+          aria-controls={matches.length > 0 ? "mention-list" : undefined}
+          aria-activedescendant={matches.length > 0 ? `mention-${Math.min(pick, matches.length - 1)}` : undefined}
+          aria-autocomplete="list"
+          onBlur={() => setMention(null)}
           onChange={(e) => {
+            const next = mentionAt(e.target.value, e.target.selectionStart);
+            if (next?.query !== mention?.query) setPick(0);
+            setMention(next);
             setText(e.target.value);
             onDraftChange?.(e.target.value);
             onType?.();
           }}
           onKeyDown={(e) => {
+            if (matches.length > 0) {
+              const current = Math.min(pick, matches.length - 1);
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                setPick((current + (e.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length);
+                return;
+              }
+              if ((e.key === "Enter" || e.key === "Tab") && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                chooseMention(matches[current]);
+                return;
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setMention(null);
+                return;
+              }
+            }
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
               void submit();

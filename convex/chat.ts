@@ -204,7 +204,15 @@ const messageView = v.object({
       }),
     ),
   ),
-  documents: v.optional(v.array(v.object({ name: v.string(), tokens: v.number() }))),
+  documents: v.optional(
+    v.array(
+      v.object({
+        name: v.string(),
+        tokens: v.number(),
+        fromThreadId: v.optional(v.id("threads")),
+      }),
+    ),
+  ),
   // User messages that searched the web: pending until the search before the reply finishes.
   search: v.optional(
     v.object({
@@ -304,7 +312,11 @@ export const getThread = query({
             )
           : undefined,
         search: m.search ? await searchView(ctx, m._id) : undefined,
-        documents: m.documents?.map(({ name, tokens }) => ({ name, tokens })),
+        documents: m.documents?.map(({ name, tokens, fromThreadId }) => ({
+          name,
+          tokens,
+          fromThreadId,
+        })),
       })),
     );
     const { checkpoint } = await assembleHistory(
@@ -383,7 +395,12 @@ async function claimDocuments(
     if (doc.threadId)
       throw new ConvexError(`${doc.name} was already sent; attach it again`);
     await ctx.db.patch("documents", id, { threadId: thread._id });
-    refs.push({ id, name: doc.name, tokens: doc.tokens });
+    refs.push({
+      id,
+      name: doc.name,
+      tokens: doc.tokens,
+      ...(doc.fromThreadId ? { fromThreadId: doc.fromThreadId } : {}),
+    });
   }
   return refs;
 }

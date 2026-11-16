@@ -12,6 +12,7 @@ import {
   IconTrash,
   IconDownload,
   IconFileText,
+  IconMessages,
 } from "@tabler/icons-react";
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
@@ -117,7 +118,7 @@ function UserMessage({
   documents,
 }: {
   search?: React.ComponentProps<typeof SearchSources>["search"];
-  documents?: { name: string; tokens: number }[];
+  documents?: { name: string; tokens: number; fromThreadId?: Id<"threads"> }[];
   editRequest: number | null; // bumped when ↑ in an empty composer asks to edit this message
   mode: OutputMode;
   highlighted: boolean;
@@ -210,17 +211,29 @@ function UserMessage({
           )}
           {documents && documents.length > 0 && (
             <div className="flex flex-wrap justify-end gap-2">
-              {documents.map((d, i) => (
-                <span key={i} className="tc-attach">
-                  <span className="tc-attach-thumb">
-                    <IconFileText size={16} stroke={1.5} />
+              {documents.map((d, i) => {
+                const body = (
+                  <>
+                    <span className="tc-attach-thumb">
+                      {d.fromThreadId ? <IconMessages size={16} stroke={1.5} /> : <IconFileText size={16} stroke={1.5} />}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block max-w-48 truncate">{d.name}</span>
+                      <small>~{tokens(d.tokens)} tok</small>
+                    </span>
+                  </>
+                );
+                // A mentioned thread links back to it (the copy sent is from when it was mentioned).
+                return d.fromThreadId ? (
+                  <Link key={i} href={`/t/${d.fromThreadId}`} className="tc-attach tc-attach-link" title={`Open ${d.name}`}>
+                    {body}
+                  </Link>
+                ) : (
+                  <span key={i} className="tc-attach">
+                    {body}
                   </span>
-                  <span className="min-w-0">
-                    <span className="block max-w-48 truncate">{d.name}</span>
-                    <small>~{tokens(d.tokens)} tok</small>
-                  </span>
-                </span>
-              ))}
+                );
+              })}
             </div>
           )}
           <div className="tc-user-bubble">{text}</div>
@@ -786,6 +799,7 @@ export default function ThreadPage() {
             {!atBottom && <JumpToLatest onClick={toBottom} />}
           </div>
           <Composer
+            threadId={threadId}
             streaming={streaming}
             onStop={() => last && void stop({ messageId: last._id })}
             onType={markActive}
