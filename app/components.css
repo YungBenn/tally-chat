@@ -250,6 +250,9 @@ textarea.tc-input { height: auto; min-height: 84px; padding: 10px 12px; resize: 
 
 /* Code block */
 .tc-code { border: 1px solid var(--border); border-radius: var(--radius-popover); background: var(--surface-sunken); overflow: hidden; font: 400 13px/20px var(--font-mono); font-variant-ligatures: none; }
+.tc-mermaid { padding: 16px; overflow-x: auto; background: var(--surface-raised); }
+.tc-mermaid svg { display: block; margin: 0 auto; height: auto; }
+.tc-prose .katex-display { margin: 12px 0; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
 .tc-code-head { display: flex; align-items: center; justify-content: space-between; height: 34px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--border); background: var(--surface-raised); }
 .tc-code-lang { font: 500 11px/1 var(--font-mono); color: var(--foreground-subtle); letter-spacing: 0.02em; display: flex; align-items: center; gap: 8px; }
 .tc-code code, .tc-prose .tc-code code { font: inherit; background: none; border: 0; padding: 0; border-radius: 0; }

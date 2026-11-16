@@ -1,11 +1,16 @@
 "use client";
 
 import { IconCheck, IconCopy, IconFileText } from "@tabler/icons-react";
-import { memo, useState } from "react";
+import "katex/dist/katex.min.css";
+import { memo, useEffect, useId, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
+import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import { Button, IconButton } from "@/components/ui/button";
+import { normalizeMath } from "@/lib/mathDelimiters";
+import { useMedia } from "@/lib/useMedia";
 
 function useCopy(text: string) {
   const [copied, setCopied] = useState(false);
@@ -39,12 +44,70 @@ function textOf(node: React.ReactNode): string {
   return "";
 }
 
+// Mermaid sizes a diagram to shrink with its container, which leaves a phone unreadable labels.
+// Drawn at its own width instead, a wide diagram scrolls sideways like a code block.
+function naturalSize(svg: string) {
+  const el = new DOMParser().parseFromString(svg, "image/svg+xml").documentElement as unknown as SVGSVGElement;
+  el.setAttribute("width", String(el.viewBox.baseVal.width));
+  el.style.maxWidth = "";
+  return el.outerHTML;
+}
+
+/**
+ * A mermaid block as a diagram, once its source parses (so a block still streaming in shows as
+ * code). Mermaid loads only when a reply has a diagram, and redraws with the color scheme.
+ */
+function useMermaid(source: string | null) {
+  const id = `mermaid-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
+  const dark = useMedia("(prefers-color-scheme: dark)");
+  const [svg, setSvg] = useState<string | null>(null);
+  useEffect(() => {
+    if (source === null) return;
+    let live = true;
+    const timer = setTimeout(async () => {
+      const { default: mermaid } = await import("mermaid");
+      // Mermaid derives shades from real colors, so it gets the design tokens' resolved values.
+      const css = getComputedStyle(document.documentElement);
+      const token = (name: string) => css.getPropertyValue(name).trim();
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: "strict",
+        theme: "base",
+        look: "classic", // flat, like the rest of the design system (neo adds shadows and gradients)
+        themeVariables: {
+          darkMode: dark,
+          background: token("--surface-raised"),
+          primaryColor: token("--surface-sunken"),
+          primaryTextColor: token("--foreground"),
+          primaryBorderColor: token("--border-strong"),
+          secondaryColor: token("--surface-sunken"),
+          tertiaryColor: token("--surface-raised"),
+          lineColor: token("--foreground-muted"),
+          textColor: token("--foreground"),
+          fontFamily: getComputedStyle(document.body).fontFamily,
+          fontSize: "14px",
+        },
+      });
+      const ok = await mermaid.parse(source, { suppressErrors: true });
+      const out = ok ? await mermaid.render(id, source).catch(() => null) : null;
+      if (live) setSvg(out ? naturalSize(out.svg) : null);
+    }, 250);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [source, dark, id]);
+  return svg;
+}
+
 /** Fenced code (design system: CodeBlock): language header, copy, never wraps. */
 function CodeBlock({ children }: { children?: React.ReactNode }) {
   const code = Array.isArray(children) ? children[0] : children;
   const className = (code as { props?: { className?: string } })?.props?.className ?? "";
   const lang = /language-([\w-]+)/.exec(className)?.[1] ?? "text";
-  const [copied, copy] = useCopy(textOf(children).replace(/\n$/, ""));
+  const source = textOf(children).replace(/\n$/, "");
+  const [copied, copy] = useCopy(source);
+  const diagram = useMermaid(lang === "mermaid" ? source : null);
   return (
     <div className="tc-code">
       <div className="tc-code-head">
@@ -56,7 +119,12 @@ function CodeBlock({ children }: { children?: React.ReactNode }) {
           {copied ? "Copied" : "Copy"}
         </Button>
       </div>
-      <pre>{children}</pre>
+      {diagram ? (
+        // securityLevel "strict": mermaid sanitizes the SVG it returns.
+        <div className="tc-mermaid" dangerouslySetInnerHTML={{ __html: diagram }} />
+      ) : (
+        <pre>{children}</pre>
+      )}
     </div>
   );
 }
@@ -66,8 +134,8 @@ export default memo(function Markdown({ text, className }: { text: string; class
   return (
     <div className={className ?? "tc-prose"}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[[rehypeHighlight, { detect: false }]]}
+        remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
+        rehypePlugins={[[rehypeHighlight, { detect: false }], rehypeKatex]}
         components={{
           pre: CodeBlock,
           a: (props) => <a {...props} target="_blank" rel="noreferrer" />,
@@ -78,7 +146,7 @@ export default memo(function Markdown({ text, className }: { text: string; class
           ),
         }}
       >
-        {text}
+        {normalizeMath(text)}
       </ReactMarkdown>
     </div>
   );
