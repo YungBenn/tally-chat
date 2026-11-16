@@ -10,6 +10,7 @@ import {
   IconRefresh,
   IconArrowsExchange,
   IconTrash,
+  IconDownload,
 } from "@tabler/icons-react";
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
@@ -39,7 +40,8 @@ import {
   ThinkingIndicator,
   CacheBreakDialog,
 } from "@/components/Messages";
-import { Dialog, Tooltip } from "@/components/ui/overlay";
+import { Dialog, Menu, MenuItem, Tooltip } from "@/components/ui/overlay";
+import { exportFileName, toJson, toMarkdown } from "@/lib/exportThread";
 import { SHORTCUTS } from "@/lib/shortcuts";
 import { useShortcut, useShortcutLabel } from "@/lib/useShortcut";
 import { COMPACT, useMedia } from "@/lib/useMedia";
@@ -283,6 +285,16 @@ function Condensed<M extends { _id: Id<"messages">; pinned: boolean }>({
       )}
     </section>
   );
+}
+
+// Saves text as a file through a temporary link.
+function download(name: string, text: string, type: string) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export default function ThreadPage() {
@@ -648,6 +660,19 @@ export default function ThreadPage() {
             />
           )}
           <span className="flex-1" />
+          {thread && (
+            <Menu
+              align="end"
+              trigger={<IconButton icon={<IconDownload />} label="Export thread" />}
+            >
+              <MenuItem onClick={() => download(exportFileName(thread.title, "md"), toMarkdown(thread, new Date()), "text/markdown")}>
+                Markdown
+              </MenuItem>
+              <MenuItem onClick={() => download(exportFileName(thread.title, "json"), toJson(thread, new Date()), "application/json")}>
+                JSON, with usage and cost
+              </MenuItem>
+            </Menu>
+          )}
           <IconButton
             icon={<IconTrash />}
             label="Delete thread"
