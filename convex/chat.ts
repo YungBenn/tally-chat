@@ -731,6 +731,9 @@ async function replyProvider(
     (m) => m.id === replyModel.modelId && !m.hidden,
   );
   if (!model) throw new ConvexError("Model not available");
+  // The thread's tool history can't go to a model that can't call tools (spec phase 10).
+  if (thread.toolSet?.length && !supportsTools(provider, model.id))
+    throw new ConvexError("This model can't call the tools this thread uses");
   if (!model.vision) {
     const branch = await Promise.all(
       user.ancestorIds.map((id) => ctx.db.get("messages", id)),

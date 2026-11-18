@@ -28,7 +28,7 @@ import {
   usageValidator,
   type Usage,
 } from "./lib/usage";
-import { freezeTools, toDefinition } from "./lib/toolSet";
+import { freezeTools, supportsTools, toDefinition } from "./lib/toolSet";
 import { requireOwner } from "./owner";
 import { SEARCH_TOKENS_ESTIMATE } from "./lib/webSearch";
 
@@ -661,6 +661,7 @@ export const modelEstimates = query({
       modelId: v.string(),
       name: v.string(),
       thread: v.boolean(),
+      tools: v.boolean(), // can call tools: a thread that uses tools can only be answered by these
       costMicroUsd: v.union(v.null(), v.number()),
     }),
   ),
@@ -730,6 +731,7 @@ export const modelEstimates = query({
             modelId: m.id,
             name: `${provider.name} · ${m.displayName}`,
             thread: own,
+            tools: supportsTools(provider, m.id),
             costMicroUsd: p
               ? Math.round(
                   (prefix * historyPrice +

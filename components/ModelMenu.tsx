@@ -63,10 +63,15 @@ export default function ModelMenu({
   // When the list opened: the thread's cache state is judged at that moment.
   const [openedAt, setOpenedAt] = useState<number | null>(null);
   const providers = useQuery(api.providers.list);
-  const rows = useQuery(
+  const allRows = useQuery(
     api.inspector.modelEstimates,
     openedAt === null ? "skip" : { threadId, now: openedAt, draftTokens, maxOutputTokens, retryOf },
   );
+  // A thread that uses tools can only be answered by models that can call them.
+  const tools = useQuery(api.chat.threadTools, openedAt === null ? "skip" : { threadId });
+  const needTools = (tools?.picks.length ?? 0) > 0;
+  const hidden = needTools ? (allRows?.filter((r) => !r.tools).length ?? 0) : 0;
+  const rows = needTools ? allRows?.filter((r) => r.tools) : allRows;
   useShortcut(SHORTCUTS.modelPicker, () => setOpenedAt(openedAt === null ? Date.now() : null), !!hotkey);
   const providerName = (id: Id<"providers">) => providers?.find((p) => p._id === id)?.name ?? "";
   const groups = [...new Set(rows?.map((r) => r.providerId))];
@@ -80,6 +85,11 @@ export default function ModelMenu({
     >
       <MenuLabel>{title}</MenuLabel>
       {rows === undefined && <p className="px-2 py-2 text-body-sm text-foreground-subtle">Pricing…</p>}
+      {hidden > 0 && (
+        <p className="px-2 pb-1 text-caption text-foreground-subtle">
+          {hidden} {hidden === 1 ? "model is" : "models are"} hidden: this thread uses tools they can&apos;t call.
+        </p>
+      )}
       {groups.map((g) => (
         <div key={g} role="group" aria-label={providerName(g)}>
           {groups.length > 1 && <div className="tc-menu-group">{providerName(g)}</div>}
