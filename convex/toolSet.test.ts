@@ -11,8 +11,6 @@ import {
   oaiDelta,
   oaiDone,
   oaiFinish,
-  oaiToolCall,
-  oaiToolFinish,
   sse,
   textDelta,
 } from "../test/sse";
@@ -176,19 +174,6 @@ describe("freezing a tool set", () => {
       { type: "function", function: { name: "docs__read_file", parameters: { type: "object" } } },
     ]);
     expect(JSON.stringify(sent[1])).toBe(JSON.stringify(sent[0]));
-  });
-});
-
-describe("a model that asks for a tool", () => {
-  test("OpenAI-compatible: the reply ends with the not-wired-up note, not a crash", async () => {
-    const s = await setup();
-    fake!.restore();
-    fake = fakeFetch({ [OPENAI]: { body: oaiToolCall(0, "call_1", "docs__search", '{"q":"x"}') + oaiToolFinish({ prompt_tokens: 10, completion_tokens: 2 }) + oaiDone } });
-    const threadId = await s.thread(s.openaiId, "gpt-5");
-    await s.send(threadId, "Hi");
-    const reply = (await s.owner.query(api.chat.getThread, { threadId }))!.messages[1];
-    expect(reply.status).toBe("done");
-    expect(reply.text).toBe("[The model asked to use a tool (docs__search), but tools aren't wired up yet.]");
   });
 });
 

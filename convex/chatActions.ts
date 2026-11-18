@@ -118,8 +118,6 @@ export const generate = internalAction({
     try {
       if (!input.provider)
         throw new ConvexError("This thread's provider was deleted");
-      // ponytail: only Anthropic-style providers run the loop until phase 10 ticket 05; others
-      // end the reply with a note when the model asks for a tool.
       const anthropic = input.provider.apiStyle === "anthropic";
       const stream = anthropic
         ? streamAnthropicMessage
@@ -183,12 +181,6 @@ export const generate = internalAction({
           await finish("stopped");
           return null;
         }
-      }
-      if (toolCalls.length && !anthropic) {
-        const note = `${full ? "\n\n" : ""}[The model asked to use a tool (${toolCalls.map((c) => c.name).join(", ")}), but tools aren't wired up yet.]`;
-        full += note;
-        pending += note;
-        toolCalls.length = 0;
       }
       await finish("done");
     } catch (err) {

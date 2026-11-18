@@ -42,7 +42,7 @@ export const chatMessageValidator = v.object({
     ),
   ),
   toolResults: v.optional(
-    v.array(v.object({ id: v.string(), text: v.string(), isError: v.boolean() })),
+    v.array(v.object({ id: v.string(), name: v.string(), text: v.string(), isError: v.boolean() })),
   ),
 });
 
@@ -103,7 +103,7 @@ export function expandParts(parts: Part[]): ChatMessage[] {
         toolResults: calls.flatMap((c) => {
           const r = c.type === "toolCall" ? results.get(c.id) : undefined;
           return c.type === "toolCall" && r && r.type === "toolResult"
-            ? [{ id: c.id, text: r.text, isError: r.status !== "ok" }]
+            ? [{ id: c.id, name: c.name, text: r.text, isError: r.status !== "ok" }]
             : [];
         }),
       });

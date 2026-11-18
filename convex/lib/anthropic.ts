@@ -77,7 +77,7 @@ export type AssistantBlock =
   | { type: "redacted_thinking"; data: string }
   | { type: "text"; text: string }
   | { type: "tool_use"; id: string; name: string; input: string };
-export type ToolResultBlock = { id: string; text: string; isError: boolean };
+export type ToolResultBlock = { id: string; name: string; text: string; isError: boolean };
 export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
