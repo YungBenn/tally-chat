@@ -28,7 +28,7 @@ import {
   usageValidator,
   type Usage,
 } from "./lib/usage";
-import { toDefinition } from "./lib/toolSet";
+import { freezeTools, toDefinition } from "./lib/toolSet";
 import { requireOwner } from "./owner";
 import { SEARCH_TOKENS_ESTIMATE } from "./lib/webSearch";
 
@@ -585,6 +585,58 @@ export const turn = query({
         free || priceFor(model)?.input !== undefined
           ? savedFor(free, model, m.usage)
           : null,
+    };
+  },
+});
+
+// What changing a thread's tool set costs (spec phase 10): the definitions are the top of every
+// request, so the next one writes the whole prefix again, with the new tools in it. `extra` is that
+// rewrite less what the next send would have cost as it is (a cache read while warm), in micro-USD;
+// null when the model has no price.
+export const toolChange = query({
+  args: {
+    threadId: v.id("threads"),
+    now: v.number(),
+    tools: v.array(v.object({ serverId: v.id("toolServers"), tool: v.string() })),
+  },
+  returns: v.object({
+    newToolTokens: v.number(),
+    prefixTokens: v.number(), // what the next request repeats, with the new tools
+    extraMicroUsd: v.union(v.null(), v.number()),
+  }),
+  handler: async (ctx, { threadId, now, tools }) => {
+    const ownerId = await requireOwner(ctx);
+    const thread = await ctx.db.get("threads", threadId);
+    if (!thread || thread.ownerId !== ownerId)
+      return { newToolTokens: 0, prefixTokens: 0, extraMicroUsd: null };
+    const provider = await ctx.db.get("providers", thread.providerId);
+    const branch = await activeBranch(ctx, thread);
+    const layers = await contextLayers(ctx, thread, branch);
+    const servers = await ctx.db
+      .query("toolServers")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+      .take(100);
+    const frozen = freezeTools(servers, tools);
+    const newToolTokens = frozen.length
+      ? estimateTokens(JSON.stringify(frozen.map(toDefinition)))
+      : 0;
+    const oldToolTokens = layers.find((l) => l.kind === "tools")?.tokens ?? 0;
+    const current = layers.reduce((sum, l) => sum + l.tokens, 0);
+    const prefixTokens = current - oldToolTokens + newToolTokens;
+    const p = nextPrices(provider, thread.modelId, thread.cacheTtl ?? "5m");
+    if (!p) return { newToolTokens, prefixTokens, extraMicroUsd: null };
+    // Anthropic-style: the rewrite is a cache write, and continuing reads while the cache is warm.
+    // Elsewhere the provider caches on its own: a rewrite pays input prices.
+    const managed = provider?.apiStyle === "anthropic";
+    const warm = managed
+      ? cacheState(cacheExpiresAt(thread), now).state !== "cold"
+      : true;
+    const rewrite = prefixTokens * (managed ? p.cacheWrite : p.input);
+    const continuing = current * (warm ? p.cacheRead : managed ? p.cacheWrite : p.input);
+    return {
+      newToolTokens,
+      prefixTokens,
+      extraMicroUsd: Math.max(0, Math.round((rewrite - continuing) * 1e6)),
     };
   },
 });

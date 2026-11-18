@@ -11,7 +11,12 @@ import {
 } from "./_generated/server";
 import { CURRENT_SYSTEM_PROMPT_VERSION, systemPrompt } from "./lib/systemPrompts";
 import { cacheExpiresAt, cacheTtlValidator } from "./lib/cacheStatus";
-import { keepalivePending, restartKeepalive, touchedCache } from "./keepalive";
+import {
+  keepalivePending,
+  restartKeepalive,
+  touchedCache,
+  warmAfterCondense,
+} from "./keepalive";
 import { coveredIds, scheduleCondense } from "./condense";
 import { assertWithinBudget, BUDGET_REACHED, budgetReached } from "./lib/budget";
 import { assembleHistory } from "./lib/context";
@@ -100,11 +105,14 @@ export const toRow = (t: Doc<"threads">) => ({
   pinned: t.pinnedAt !== undefined,
 });
 
+// A sidebar row also says whether the thread's model can call tools (the "Change tools" action).
+const listRow = v.object({ ...threadRow.fields, tools: v.boolean() });
+
 // Pinned threads (most recently pinned first), then the owner's 100 most recently started
 // unpinned threads, newest first.
 export const listThreads = query({
   args: {},
-  returns: v.array(threadRow),
+  returns: v.array(listRow),
   handler: async (ctx) => {
     const ownerId = await requireOwner(ctx);
     const pinned = await ctx.db
@@ -119,9 +127,63 @@ export const listThreads = query({
       .withIndex("by_ownerId_and_startedAt", (q) => q.eq("ownerId", ownerId))
       .order("desc")
       .take(100);
-    return [...pinned, ...recent.filter((t) => t.pinnedAt === undefined)].map(
-      toRow,
-    );
+    const providers = new Map<Id<"providers">, Doc<"providers"> | null>();
+    const rows = [...pinned, ...recent.filter((t) => t.pinnedAt === undefined)];
+    for (const t of rows)
+      if (!providers.has(t.providerId))
+        providers.set(t.providerId, await ctx.db.get("providers", t.providerId));
+    return rows.map((t) => ({
+      ...toRow(t),
+      tools: supportsTools(providers.get(t.providerId) ?? null, t.modelId),
+    }));
+  },
+});
+
+// The tools a thread carries now, for the "Change tools" dialog's starting picks.
+export const threadTools = query({
+  args: { threadId: v.id("threads") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      capable: v.boolean(),
+      picks: v.array(toolPickValidator),
+    }),
+  ),
+  handler: async (ctx, { threadId }) => {
+    const ownerId = await requireOwner(ctx);
+    const thread = await ctx.db.get("threads", threadId);
+    if (!thread || thread.ownerId !== ownerId) return null;
+    return {
+      capable: supportsTools(
+        await ctx.db.get("providers", thread.providerId),
+        thread.modelId,
+      ),
+      picks: (thread.toolSet ?? []).map(({ serverId, tool }) => ({
+        serverId,
+        tool,
+      })),
+    };
+  },
+});
+
+// Replaces a thread's frozen tool set with the current definitions of the chosen tools (spec
+// phase 10). Tool definitions are the top of every request, so the next one writes the whole
+// history to the cache again; the dialog that calls this says so, with the price. A thread-level
+// change, not a message: it applies to the whole branch from the next request on.
+export const setThreadTools = mutation({
+  args: { threadId: v.id("threads"), tools: v.array(toolPickValidator) },
+  returns: v.null(),
+  handler: async (ctx, { threadId, tools }) => {
+    const ownerId = await requireOwner(ctx);
+    const thread = await ownedThread(ctx, ownerId, threadId);
+    await assertNotStreaming(ctx, thread);
+    await ctx.db.patch("threads", threadId, { toolSet: undefined });
+    await freezeToolSet(ctx, { ...thread, toolSet: undefined }, tools);
+    // The cached prefix no longer matches what the next request sends: it reads cold now, and
+    // a keepalive writes the new one if the owner is still here (as after a condense).
+    const fresh = (await ctx.db.get("threads", threadId))!;
+    if (thread.activeLeafId) await warmAfterCondense(ctx, fresh);
+    return null;
   },
 });
 

@@ -253,17 +253,23 @@ export function CheckpointMarker({
 export function CacheBreakDialog({
   open,
   extraMicroUsd,
+  cancelLabel = "Continue instead",
   action,
   body,
   onConfirm,
   onCancel,
+  confirmDisabled,
+  children,
 }: {
   open: boolean;
-  extraMicroUsd: number;
+  extraMicroUsd: number | null; // null: the model has no price
+  cancelLabel?: string;
   action: { verb: string; confirm: string }; // "Editing this message", "Edit anyway"
   body: string;
   onConfirm: () => void;
   onCancel: () => void;
+  confirmDisabled?: boolean;
+  children?: React.ReactNode; // what is being changed, between the warning and the buttons
 }) {
   const safe = useRef<HTMLButtonElement>(null);
   return (
@@ -271,20 +277,22 @@ export function CacheBreakDialog({
       open={open}
       onOpenChange={(o) => !o && onCancel()}
       icon={<IconAlertTriangle size={18} stroke={1.5} />}
-      title={`${action.verb} costs ~${usd(extraMicroUsd)} more than continuing.`}
+      title={extraMicroUsd === null ? `${action.verb} rewrites this thread's cache.` : `${action.verb} costs ~${usd(extraMicroUsd)} more than continuing.`}
       description={body}
       initialFocus={safe}
       actions={
         <>
           <Button ref={safe} onClick={onCancel}>
-            Continue instead
+            {cancelLabel}
           </Button>
-          <Button variant="primary" onClick={onConfirm}>
+          <Button variant="primary" disabled={confirmDisabled} onClick={onConfirm}>
             {action.confirm}
           </Button>
         </>
       }
-    />
+    >
+      {children}
+    </Dialog>
   );
 }
 

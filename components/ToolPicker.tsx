@@ -38,16 +38,64 @@ export function useToolPicker(capable: boolean) {
   };
 }
 
-export function ToolPickerButton({ picker }: { picker: ReturnType<typeof useToolPicker> }) {
-  const { servers, chosen, setChosen } = picker;
+type Servers = ReturnType<typeof useToolPicker>["servers"];
+
+/** Every tool server with its tools as checkboxes; a server's box toggles all of its tools. */
+export function ToolChecklist({
+  servers,
+  chosen,
+  onChange,
+}: {
+  servers: Servers;
+  chosen: Set<string>;
+  onChange: (chosen: Set<string>) => void;
+}) {
   const toggle = (keys: string[], on: boolean) => {
     const next = new Set(chosen);
     for (const k of keys) {
       if (on) next.add(k);
       else next.delete(k);
     }
-    setChosen(next);
+    onChange(next);
   };
+  if (servers.length === 0)
+    return (
+      <p className="text-body-sm text-foreground-muted">
+        No tool servers yet. Add one on the Tools page first.
+      </p>
+    );
+  return (
+    <div className="flex flex-col gap-3">
+      {servers.map((s) => {
+        const keys = s.tools.map((t) => keyOf({ serverId: s._id, tool: t.name }));
+        return (
+          <div key={s._id} className="flex flex-col gap-1.5">
+            <Checkbox
+              checked={keys.length > 0 && keys.every((k) => chosen.has(k))}
+              onCheckedChange={(on) => toggle(keys, on)}
+              label={<span className="text-body font-medium">{s.name}</span>}
+            />
+            <div className="flex flex-col gap-1 pl-6">
+              {s.tools.map((t, i) => (
+                <Checkbox
+                  key={t.name}
+                  checked={chosen.has(keys[i])}
+                  onCheckedChange={(on) => toggle([keys[i]], on)}
+                  label={<span className="tc-mono truncate text-mono-sm">{t.name}</span>}
+                />
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export const toolKey = keyOf;
+
+export function ToolPickerButton({ picker }: { picker: ReturnType<typeof useToolPicker> }) {
+  const { servers, chosen, setChosen } = picker;
   return (
     <Popover
       side="top"
@@ -64,30 +112,7 @@ export function ToolPickerButton({ picker }: { picker: ReturnType<typeof useTool
       <p className="mb-3 text-body-sm text-foreground-muted">
         The thread keeps exactly these when you send the first message. Changing them later rewrites the cache.
       </p>
-      <div className="flex flex-col gap-3">
-        {servers.map((s) => {
-          const keys = s.tools.map((t) => keyOf({ serverId: s._id, tool: t.name }));
-          return (
-            <div key={s._id} className="flex flex-col gap-1.5">
-              <Checkbox
-                checked={keys.length > 0 && keys.every((k) => chosen.has(k))}
-                onCheckedChange={(on) => toggle(keys, on)}
-                label={<span className="text-body font-medium">{s.name}</span>}
-              />
-              <div className="flex flex-col gap-1 pl-6">
-                {s.tools.map((t, i) => (
-                  <Checkbox
-                    key={t.name}
-                    checked={chosen.has(keys[i])}
-                    onCheckedChange={(on) => toggle([keys[i]], on)}
-                    label={<span className="tc-mono truncate text-mono-sm">{t.name}</span>}
-                  />
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <ToolChecklist servers={servers} chosen={chosen} onChange={setChosen} />
     </Popover>
   );
 }
