@@ -11,9 +11,14 @@ import {
 } from "./_generated/server";
 import { CURRENT_SYSTEM_PROMPT_VERSION, systemPrompt } from "./lib/systemPrompts";
 import { cacheExpiresAt, cacheTtlValidator } from "./lib/cacheStatus";
-import { keepalivePending, restartKeepalive, touchedCache } from "./keepalive";
+import {
+  keepalivePending,
+  restartKeepalive,
+  touchedCache,
+  warmAfterCondense,
+} from "./keepalive";
 import { coveredIds, scheduleCondense } from "./condense";
-import { assertWithinBudget, budgetReached } from "./lib/budget";
+import { assertWithinBudget, BUDGET_REACHED, budgetReached } from "./lib/budget";
 import { assembleHistory } from "./lib/context";
 import {
   MODE_MAX_TOKENS,
@@ -34,7 +39,27 @@ import {
   deleteStream,
   streamText,
 } from "./lib/textStream";
-import { priceFor, usageValidator } from "./lib/usage";
+import { priceFor, sumCost, sumUsage, usageValidator } from "./lib/usage";
+import {
+  APPROVAL_TIMEOUT_MS,
+  chatMessageValidator,
+  joinText,
+  MAX_STEPS,
+  nextStep,
+  expandParts,
+  toolStatusValidator,
+  usedTools,
+  type Part,
+  type ToolStatus,
+} from "./lib/toolParts";
+import {
+  freezeTools,
+  supportsTools,
+  toDefinition,
+  toolDefinitionValidator,
+  toolPickValidator,
+  type ToolPick,
+} from "./lib/toolSet";
 import { requireOwner } from "./owner";
 import { importSourceValidator } from "./schema";
 import {
@@ -80,11 +105,14 @@ export const toRow = (t: Doc<"threads">) => ({
   pinned: t.pinnedAt !== undefined,
 });
 
+// A sidebar row also says whether the thread's model can call tools (the "Change tools" action).
+const listRow = v.object({ ...threadRow.fields, tools: v.boolean() });
+
 // Pinned threads (most recently pinned first), then the owner's 100 most recently started
 // unpinned threads, newest first.
 export const listThreads = query({
   args: {},
-  returns: v.array(threadRow),
+  returns: v.array(listRow),
   handler: async (ctx) => {
     const ownerId = await requireOwner(ctx);
     const pinned = await ctx.db
@@ -99,9 +127,63 @@ export const listThreads = query({
       .withIndex("by_ownerId_and_startedAt", (q) => q.eq("ownerId", ownerId))
       .order("desc")
       .take(100);
-    return [...pinned, ...recent.filter((t) => t.pinnedAt === undefined)].map(
-      toRow,
-    );
+    const providers = new Map<Id<"providers">, Doc<"providers"> | null>();
+    const rows = [...pinned, ...recent.filter((t) => t.pinnedAt === undefined)];
+    for (const t of rows)
+      if (!providers.has(t.providerId))
+        providers.set(t.providerId, await ctx.db.get("providers", t.providerId));
+    return rows.map((t) => ({
+      ...toRow(t),
+      tools: supportsTools(providers.get(t.providerId) ?? null, t.modelId),
+    }));
+  },
+});
+
+// The tools a thread carries now, for the "Change tools" dialog's starting picks.
+export const threadTools = query({
+  args: { threadId: v.id("threads") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      capable: v.boolean(),
+      picks: v.array(toolPickValidator),
+    }),
+  ),
+  handler: async (ctx, { threadId }) => {
+    const ownerId = await requireOwner(ctx);
+    const thread = await ctx.db.get("threads", threadId);
+    if (!thread || thread.ownerId !== ownerId) return null;
+    return {
+      capable: supportsTools(
+        await ctx.db.get("providers", thread.providerId),
+        thread.modelId,
+      ),
+      picks: (thread.toolSet ?? []).map(({ serverId, tool }) => ({
+        serverId,
+        tool,
+      })),
+    };
+  },
+});
+
+// Replaces a thread's frozen tool set with the current definitions of the chosen tools (spec
+// phase 10). Tool definitions are the top of every request, so the next one writes the whole
+// history to the cache again; the dialog that calls this says so, with the price. A thread-level
+// change, not a message: it applies to the whole branch from the next request on.
+export const setThreadTools = mutation({
+  args: { threadId: v.id("threads"), tools: v.array(toolPickValidator) },
+  returns: v.null(),
+  handler: async (ctx, { threadId, tools }) => {
+    const ownerId = await requireOwner(ctx);
+    const thread = await ownedThread(ctx, ownerId, threadId);
+    await assertNotStreaming(ctx, thread);
+    await ctx.db.patch("threads", threadId, { toolSet: undefined });
+    await freezeToolSet(ctx, { ...thread, toolSet: undefined }, tools);
+    // The cached prefix no longer matches what the next request sends: it reads cold now, and
+    // a keepalive writes the new one if the owner is still here (as after a condense).
+    const fresh = (await ctx.db.get("threads", threadId))!;
+    if (thread.activeLeafId) await warmAfterCondense(ctx, fresh);
+    return null;
   },
 });
 
@@ -183,11 +265,38 @@ const messageView = v.object({
   pinLocked: v.boolean(), // a checkpoint covers it, so its pin can't change
   status: v.union(
     v.literal("streaming"),
+    v.literal("waiting"),
     v.literal("done"),
     v.literal("stopped"),
     v.literal("error"),
   ),
   text: v.string(),
+  // Replies that called tools: what happened, in order (the text between calls, each call and its
+  // result). While the reply runs, text is only the current step's, still streaming.
+  items: v.optional(
+    v.array(
+      v.union(
+        v.object({ kind: v.literal("text"), text: v.string() }),
+        v.object({
+          kind: v.literal("tool"),
+          id: v.string(),
+          tool: v.string(),
+          server: v.union(v.null(), v.string()),
+          status: v.union(
+            v.literal("running"),
+            v.literal("waiting"), // asks for the owner's approval
+            v.literal("notRun"), // the reply ended before it ran
+            toolStatusValidator,
+          ),
+          alwaysAllowed: v.boolean(),
+          input: v.string(),
+          result: v.optional(v.string()),
+        }),
+      ),
+    ),
+  ),
+  hitStepLimit: v.optional(v.boolean()),
+  approvalExpired: v.optional(v.boolean()),
   error: v.optional(v.string()),
   model: v.optional(v.string()),
   modelName: v.optional(v.string()), // the provider's display name for model, when it still lists it
@@ -274,6 +383,15 @@ export const getThread = query({
           )?.displayName
         : undefined;
     const covered = await coveredIds(ctx, thread._id);
+    const servers = new Map(
+      (
+        await Promise.all(
+          [...new Set((thread.toolSet ?? []).map((t) => t.serverId))].map(
+            (id) => ctx.db.get("toolServers", id),
+          ),
+        )
+      ).flatMap((s) => (s ? [[s._id, s] as const] : [])),
+    );
     const messages = await Promise.all(
       branch.map(async (m) => ({
         _id: m._id,
@@ -295,6 +413,9 @@ export const getThread = query({
           m.status === "streaming" && m.streamId
             ? await streamText(ctx, m.streamId)
             : m.content,
+        items: usedTools(m.parts) ? toolItems(m, thread, servers) : undefined,
+        hitStepLimit: m.hitStepLimit,
+        approvalExpired: m.approvalExpired,
         error: m.error,
         model: m.model,
         modelName: await modelName(m),
@@ -353,11 +474,68 @@ export const getThread = query({
   },
 });
 
+type ReplyItem =
+  | { kind: "text"; text: string }
+  | {
+      kind: "tool";
+      id: string;
+      tool: string;
+      server: string | null;
+      status: "running" | "waiting" | "notRun" | ToolStatus;
+      alwaysAllowed: boolean;
+      input: string;
+      result?: string;
+    };
+
+// A tool-using reply as the thread shows it: its text and each call beside its result.
+function toolItems(
+  m: Doc<"messages">,
+  thread: Doc<"threads">,
+  servers: Map<Id<"toolServers">, Doc<"toolServers">>,
+) {
+  const parts = m.parts ?? [];
+  const results = new Map(
+    parts.flatMap((p) => (p.type === "toolResult" ? [[p.id, p] as const] : [])),
+  );
+  const pretty = (json: string) => {
+    try {
+      return JSON.stringify(JSON.parse(json), null, 2);
+    } catch {
+      return json;
+    }
+  };
+  return parts.flatMap((p): ReplyItem[] => {
+    if (p.type === "text") return p.text ? [{ kind: "text", text: p.text }] : [];
+    if (p.type !== "toolCall") return [];
+    const frozen = thread.toolSet?.find((t) => t.name === p.name);
+    const server = frozen && servers.get(frozen.serverId);
+    const result = results.get(p.id);
+    return [
+      {
+        kind: "tool",
+        id: p.id,
+        tool: frozen?.tool ?? p.name,
+        server: server?.name ?? null,
+        alwaysAllowed: !!frozen && !!server?.alwaysAllowed.includes(frozen.tool),
+        status:
+          result?.status ??
+          (m.status === "waiting" && m.pendingApproval?.callIds.includes(p.id)
+            ? "waiting"
+            : m.status === "streaming"
+              ? "running"
+              : "notRun"),
+        input: pretty(p.input),
+        result: result?.text,
+      },
+    ];
+  });
+}
+
 async function assertNotStreaming(ctx: QueryCtx, thread: Doc<"threads">) {
   const leaf = thread.activeLeafId
     ? await ctx.db.get("messages", thread.activeLeafId)
     : null;
-  if (leaf?.status === "streaming")
+  if (leaf?.status === "streaming" || leaf?.status === "waiting")
     throw new ConvexError("Wait for the reply to finish, or stop it");
 }
 
@@ -553,6 +731,9 @@ async function replyProvider(
     (m) => m.id === replyModel.modelId && !m.hidden,
   );
   if (!model) throw new ConvexError("Model not available");
+  // The thread's tool history can't go to a model that can't call tools (spec phase 10).
+  if (thread.toolSet?.length && !supportsTools(provider, model.id))
+    throw new ConvexError("This model can't call the tools this thread uses");
   if (!model.vision) {
     const branch = await Promise.all(
       user.ancestorIds.map((id) => ctx.db.get("messages", id)),
@@ -621,6 +802,39 @@ async function ownedMessage(
   return message;
 }
 
+// The first send freezes the thread's tool set (spec phase 10): the exact definitions, with names
+// made unique by each server's slug. Later requests send these bytes whatever the servers do.
+async function freezeToolSet(
+  ctx: MutationCtx,
+  thread: Doc<"threads">,
+  picks: ToolPick[] | undefined,
+) {
+  const provider = await ctx.db.get("providers", thread.providerId);
+  const capable = supportsTools(provider, thread.modelId);
+  if (picks?.length && !capable)
+    throw new ConvexError("This model can't call tools");
+  const servers = await ctx.db
+    .query("toolServers")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", thread.ownerId))
+    .take(100);
+  const chosen =
+    picks ??
+    (capable
+      ? servers
+          .filter((s) => s.onForNewThreads)
+          .flatMap((s) => s.tools.map((t) => ({ serverId: s._id, tool: t.name })))
+      : []);
+  for (const pick of chosen) {
+    const server = servers.find((s) => s._id === pick.serverId);
+    if (!server?.tools.some((t) => t.name === pick.tool))
+      throw new ConvexError("That tool is no longer offered");
+  }
+  if (chosen.length)
+    await ctx.db.patch("threads", thread._id, {
+      toolSet: freezeTools(servers, chosen),
+    });
+}
+
 export const send = mutation({
   args: {
     threadId: v.id("threads"),
@@ -631,11 +845,14 @@ export const send = mutation({
     model: v.optional(replyModelValidator), // reply with this model once (spec phase 7)
     search: v.optional(v.boolean()), // search the web for this message before the reply
     documents: v.optional(v.array(v.id("documents"))), // from documents.extract, sent once
+    // A thread's first message only: the tools the thread freezes. Absent = every tool of the
+    // servers that are on for new threads.
+    tools: v.optional(v.array(toolPickValidator)),
   },
   returns: v.null(),
   handler: async (
     ctx,
-    { threadId, content, mode, effort, images, model, search, documents },
+    { threadId, content, mode, effort, images, model, search, documents, tools },
   ) => {
     const ownerId = await requireOwner(ctx);
     const thread = await ownedThread(ctx, ownerId, threadId);
@@ -648,6 +865,7 @@ export const send = mutation({
     if (search && !(await searchUrlOf(ctx, ownerId)))
       throw new ConvexError("Set a SearXNG URL in Settings to search the web");
     const docs = await claimDocuments(ctx, ownerId, thread, documents ?? []);
+    if (!thread.activeLeafId) await freezeToolSet(ctx, thread, tools);
     const parent = thread.activeLeafId
       ? await ctx.db.get("messages", thread.activeLeafId)
       : null;
@@ -908,7 +1126,10 @@ export const sweepStuckReplies = internalMutation({
           .lt("_creationTime", Date.now() - STUCK_REPLY_MS),
       )
       .take(100);
+    let closed = 0;
     for (const m of stuck) {
+      // A reply working through a tool loop is alive while its steps keep starting.
+      if ((m.stepStartedAt ?? 0) > Date.now() - STUCK_REPLY_MS) continue;
       const content = m.streamId ? await streamText(ctx, m.streamId) : "";
       await ctx.runMutation(internal.chat.finalize, {
         messageId: m._id,
@@ -917,8 +1138,22 @@ export const sweepStuckReplies = internalMutation({
         pending: "",
         error: "The reply was interrupted",
       });
+      closed++;
     }
-    return stuck.length;
+    // A waiting reply's own expiry job normally ends it; this catches one whose job was lost.
+    const waiting = await ctx.db
+      .query("messages")
+      .withIndex("by_status", (q) => q.eq("status", "waiting"))
+      .take(100);
+    for (const m of waiting)
+      if (
+        (m.pendingApproval?.requestedAt ?? 0) <
+        Date.now() - APPROVAL_TIMEOUT_MS - 60_000
+      ) {
+        await stopWaiting(ctx, m);
+        closed++;
+      }
+    return closed;
   },
 });
 
@@ -932,6 +1167,13 @@ export const stop = mutation({
       throw new ConvexError("Message not found");
     if (message.status === "streaming")
       await ctx.db.patch("messages", messageId, { stopRequested: true });
+    // Nothing runs while a reply waits for approval, so stopping it ends it here and now.
+    if (message.status === "waiting")
+      await ctx.db.patch("messages", messageId, {
+        status: "stopped",
+        pendingApproval: undefined,
+        content: joinText(message.parts ?? []),
+      });
     return null;
   },
 });
@@ -958,15 +1200,9 @@ export const generationInput = internalQuery({
         }),
       ),
       allowlist: v.array(v.string()),
-      history: v.array(
-        v.object({
-          role: v.union(v.literal("user"), v.literal("assistant")),
-          content: v.string(),
-          effort: v.optional(effortValidator),
-          images: v.optional(v.array(imageValidator)),
-        }),
-      ),
+      history: v.array(chatMessageValidator),
       layerEnd: v.number(),
+      tools: v.optional(v.array(toolDefinitionValidator)),
       cacheTtl: cacheTtlValidator,
       maxTokens: v.number(),
     }),
@@ -1005,14 +1241,19 @@ export const generationInput = internalQuery({
       allowlist: settings?.allowlistedHosts ?? [],
       // A cheaper reply starts cold, so it sends the level in force once, at the top, rather than
       // per-message changes its model may not accept (spec phase 7).
-      history: oneOff
-        ? history.messages.map((m) => ({
-            role: m.role,
-            content: m.content,
-            ...(m.images ? { images: m.images } : {}),
-          }))
-        : history.messages,
+      // The reply's own earlier steps follow the branch: its tool calls and their results.
+      history: [
+        ...(oneOff
+          ? history.messages.map((m) => ({ ...m, effort: undefined }))
+          : history.messages),
+        ...(message.parts ? expandParts(message.parts) : []),
+      ],
       layerEnd: history.layerEnd,
+      // The thread's frozen tools, byte for byte, when the reply's model can call them.
+      tools:
+        thread.toolSet?.length && supportsTools(provider, model)
+          ? thread.toolSet.map(toDefinition)
+          : undefined,
       // With keepalive off, pauses up to an hour stay cheap from the second turn on (the first
       // turn's prefix is too short to be worth a 2x write). On, keepalive covers the pauses.
       maxTokens: MODE_MAX_TOKENS[message.outputMode ?? "normal"],
@@ -1032,7 +1273,20 @@ export const stopRequested = internalQuery({
     (await ctx.db.get("messages", messageId))?.stopRequested === true,
 });
 
-// The single transition out of "streaming". Content is written here once and never again.
+const thinkingValidator = v.union(
+  v.object({
+    type: v.literal("thinking"),
+    thinking: v.string(),
+    signature: v.string(),
+  }),
+  v.object({ type: v.literal("redactedThinking"), data: v.string() }),
+);
+
+// The end of a reply's step (spec phase 10): the usage is metered and added to the reply's steps.
+// A step that asked for tools (and has a step, the budget and no stop request left) stores its
+// calls and schedules them to run; the reply stays "streaming" and no action runs until then.
+// Any other end is the single transition out of "streaming": content is written here once and
+// never again. A reply that called no tool is one step and has no parts.
 export const finalize = internalMutation({
   args: {
     messageId: v.id("messages"),
@@ -1041,7 +1295,7 @@ export const finalize = internalMutation({
       v.literal("stopped"),
       v.literal("error"),
     ),
-    content: v.string(),
+    content: v.string(), // this step's text
     pending: v.string(),
     error: v.optional(v.string()),
     usage: v.optional(usageValidator),
@@ -1053,6 +1307,12 @@ export const finalize = internalMutation({
       v.object({ startedAt: v.number(), ttl: cacheTtlValidator }),
     ),
     truncated: v.optional(v.boolean()), // the provider stopped at max_tokens
+    thinking: v.optional(v.array(thinkingValidator)), // this step's thinking blocks
+    toolCalls: v.optional(
+      v.array(
+        v.object({ id: v.string(), name: v.string(), input: v.string() }),
+      ),
+    ),
   },
   returns: v.null(),
   handler: async (
@@ -1068,43 +1328,116 @@ export const finalize = internalMutation({
       reportedCostMicroUsd,
       cacheRequest,
       truncated,
+      thinking,
+      toolCalls,
     },
   ) => {
     const message = await ctx.db.get("messages", messageId);
     if (!message || message.status !== "streaming") return null;
-    if (message.streamId)
-      await appendChunk(ctx, message.streamId, pending, true);
-    if (!usage) {
-      await ctx.db.patch("messages", messageId, {
-        status,
-        content,
-        error,
-        truncated,
-      });
-      const thread = await ctx.db.get("threads", message.threadId);
-      if (status === "done" && thread) await scheduleCondense(ctx, thread);
-      return null;
+    const step = nextStep(message.parts);
+    const thread = await ctx.db.get("threads", message.threadId);
+
+    // Does the reply go on? Only a finished step that asked for tools can.
+    let calls = status === "done" ? (toolCalls ?? []) : [];
+    let end = { status, error, truncated, hitStepLimit: undefined as boolean | undefined };
+    if (calls.length) {
+      const settings = await ctx.db
+        .query("settings")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", message.ownerId))
+        .unique();
+      if (message.stopRequested) {
+        end = { ...end, status: "stopped" };
+        calls = [];
+      } else if (step >= MAX_STEPS) {
+        // Step ten asked for more: finish as truncated; Continue asks again.
+        end = { ...end, truncated: true, hitStepLimit: true };
+        calls = [];
+      } else if (await budgetReached(ctx, settings, Date.now())) {
+        end = { ...end, status: "error", error: BUDGET_REACHED };
+        calls = [];
+      }
+    }
+    const loop = calls.length > 0;
+
+    const stepParts: Part[] = [
+      ...(thinking ?? []).map((t) => ({ ...t, step })),
+      ...(content ? [{ type: "text" as const, step, text: content }] : []),
+      ...calls.map((c) => ({ type: "toolCall" as const, step, ...c })),
+    ];
+    const withTools = usedTools(message.parts) || loop;
+    const parts = withTools ? [...(message.parts ?? []), ...stepParts] : undefined;
+
+    if (message.streamId) {
+      // A step that goes on hands its text to the parts, so its stream is not needed any more.
+      if (loop) await deleteStream(ctx, message.streamId);
+      else await appendChunk(ctx, message.streamId, pending, true);
     }
 
-    const cost = await meterCall(ctx, {
-      ownerId: message.ownerId,
-      threadId: message.threadId,
-      providerId: message.providerId,
-      model: message.model ?? "",
-      normalized: { usage, reports, reportedCostMicroUsd },
-    });
-    await ctx.db.patch("messages", messageId, {
-      status,
-      content,
-      error,
-      truncated,
-      usage,
-      costMicroUsd: cost ?? undefined,
-    });
+    // A step is metered as it finishes; the reply's usage and cost are the sum of its steps.
+    let metered: Partial<Doc<"messages">> = {};
+    if (usage) {
+      const cost = await meterCall(ctx, {
+        ownerId: message.ownerId,
+        threadId: message.threadId,
+        providerId: message.providerId,
+        model: message.model ?? "",
+        normalized: { usage, reports, reportedCostMicroUsd },
+      });
+      const steps = [
+        ...(message.steps ?? []),
+        { usage, costMicroUsd: cost ?? undefined },
+      ];
+      metered = {
+        usage: sumUsage(steps.map((s) => s.usage)),
+        costMicroUsd: sumCost(steps.map((s) => s.costMicroUsd)),
+        steps,
+      };
+    }
 
-    const thread = await ctx.db.get("threads", message.threadId);
+    if (loop) {
+      // Calls to tools that aren't always allowed wait for the owner, all of the step together.
+      const approval = thread && (await needsApproval(ctx, thread, calls));
+      await ctx.db.patch("messages", messageId, {
+        ...metered,
+        parts,
+        streamId: undefined,
+        ...(approval
+          ? {
+              status: "waiting" as const,
+              pendingApproval: {
+                step,
+                callIds: calls.map((c) => c.id),
+                requestedAt: Date.now(),
+              },
+            }
+          : {}),
+      });
+      if (approval)
+        await ctx.scheduler.runAfter(
+          APPROVAL_TIMEOUT_MS,
+          internal.chat.expireApproval,
+          { messageId, step },
+        );
+      else
+        await ctx.scheduler.runAfter(0, internal.chatActions.runTools, {
+          messageId,
+          step,
+          declined: [],
+        });
+    } else {
+      await ctx.db.patch("messages", messageId, {
+        ...metered,
+        status: end.status,
+        content: parts ? joinText(parts) : content,
+        error: end.error,
+        truncated: end.truncated,
+        hitStepLimit: end.hitStepLimit,
+        parts,
+      });
+    }
+
     // A cheaper reply's cache belongs to another model: the thread's touch and keepalive stay.
-    if (thread && !isCheaperReply(message, thread)) {
+    if (usage && thread && !isCheaperReply(message, thread)) {
       // A cache-marked request that the provider says read or wrote the cache touched it.
       const touchedAt =
         cacheRequest && touchedCache(usage) ? cacheRequest.startedAt : null;
@@ -1118,7 +1451,7 @@ export const finalize = internalMutation({
 
     // The first successful reply in a thread gets a side-job title, once (from the thread's
     // first message, so a failed first reply doesn't leave the thread untitled).
-    if (status === "done" && thread && !thread.titleRequested) {
+    if (!loop && usage && end.status === "done" && thread && !thread.titleRequested) {
       await ctx.db.patch("threads", thread._id, { titleRequested: true });
       await ctx.scheduler.runAfter(0, internal.chatActions.generateTitle, {
         threadId: thread._id,
@@ -1126,7 +1459,186 @@ export const finalize = internalMutation({
       });
     }
     // A finished reply may have grown the thread past the condense threshold (spec phase 6).
-    if (status === "done" && thread) await scheduleCondense(ctx, thread);
+    if (!loop && end.status === "done" && thread) await scheduleCondense(ctx, thread);
+    return null;
+  },
+});
+
+// Whether a step's calls need the owner's say: any call to a tool of the thread that isn't always
+// allowed. A call to a tool the thread never had can't run, so it asks for nothing.
+async function needsApproval(
+  ctx: QueryCtx,
+  thread: Doc<"threads">,
+  calls: { name: string }[],
+) {
+  for (const call of calls) {
+    const frozen = thread.toolSet?.find((t) => t.name === call.name);
+    if (!frozen) continue;
+    const server = await ctx.db.get("toolServers", frozen.serverId);
+    if (!server?.alwaysAllowed.includes(frozen.tool)) return true;
+  }
+  return false;
+}
+
+// The owner's answer to a step's approval prompt: every call runs except the ones declined,
+// which tell the model so. The reply goes back to running.
+export const approveTools = mutation({
+  args: { messageId: v.id("messages"), declined: v.array(v.string()) },
+  returns: v.null(),
+  handler: async (ctx, { messageId, declined }) => {
+    const ownerId = await requireOwner(ctx);
+    const message = await ownedMessage(ctx, ownerId, messageId);
+    const pending = message.pendingApproval;
+    if (message.status !== "waiting" || !pending)
+      throw new ConvexError("Nothing is waiting for approval");
+    if (declined.some((id) => !pending.callIds.includes(id)))
+      throw new ConvexError("That call isn't waiting for approval");
+    await ctx.db.patch("messages", messageId, {
+      status: "streaming",
+      pendingApproval: undefined,
+      stepStartedAt: Date.now(),
+    });
+    await ctx.scheduler.runAfter(0, internal.chatActions.runTools, {
+      messageId,
+      step: pending.step,
+      declined,
+    });
+    return null;
+  },
+});
+
+// A reply that waited 30 minutes for approval stops, with Continue to ask again. Scheduled when it
+// starts waiting; a no-op if the owner answered or stopped it since.
+async function stopWaiting(ctx: MutationCtx, message: Doc<"messages">) {
+  await ctx.db.patch("messages", message._id, {
+    status: "stopped",
+    truncated: true,
+    approvalExpired: true,
+    pendingApproval: undefined,
+    content: joinText(message.parts ?? []),
+  });
+}
+export const expireApproval = internalMutation({
+  args: { messageId: v.id("messages"), step: v.number() },
+  returns: v.null(),
+  handler: async (ctx, { messageId, step }) => {
+    const message = await ctx.db.get("messages", messageId);
+    if (message?.status === "waiting" && message.pendingApproval?.step === step)
+      await stopWaiting(ctx, message);
+    return null;
+  },
+});
+
+// What runTools needs for the calls of one step: each call with its server, and why it can't run
+// if it can't (a tool the thread never had, a removed server,
+// a tool the server stopped offering). null once the reply is closed or being stopped.
+export const toolRunInput = internalQuery({
+  args: { messageId: v.id("messages"), step: v.number() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      allowlist: v.array(v.string()),
+      calls: v.array(
+        v.object({
+          id: v.string(),
+          input: v.string(),
+          tool: v.optional(v.string()), // the server's own name for it
+          url: v.optional(v.string()),
+          headersEncrypted: v.optional(v.string()),
+          problem: v.optional(v.string()),
+        }),
+      ),
+    }),
+  ),
+  handler: async (ctx, { messageId, step }) => {
+    const message = await ctx.db.get("messages", messageId);
+    if (!message || message.status !== "streaming" || message.stopRequested)
+      return null;
+    const thread = await ctx.db.get("threads", message.threadId);
+    if (!thread) return null;
+    const settings = await ctx.db
+      .query("settings")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", message.ownerId))
+      .unique();
+    const calls = [];
+    for (const part of message.parts ?? []) {
+      if (part.type !== "toolCall" || part.step !== step) continue;
+      const frozen = thread.toolSet?.find((t) => t.name === part.name);
+      const server = frozen && (await ctx.db.get("toolServers", frozen.serverId));
+      const offered = !!frozen && !!server?.tools.some((t) => t.name === frozen.tool);
+      calls.push({
+        id: part.id,
+        input: part.input,
+        tool: frozen?.tool,
+        url: server?.url,
+        headersEncrypted: server?.headersEncrypted,
+        problem: !frozen
+          ? `this thread has no tool called ${part.name}`
+          : !server
+            ? "the tool server was removed"
+            : !offered
+              ? "the server no longer offers this tool"
+              : undefined,
+      });
+    }
+    return { allowlist: settings?.allowlistedHosts ?? [], calls };
+  },
+});
+
+// The calls of a step have run: their results join the reply's parts and the next step starts,
+// unless the reply was stopped or the daily budget is reached (checked before every step).
+export const finishTools = internalMutation({
+  args: {
+    messageId: v.id("messages"),
+    step: v.number(),
+    results: v.array(
+      v.object({
+        id: v.string(),
+        text: v.string(),
+        status: toolStatusValidator,
+      }),
+    ),
+  },
+  returns: v.null(),
+  handler: async (ctx, { messageId, step, results }) => {
+    const message = await ctx.db.get("messages", messageId);
+    const done = (message?.parts ?? []).some(
+      (p) => p.type === "toolResult" && p.step === step,
+    );
+    if (!message || message.status !== "streaming" || done) return null;
+    // A stopped reply keeps no results: its calls then count as never made.
+    if (message.stopRequested) {
+      await ctx.db.patch("messages", messageId, {
+        status: "stopped",
+        content: joinText(message.parts ?? []),
+      });
+      return null;
+    }
+    const parts: Part[] = [
+      ...(message.parts ?? []),
+      ...results.map((r) => ({ type: "toolResult" as const, step, ...r })),
+    ];
+    const settings = await ctx.db
+      .query("settings")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", message.ownerId))
+      .unique();
+    if (await budgetReached(ctx, settings, Date.now())) {
+      await ctx.db.patch("messages", messageId, {
+        status: "error",
+        error: BUDGET_REACHED,
+        content: joinText(parts),
+        parts,
+      });
+      return null;
+    }
+    await ctx.db.patch("messages", messageId, {
+      parts,
+      streamId: await createStream(ctx),
+      stepStartedAt: Date.now(),
+    });
+    await ctx.scheduler.runAfter(0, internal.chatActions.generate, {
+      messageId,
+    });
     return null;
   },
 });

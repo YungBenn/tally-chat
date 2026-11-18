@@ -15,7 +15,9 @@ import {
   SUMMARY_MAX_TOKENS,
   SUMMARY_PROMPTS,
 } from "./lib/condense";
+import { callMcpTool } from "./lib/mcp";
 import { streamOpenAICompatible } from "./lib/openaiCompatible";
+import { RESULT_NOTE, type ToolStatus } from "./lib/toolParts";
 import { appendChunk } from "./lib/textStream";
 import type { NormalizedUsage } from "./lib/usage";
 import { decryptSecret } from "./lib/vault";
@@ -50,6 +52,9 @@ async function loadImages(
 const systemResolve = async (host: string) =>
   (await lookup(host, { all: true })).map((a) => a.address);
 
+// One step of a reply (spec phase 10): a single model request. A step that asks for tools ends
+// in chat.finalize, which schedules runTools; its results schedule the next step. A reply with
+// no tool calls is exactly one step.
 export const generate = internalAction({
   args: { messageId: v.id("messages") },
   returns: v.null(),
@@ -89,6 +94,12 @@ export const generate = internalAction({
     // Set when the request carried cache breakpoints: the cache lifetime counts from its start.
     let cacheRequest: { startedAt: number; ttl: CacheTtl } | undefined;
     let truncated = false;
+    // What the model asked for in this step, and the thinking it must get back with the results.
+    const toolCalls: { id: string; name: string; input: string }[] = [];
+    const thinking: (
+      | { type: "thinking"; thinking: string; signature: string }
+      | { type: "redactedThinking"; data: string }
+    )[] = [];
     const finish = (status: "done" | "stopped" | "error", error?: string) =>
       ctx.runMutation(internal.chat.finalize, {
         messageId,
@@ -98,6 +109,8 @@ export const generate = internalAction({
         error,
         cacheRequest,
         truncated: truncated || undefined,
+        thinking,
+        toolCalls,
         ...usage,
       });
 
@@ -111,6 +124,10 @@ export const generate = internalAction({
         : streamOpenAICompatible;
       const ttl = input.cacheTtl;
       if (anthropic) cacheRequest = { startedAt: Date.now(), ttl };
+      if (await ctx.runQuery(internal.chat.stopRequested, { messageId })) {
+        await finish("stopped");
+        return null;
+      }
       const deltas = stream(
         {
           baseUrl: input.provider.baseUrl,
@@ -120,6 +137,7 @@ export const generate = internalAction({
           messages: await loadImages(ctx, input.history),
           maxTokens: input.maxTokens,
           effort: input.effort,
+          tools: input.tools,
           cache: { ttl, layerEnd: input.layerEnd },
         },
         { allowlist: input.allowlist, resolve: systemResolve },
@@ -139,6 +157,18 @@ export const generate = internalAction({
           truncated = event.truncated;
           continue;
         }
+        if (event.type === "toolCall") {
+          toolCalls.push({
+            id: event.id,
+            name: event.name,
+            input: JSON.stringify(event.input ?? {}),
+          });
+          continue;
+        }
+        if (event.type === "thinking" || event.type === "redactedThinking") {
+          thinking.push(event);
+          continue;
+        }
         const text = event.text;
         full += text;
         pending += text;
@@ -155,6 +185,7 @@ export const generate = internalAction({
       await finish("done");
     } catch (err) {
       if (!(err instanceof ConvexError)) console.error("reply failed:", err);
+      toolCalls.length = 0;
       await finish(
         "error",
         err instanceof ConvexError
@@ -162,6 +193,53 @@ export const generate = internalAction({
           : "Could not reach the provider",
       );
     }
+    return null;
+  },
+});
+
+// Runs the tool calls a step asked for, in parallel (spec phase 10). Every outcome, including a
+// timeout, an unreachable server or a tool the server no longer offers, becomes a result the
+// model sees; nothing here fails the reply. Calls the owner declined (or that were never
+// approved) tell the model so.
+export const runTools = internalAction({
+  args: {
+    messageId: v.id("messages"),
+    step: v.number(),
+    declined: v.array(v.string()), // calls the owner declined
+  },
+  returns: v.null(),
+  handler: async (ctx, { messageId, step, declined }) => {
+    const input = await ctx.runQuery(internal.chat.toolRunInput, { messageId, step });
+    if (!input) return null; // the reply was closed meanwhile
+    const stopped = new AbortController();
+    // Stop reaches a call in flight: polled, since nothing pushes to an action.
+    const watch = setInterval(() => {
+      void ctx
+        .runQuery(internal.chat.stopRequested, { messageId })
+        .then((stop) => stop && stopped.abort());
+    }, 1000);
+    const guard = { allowlist: input.allowlist, resolve: systemResolve };
+    const results = await Promise.all(
+      input.calls.map(async (call): Promise<{ id: string; text: string; status: ToolStatus }> => {
+        const fail = (text: string) => ({ id: call.id, text: `Error: ${text}`, status: "error" as const });
+        if (declined.includes(call.id)) return { id: call.id, text: RESULT_NOTE.declined, status: "declined" };
+        if (call.problem) return fail(call.problem);
+        try {
+          const headers = call.headersEncrypted
+            ? (JSON.parse(await decryptSecret(call.headersEncrypted)) as Record<string, string>)
+            : {};
+          const args = JSON.parse(call.input) as Record<string, unknown>;
+          const result = await callMcpTool(call.url!, headers, guard, call.tool!, args, stopped.signal);
+          if (result.status === "timedOut") return { id: call.id, text: RESULT_NOTE.timedOut, status: "timedOut" };
+          return result.status === "error"
+            ? fail(result.text || "the tool failed")
+            : { id: call.id, text: result.text, status: "ok" };
+        } catch {
+          return fail("the tool call could not be made");
+        }
+      }),
+    ).finally(() => clearInterval(watch));
+    await ctx.runMutation(internal.chat.finishTools, { messageId, step, results });
     return null;
   },
 });
@@ -272,7 +350,7 @@ export const condense = internalAction({
       for await (const event of events) {
         if (event.type === "text") text += event.text;
         else if (event.type === "stop") truncated = event.truncated;
-        else
+        else if (event.type === "usage")
           usage = {
             usage: event.usage,
             reports: event.reports,
@@ -325,6 +403,7 @@ export const keepalive = internalAction({
           system: input.system,
           messages: await loadImages(ctx, input.history),
           effort: input.effort,
+          tools: input.tools,
           cache: { ttl: input.ttl, layerEnd: input.layerEnd },
         },
         { allowlist: input.allowlist, resolve: systemResolve },

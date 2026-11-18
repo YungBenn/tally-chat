@@ -6,7 +6,7 @@ export type ExportThread = {
   title: string;
   messages: {
     role: "user" | "assistant";
-    status: "streaming" | "done" | "stopped" | "error";
+    status: "streaming" | "waiting" | "done" | "stopped" | "error";
     text: string;
     model?: string;
     modelName?: string;
@@ -16,7 +16,34 @@ export type ExportThread = {
     truncated?: boolean;
     images?: unknown[];
     error?: string;
+    // A reply that called tools, in order (api.chat.getThread items).
+    items?: (
+      | { kind: "text"; text: string }
+      | {
+          kind: "tool";
+          id: string;
+          tool: string;
+          server: string | null;
+          status: string;
+          input: string;
+          result?: string;
+        }
+    )[];
   }[];
+};
+
+// A code fence long enough that nothing inside can close it.
+const fence = (body: string, lang = "") => {
+  const ticks = "`".repeat(Math.max(3, ...[...body.matchAll(/`+/g)].map((m) => m[0].length + 1)));
+  return `${ticks}${lang}\n${body}\n${ticks}`;
+};
+
+const parsed = (json: string) => {
+  try {
+    return JSON.parse(json) as unknown;
+  } catch {
+    return json;
+  }
 };
 
 // Failed and still-streaming replies have no text worth keeping.
@@ -52,6 +79,17 @@ export function toMarkdown(t: ExportThread, at: Date) {
       if (meta.length) lines.push(`_${meta.join(" · ")}_`, "");
     }
     lines.push(m.text, "");
+    // Each tool call and its result under the reply, in the order they happened.
+    for (const item of m.items ?? []) {
+      if (item.kind !== "tool") continue;
+      lines.push(
+        `**Tool call:** \`${item.tool}\`${item.server ? ` (${item.server})` : ""} · ${item.status}`,
+        "",
+        fence(item.input, "json"),
+        "",
+      );
+      if (item.result !== undefined) lines.push("Result:", "", fence(item.result), "");
+    }
     const n = m.images?.length ?? 0;
     if (n) lines.push(`_[${n} image${n === 1 ? "" : "s"}]_`, "");
   }
@@ -76,6 +114,20 @@ export function toJson(t: ExportThread, at: Date) {
         stopped: m.status === "stopped" || undefined,
         truncated: m.truncated,
         imageCount: m.images?.length || undefined,
+        // A reply that called tools: its text and each call with its result, in order.
+        parts: m.items?.map((item) =>
+          item.kind === "text"
+            ? { type: "text", text: item.text }
+            : {
+                type: "toolCall",
+                id: item.id,
+                tool: item.tool,
+                server: item.server,
+                status: item.status,
+                arguments: parsed(item.input),
+                result: item.result,
+              },
+        ),
       })),
     },
     null,

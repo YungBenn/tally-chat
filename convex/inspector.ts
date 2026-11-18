@@ -28,6 +28,7 @@ import {
   usageValidator,
   type Usage,
 } from "./lib/usage";
+import { freezeTools, supportsTools, toDefinition } from "./lib/toolSet";
 import { requireOwner } from "./owner";
 import { SEARCH_TOKENS_ESTIMATE } from "./lib/webSearch";
 
@@ -49,10 +50,13 @@ const totalInput = (u: Usage) =>
   u.cacheReadTokens +
   u.cacheWriteTokens5m +
   u.cacheWriteTokens1h;
+// A reply's last step carries the whole request it measured: earlier steps are inside it.
+const lastStepUsage = (m: Doc<"messages">) => m.steps?.at(-1)?.usage ?? m.usage;
 const RECENT_REPLIES = 5; // the expected output is the mean of this many latest replies
 
 const layerValidator = v.object({
   kind: v.union(
+    v.literal("tools"),
     v.literal("system"),
     v.literal("checkpoint"),
     v.literal("turns"),
@@ -228,8 +232,10 @@ export const get = query({
         lastActiveAt: thread.lastActiveAt ?? null,
         ttl,
         lastReadTokens:
-          replies.findLast((m) => !isCheaperReply(m, thread))?.usage
-            ?.cacheReadTokens ?? null,
+          (() => {
+            const reply = replies.findLast((m) => !isCheaperReply(m, thread));
+            return reply ? (lastStepUsage(reply)?.cacheReadTokens ?? null) : null;
+          })(),
       },
       // The level in force for the next send: the latest per-message change, else the thread's.
       effort: effortFor(thread, provider)
@@ -268,7 +274,7 @@ async function condenseNowEstimate(
   thread: Doc<"threads">,
   branch: Doc<"messages">[],
 ) {
-  if (branch.some((m) => m.status === "streaming")) return null;
+  if (branch.some((m) => (m.status === "streaming" || m.status === "waiting"))) return null;
   const plan = await condensePlan(ctx, thread, branch, true);
   if (plan.kind !== "ready") return null;
   return {
@@ -325,7 +331,10 @@ async function editHints(
 ) {
   const prefix = layers.reduce((sum, l) => sum + l.tokens, 0);
   if (prefix < MIN_CACHEABLE_TOKENS) return [];
-  const system = layers[0].tokens;
+  // Tools and the system prompt both sit before everything else and stay cached through a fork.
+  const system = layers
+    .filter((l) => l.kind === "tools" || l.kind === "system")
+    .reduce((sum, l) => sum + l.tokens, 0);
   const checkpointLayer =
     layers.find((l) => l.kind === "checkpoint")?.tokens ?? 0;
   const { checkpoint } = await assembleHistory(
@@ -361,7 +370,9 @@ async function editHints(
       m.usage &&
       (i < cut || !checkpoint || m._creationTime > checkpoint._creationTime);
     before = measures
-      ? totalInput(m.usage!) + m.usage!.outputTokens - m.usage!.reasoningTokens
+      ? totalInput(lastStepUsage(m)!) +
+        lastStepUsage(m)!.outputTokens -
+        lastStepUsage(m)!.reasoningTokens
       : before + estimateMessage(m);
   }
   return hints;
@@ -379,12 +390,26 @@ export async function contextLayers(
   const system = estimateTokens(
     systemPrompt(thread.systemPromptVersion, thread.instructions) ?? "",
   );
+  // The thread's frozen tool definitions go first in every request (spec phase 10).
+  const toolTokens = thread.toolSet?.length
+    ? estimateTokens(JSON.stringify(thread.toolSet.map(toDefinition)))
+    : 0;
   const layers: {
-    kind: "system" | "checkpoint" | "turns";
+    kind: "tools" | "system" | "checkpoint" | "turns";
     label: string;
     tokens: number;
     estimated: boolean;
   }[] = [
+    ...(toolTokens
+      ? [
+          {
+            kind: "tools" as const,
+            label: `${thread.toolSet!.length} ${thread.toolSet!.length === 1 ? "tool" : "tools"}`,
+            tokens: toolTokens,
+            estimated: true,
+          },
+        ]
+      : []),
     { kind: "system", label: "system prompt", tokens: system, estimated: true },
   ];
   if (branch.length === 0) return layers;
@@ -433,9 +458,14 @@ export async function contextLayers(
   let estimated: boolean;
   if (measuredAt >= cut) {
     const reply = branch[measuredAt];
-    const u = reply.usage!;
+    const u = lastStepUsage(reply)!;
     const measured =
-      totalInput(u) + u.outputTokens - u.reasoningTokens - system - layerTokens;
+      totalInput(u) +
+      u.outputTokens -
+      u.reasoningTokens -
+      toolTokens -
+      system -
+      layerTokens;
     const later = branch
       .slice(measuredAt + 1)
       .reduce((sum, m) => sum + estimateMessage(m), 0);
@@ -525,6 +555,10 @@ export const turn = query({
       usage: usageValidator,
       costMicroUsd: v.union(v.null(), v.number()),
       savedMicroUsd: v.union(v.null(), v.number()), // null when the model has no price
+      // Every step of the reply (spec phase 10): one entry unless it ran tools.
+      steps: v.array(
+        v.object({ usage: usageValidator, costMicroUsd: v.union(v.null(), v.number()) }),
+      ),
     }),
   ),
   handler: async (ctx, { messageId }) => {
@@ -543,10 +577,66 @@ export const turn = query({
       effort: m.effort ?? null,
       usage: m.usage,
       costMicroUsd: m.costMicroUsd ?? null,
+      steps: (m.steps ?? [{ usage: m.usage, costMicroUsd: m.costMicroUsd }]).map((s) => ({
+        usage: s.usage,
+        costMicroUsd: s.costMicroUsd ?? null,
+      })),
       savedMicroUsd:
         free || priceFor(model)?.input !== undefined
           ? savedFor(free, model, m.usage)
           : null,
+    };
+  },
+});
+
+// What changing a thread's tool set costs (spec phase 10): the definitions are the top of every
+// request, so the next one writes the whole prefix again, with the new tools in it. `extra` is that
+// rewrite less what the next send would have cost as it is (a cache read while warm), in micro-USD;
+// null when the model has no price.
+export const toolChange = query({
+  args: {
+    threadId: v.id("threads"),
+    now: v.number(),
+    tools: v.array(v.object({ serverId: v.id("toolServers"), tool: v.string() })),
+  },
+  returns: v.object({
+    newToolTokens: v.number(),
+    prefixTokens: v.number(), // what the next request repeats, with the new tools
+    extraMicroUsd: v.union(v.null(), v.number()),
+  }),
+  handler: async (ctx, { threadId, now, tools }) => {
+    const ownerId = await requireOwner(ctx);
+    const thread = await ctx.db.get("threads", threadId);
+    if (!thread || thread.ownerId !== ownerId)
+      return { newToolTokens: 0, prefixTokens: 0, extraMicroUsd: null };
+    const provider = await ctx.db.get("providers", thread.providerId);
+    const branch = await activeBranch(ctx, thread);
+    const layers = await contextLayers(ctx, thread, branch);
+    const servers = await ctx.db
+      .query("toolServers")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+      .take(100);
+    const frozen = freezeTools(servers, tools);
+    const newToolTokens = frozen.length
+      ? estimateTokens(JSON.stringify(frozen.map(toDefinition)))
+      : 0;
+    const oldToolTokens = layers.find((l) => l.kind === "tools")?.tokens ?? 0;
+    const current = layers.reduce((sum, l) => sum + l.tokens, 0);
+    const prefixTokens = current - oldToolTokens + newToolTokens;
+    const p = nextPrices(provider, thread.modelId, thread.cacheTtl ?? "5m");
+    if (!p) return { newToolTokens, prefixTokens, extraMicroUsd: null };
+    // Anthropic-style: the rewrite is a cache write, and continuing reads while the cache is warm.
+    // Elsewhere the provider caches on its own: a rewrite pays input prices.
+    const managed = provider?.apiStyle === "anthropic";
+    const warm = managed
+      ? cacheState(cacheExpiresAt(thread), now).state !== "cold"
+      : true;
+    const rewrite = prefixTokens * (managed ? p.cacheWrite : p.input);
+    const continuing = current * (warm ? p.cacheRead : managed ? p.cacheWrite : p.input);
+    return {
+      newToolTokens,
+      prefixTokens,
+      extraMicroUsd: Math.max(0, Math.round((rewrite - continuing) * 1e6)),
     };
   },
 });
@@ -571,6 +661,7 @@ export const modelEstimates = query({
       modelId: v.string(),
       name: v.string(),
       thread: v.boolean(),
+      tools: v.boolean(), // can call tools: a thread that uses tools can only be answered by these
       costMicroUsd: v.union(v.null(), v.number()),
     }),
   ),
@@ -640,6 +731,7 @@ export const modelEstimates = query({
             modelId: m.id,
             name: `${provider.name} · ${m.displayName}`,
             thread: own,
+            tools: supportsTools(provider, m.id),
             costMicroUsd: p
               ? Math.round(
                   (prefix * historyPrice +

@@ -163,7 +163,8 @@ The [self-hosting guide](docs/self-hosting.md) covers local models (Ollama, LM S
 | 7 | Cheaper replies, model suggestions, full-text search, chat import | ✅ |
 | 8 | Redesign on the tally.chat design system: holo lines, motion, mobile | ✅ |
 | 9 | Custom instructions, export, web search on SearXNG, math and Mermaid, documents, thread pin and rename | ✅ |
-| 10 | Gemini, a tool loop | next |
+| 10 | Tool loop with MCP servers, approvals and cache-safe tool sets | next |
+| 11 | Gemini | |
 
 ## Development
 

@@ -1,7 +1,7 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { streamText } from "ai";
+import { jsonSchema, streamText, tool, type AssistantModelMessage, type ModelMessage } from "ai";
 import { ConvexError } from "convex/values";
-import type { MessagesRequest, StreamEvent } from "./anthropic";
+import type { ChatMessage, MessagesRequest, StreamEvent } from "./anthropic";
 import type { ProviderModel } from "./anthropic";
 import { guardedFetch, type GuardOptions } from "./urlGuard";
 import { normalizeOpenAIUsage, type OpenAIUsage } from "./usage";
@@ -41,6 +41,45 @@ export async function fetchOpenAICompatibleModels(
   };
 }
 
+// A ChatMessage as the AI SDK takes it. Images become image parts before the text. A tool step is
+// an assistant message with tool-call parts, then a tool message with the results (spec phase 10);
+// thinking blocks are Anthropic's and stay out. The SDK turns these into tool_calls and
+// tool-role messages on the wire.
+type AssistantContentPart = Exclude<AssistantModelMessage["content"], string>[number];
+
+function toSdkMessage(m: ChatMessage): ModelMessage {
+  if (m.toolResults)
+    return {
+      role: "tool" as const,
+      content: m.toolResults.map((r) => ({
+        type: "tool-result" as const,
+        toolCallId: r.id,
+        toolName: r.name,
+        output: { type: "text" as const, value: r.text },
+      })),
+    };
+  if (m.role === "assistant" && m.blocks?.some((b) => b.type === "tool_use"))
+    return {
+      role: "assistant" as const,
+      content: m.blocks.flatMap((b): AssistantContentPart[] =>
+        b.type === "text"
+          ? [{ type: "text", text: b.text }]
+          : b.type === "tool_use"
+            ? [{ type: "tool-call", toolCallId: b.id, toolName: b.name, input: JSON.parse(b.input) as unknown }]
+            : [],
+      ),
+    };
+  if (m.role === "user" && m.imageData?.length)
+    return {
+      role: "user" as const,
+      content: [
+        ...m.imageData.map((d) => ({ type: "image" as const, image: d.data, mediaType: d.mediaType })),
+        { type: "text" as const, text: m.content },
+      ],
+    };
+  return { role: m.role, content: m.content };
+}
+
 // ponytail: OpenAI-compatible APIs send usage only in the final chunk, so a stopped
 // reply records no usage at all even though the provider bills what it generated.
 // Streams a chat completion through the AI SDK, with the URL guard as its fetch.
@@ -66,28 +105,27 @@ export async function* streamOpenAICompatible(
   const result = streamText({
     model: provider.chatModel(req.model),
     system: req.system,
-    // Only role and content go to the SDK; images become image parts before the text.
-    messages: req.messages.map((m) =>
-      m.role === "user" && m.imageData?.length
-        ? {
-            role: "user" as const,
-            content: [
-              ...m.imageData.map((d) => ({
-                type: "image" as const,
-                image: d.data,
-                mediaType: d.mediaType,
-              })),
-              { type: "text" as const, text: m.content },
-            ],
-          }
-        : { role: m.role, content: m.content },
-    ),
+    messages: req.messages.map(toSdkMessage),
+    // A thread's frozen tools, in stored order, with no execute: the SDK reports the model's call
+    // as a tool-call part and tally.chat's own loop runs it (spec phase 10).
+    ...(req.tools?.length
+      ? {
+          tools: Object.fromEntries(
+            req.tools.map((t) => [
+              t.name,
+              tool({ description: t.description, inputSchema: jsonSchema(JSON.parse(t.inputSchema)) }),
+            ]),
+          ),
+        }
+      : {}),
     maxOutputTokens: req.maxTokens,
     maxRetries: 0, // a silent retry is a second bill the user never sees
     abortSignal: signal,
   });
   for await (const part of result.stream) {
     if (part.type === "text-delta") yield { type: "text", text: part.text };
+    else if (part.type === "tool-call")
+      yield { type: "toolCall", id: part.toolCallId, name: part.toolName, input: part.input };
     else if (part.type === "error") {
       const error = part.error;
       if (error instanceof ConvexError) throw error;

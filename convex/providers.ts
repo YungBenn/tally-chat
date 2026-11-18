@@ -6,6 +6,7 @@ import {
   mutation,
   query,
 } from "./_generated/server";
+import { supportsTools } from "./lib/toolSet";
 import { requireOwner } from "./owner";
 
 const providerView = v.object({
@@ -22,6 +23,7 @@ const providerView = v.object({
       displayName: v.string(),
       hidden: v.boolean(),
       vision: v.optional(v.boolean()),
+      tools: v.boolean(), // can call tools: Anthropic models by default, others when the owner says so
     }),
   ),
 });
@@ -44,7 +46,10 @@ const toView = ({
   detected,
   keyCheckedAt,
   free: free ?? false,
-  models,
+  models: models.map((m) => ({
+    ...m,
+    tools: supportsTools({ apiStyle, models }, m.id),
+  })),
 });
 
 export const list = query({
@@ -67,11 +72,12 @@ export const updateModel = mutation({
     hidden: v.optional(v.boolean()),
     displayName: v.optional(v.string()),
     vision: v.optional(v.boolean()), // "accepts images", set by the owner for OpenAI-compatible models
+    tools: v.optional(v.boolean()), // "can call tools", set by the owner for OpenAI-compatible models
   },
   returns: v.null(),
   handler: async (
     ctx,
-    { providerId, modelId, hidden, displayName, vision },
+    { providerId, modelId, hidden, displayName, vision, tools },
   ) => {
     const ownerId = await requireOwner(ctx);
     const provider = await ctx.db.get("providers", providerId);
@@ -85,6 +91,7 @@ export const updateModel = mutation({
             hidden: hidden ?? m.hidden,
             displayName: displayName?.trim() || m.displayName,
             vision: vision ?? m.vision,
+            tools: tools ?? m.tools,
           },
     );
     await ctx.db.patch("providers", providerId, { models });
@@ -125,6 +132,7 @@ const modelValidator = v.object({
   displayName: v.string(),
   hidden: v.boolean(),
   vision: v.optional(v.boolean()),
+  tools: v.optional(v.boolean()),
 });
 
 // A refreshed model list: new models are added, known ones keep the owner's name and hidden
@@ -146,6 +154,7 @@ export const mergeModels = internalMutation({
               displayName: before.displayName,
               hidden: before.hidden,
               vision: m.vision ?? before.vision,
+              tools: m.tools ?? before.tools,
             }
           : m;
       }),

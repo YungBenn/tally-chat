@@ -21,6 +21,8 @@ import { assembleHistory } from "./lib/context";
 import { meterCall } from "./lib/metering";
 import { usageValidator, type Usage } from "./lib/usage";
 import { systemPrompt } from "./lib/systemPrompts";
+import { APPROVAL_TIMEOUT_MS } from "./lib/toolParts";
+import { supportsTools, toDefinition, toolDefinitionValidator } from "./lib/toolSet";
 
 // Keepalive (spec phase 2): while the owner is in a thread, refresh its 5-minute cache shortly
 // before it expires, so pausing to read doesn't make the next turn a full cache write.
@@ -118,6 +120,7 @@ export const input = internalQuery({
         }),
       ),
       layerEnd: v.number(),
+      tools: v.optional(v.array(toolDefinitionValidator)), // the thread's frozen tools: same prefix as a real turn
       ttl: cacheTtlValidator,
       allowlist: v.array(v.string()),
     }),
@@ -141,9 +144,14 @@ export const input = internalQuery({
       !touchedCache(leaf.usage)
     )
       return null;
+    // A reply waiting for approval counts as presence until its 30 minutes are up.
+    const awaitingApproval =
+      leaf.status === "waiting" &&
+      now - (leaf.pendingApproval?.requestedAt ?? 0) <= APPROVAL_TIMEOUT_MS;
     if (
-      thread.lastActiveAt === undefined ||
-      now - thread.lastActiveAt > ACTIVE_WINDOW_MS
+      !awaitingApproval &&
+      (thread.lastActiveAt === undefined ||
+        now - thread.lastActiveAt > ACTIVE_WINDOW_MS)
     )
       return null;
     if (!warm && cacheState(cacheExpiresAt(thread), now).state !== "warm")
@@ -170,6 +178,10 @@ export const input = internalQuery({
       system: systemPrompt(thread.systemPromptVersion, thread.instructions),
       history: history.messages,
       layerEnd: history.layerEnd,
+      tools:
+        thread.toolSet?.length && supportsTools(provider, thread.modelId)
+          ? thread.toolSet.map(toDefinition)
+          : undefined,
       ttl: thread.cacheTtl ?? "5m",
       allowlist: settings?.allowlistedHosts ?? [],
     };

@@ -44,6 +44,36 @@ _Avoid_: Glow, gradient border, rainbow
 A message that the condenser never folds into a summary.
 _Avoid_: Starred, saved
 
+## Tools
+
+**Tool server**:
+A remote MCP server the owner has added, offering tools the model can call.
+_Avoid_: Plugin, integration, connector, MCP
+
+**Tool set**:
+The tools a thread was created with. Fixed for the life of the thread unless the owner explicitly changes it, which breaks the cache like editing an old message.
+_Avoid_: Toolbox, enabled tools
+
+**Tool call**:
+The model asking to run one tool with given arguments, as part of a reply.
+_Avoid_: Function call, invocation, action
+
+**Tool result**:
+What a tool returned for one tool call, kept word for word in the reply that asked for it.
+_Avoid_: Tool output, observation
+
+**Approval**:
+The owner allowing one tool call to run. A tool can be set to always allowed, which skips the ask.
+_Avoid_: Confirmation, consent, permission
+
+**Step**:
+One model request inside a reply. A step may make several tool calls at once, approved together. A reply has at most ten steps before it offers Continue.
+_Avoid_: Iteration, round, hop
+
+**Tool loop**:
+A reply that alternates between the model's text, tool calls and tool results until the model answers or hits the limit. The whole loop is one reply, so a turn is still one user message plus one reply.
+_Avoid_: Agent, agent loop, chain
+
 ## Context
 
 **Checkpoint**:

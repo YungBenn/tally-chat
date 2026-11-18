@@ -8,6 +8,8 @@ import { outputModeValidator } from "./lib/outputModes";
 import { usageValidator } from "./lib/usage";
 import { searchResultValidator } from "./lib/webSearch";
 import { documentRefValidator } from "./lib/documents";
+import { frozenToolValidator } from "./lib/toolSet";
+import { partValidator } from "./lib/toolParts";
 
 export const importSourceValidator = v.union(
   v.literal("chatgpt"),
@@ -33,12 +35,37 @@ export default defineSchema({
         displayName: v.string(),
         hidden: v.boolean(),
         vision: v.optional(v.boolean()), // accepts images; absent = no
+        tools: v.optional(v.boolean()), // can call tools (spec phase 10); see lib/toolSet supportsTools
       }),
     ),
     free: v.optional(v.boolean()), // owner says it costs nothing (local models): cost is recorded as $0
     // Learned from usage fields the provider actually returns, never assumed.
     capabilities: v.optional(
       v.object({ caching: v.boolean(), reasoning: v.boolean() }),
+    ),
+  }).index("by_ownerId", ["ownerId"]),
+  // A remote MCP server (spec phase 10): its tools are offered to threads. Header values are
+  // encrypted as one blob and never leave the server; headerNames is all the client sees.
+  toolServers: defineTable({
+    ownerId: v.id("users"),
+    name: v.string(),
+    slug: v.string(), // prefixes this server's tool names in a thread; fixed once set
+    url: v.string(),
+    headersEncrypted: v.optional(v.string()),
+    headerNames: v.array(v.string()),
+    onForNewThreads: v.boolean(),
+    // The server's tool list as of the last test or refresh. inputSchema is JSON text: JSON
+    // Schema keys such as $schema can't be stored as document fields.
+    tools: v.array(
+      v.object({
+        name: v.string(),
+        description: v.optional(v.string()),
+        inputSchema: v.string(),
+      }),
+    ),
+    alwaysAllowed: v.array(v.string()), // tool names that run without asking; changes no request bytes
+    lastTest: v.optional(
+      v.object({ at: v.number(), ok: v.boolean(), error: v.optional(v.string()) }),
     ),
   }).index("by_ownerId", ["ownerId"]),
   threads: defineTable({
@@ -48,6 +75,9 @@ export default defineSchema({
     modelId: v.string(),
     systemPromptVersion: v.number(),
     instructions: v.optional(v.string()), // the owner's custom instructions when the thread began
+    // The tool definitions the first send froze (spec phase 10); every request sends these bytes.
+    // Absent or empty = no tools.
+    toolSet: v.optional(v.array(frozenToolValidator)),
     activeLeafId: v.optional(v.id("messages")),
     titleRequested: v.optional(v.boolean()), // the side-job title runs once per thread
     renamed: v.optional(v.boolean()), // the owner named it; a side-job title never replaces that
@@ -93,6 +123,7 @@ export default defineSchema({
     content: v.string(), // final text; while streaming the text lives in streamId
     status: v.union(
       v.literal("streaming"),
+      v.literal("waiting"), // a tool step waits for the owner's approval; no action runs (spec phase 10)
       v.literal("done"),
       v.literal("stopped"),
       v.literal("error"),
@@ -102,10 +133,26 @@ export default defineSchema({
     error: v.optional(v.string()),
     model: v.optional(v.string()),
     providerId: v.optional(v.id("providers")),
-    usage: v.optional(usageValidator), // as reported by the provider
+    usage: v.optional(usageValidator), // as reported by the provider; a reply's is the sum of its steps
     costMicroUsd: v.optional(v.number()), // absent with usage present = model has no price
+    // Replies: usage and cost of each step (one model request) in order. Absent on replies from
+    // before phase 10, which were one step.
+    steps: v.optional(
+      v.array(
+        v.object({ usage: usageValidator, costMicroUsd: v.optional(v.number()) }),
+      ),
+    ),
     outputMode: v.optional(outputModeValidator), // replies: the length limit asked for; absent = normal
     truncated: v.optional(v.boolean()), // replies that stopped at that limit
+    // Replies that called a tool (spec phase 10): the ordered text, thinking, tool calls and results
+    // of every step. content is then the text parts joined. Absent on replies without tools.
+    parts: v.optional(v.array(partValidator)),
+    pendingApproval: v.optional(
+      v.object({ step: v.number(), callIds: v.array(v.string()), requestedAt: v.number() }),
+    ),
+    approvalExpired: v.optional(v.boolean()), // stopped because nobody approved for 30 minutes
+    hitStepLimit: v.optional(v.boolean()), // truncated because the reply ran out of steps, not tokens
+    stepStartedAt: v.optional(v.number()), // when the current step began; the stuck-reply sweep counts from it
     effort: v.optional(effortValidator), // user: a per-message change made here; replies: the level they ran at
     images: v.optional(v.array(imageValidator)), // user messages: images sent with it, fixed at creation
     search: v.optional(v.boolean()), // user messages: searched the web before the reply (see searches)

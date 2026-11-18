@@ -115,3 +115,62 @@ describe("export", () => {
     expect(exportFileName("???", "json")).toBe("thread.json");
   });
 });
+
+describe("export of a reply that called tools", () => {
+  const withTools: ExportThread = {
+    title: "Docs",
+    messages: [
+      { role: "user", status: "done", text: "Find the cache docs" },
+      {
+        role: "assistant",
+        status: "done",
+        text: "Let me look.\n\nFound it.",
+        model: "claude-sonnet-5-5",
+        items: [
+          { kind: "text", text: "Let me look." },
+          { kind: "tool", id: "t1", tool: "search", server: "Docs", status: "ok", input: '{\n  "q": "cache"\n}', result: "Result with ``` fence" },
+          { kind: "text", text: "Found it." },
+          { kind: "tool", id: "t2", tool: "delete", server: null, status: "declined", input: "{}", result: "The user declined this call." },
+        ],
+      },
+    ],
+  };
+
+  test("Markdown shows each call and result as a fenced block under the reply, fenced safely", () => {
+    const md = toMarkdown(withTools, at);
+    expect(md).toContain(
+      [
+        "Let me look.",
+        "",
+        "Found it.",
+        "",
+        "**Tool call:** `search` (Docs) · ok",
+        "",
+        "```json",
+        "{",
+        '  "q": "cache"',
+        "}",
+        "```",
+        "",
+        "Result:",
+        "",
+        "````",
+        "Result with ``` fence",
+        "````",
+        "",
+        "**Tool call:** `delete` · declined",
+      ].join("\n"),
+    );
+  });
+
+  test("JSON carries the reply's parts, with arguments parsed", () => {
+    const { messages } = JSON.parse(toJson(withTools, at)) as { messages: { parts?: unknown[] }[] };
+    expect(messages[0].parts).toBeUndefined();
+    expect(messages[1].parts).toEqual([
+      { type: "text", text: "Let me look." },
+      { type: "toolCall", id: "t1", tool: "search", server: "Docs", status: "ok", arguments: { q: "cache" }, result: "Result with ``` fence" },
+      { type: "text", text: "Found it." },
+      { type: "toolCall", id: "t2", tool: "delete", server: null, status: "declined", arguments: {}, result: "The user declined this call." },
+    ]);
+  });
+});

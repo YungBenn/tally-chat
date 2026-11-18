@@ -13,6 +13,7 @@ import {
   IconPin,
   IconPinnedOff,
   IconPlugConnected,
+  IconTool,
   IconSearch,
   IconSettings,
   IconTrash,
@@ -29,6 +30,7 @@ import BudgetMeter from "@/components/BudgetMeter";
 import { THREAD_DRAG_TYPE } from "@/components/Composer";
 import { Button, IconButton } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/feedback";
+import { ChangeToolsDialog } from "@/components/ChangeToolsDialog";
 import { Dialog, Menu, MenuItem, MenuSeparator, Sheet } from "@/components/ui/overlay";
 import { toast } from "@/components/ui/toast";
 import { api } from "@/convex/_generated/api";
@@ -67,12 +69,14 @@ function ThreadItem({
   id,
   title,
   pinned,
+  tools,
   active,
   onNavigate,
 }: {
   id: Id<"threads">;
   title: string;
   pinned: boolean;
+  tools?: boolean; // the thread's model can call tools
   active: boolean;
   onNavigate?: () => void;
 }) {
@@ -82,6 +86,7 @@ function ThreadItem({
   const deleteThread = useMutation(api.chat.deleteThread);
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [changingTools, setChangingTools] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const fail = (title: string) => (err: unknown) =>
     toast({ title, body: err instanceof ConvexError ? String(err.data) : undefined, tone: "danger" });
@@ -162,12 +167,18 @@ function ThreadItem({
           <MenuItem icon={<IconPencil size={16} stroke={1.5} />} onClick={() => setEditing(true)}>
             Rename
           </MenuItem>
+          {tools && (
+            <MenuItem icon={<IconTool size={16} stroke={1.5} />} onClick={() => setChangingTools(true)}>
+              Change tools
+            </MenuItem>
+          )}
           <MenuSeparator />
           <MenuItem danger icon={<IconTrash size={16} stroke={1.5} />} onClick={() => setConfirmDelete(true)}>
             Delete
           </MenuItem>
         </Menu>
       )}
+      {changingTools && <ChangeToolsDialog threadId={id} onClose={() => setChangingTools(false)} />}
       <Dialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
@@ -199,6 +210,7 @@ function ThreadItem({
 const NAV = [
   { href: "/usage", label: "Usage", icon: IconChartBar },
   { href: "/providers", label: "Providers", icon: IconPlugConnected },
+  { href: "/tools", label: "Tools", icon: IconTool },
   { href: "/settings", label: "Settings", icon: IconSettings },
 ];
 
@@ -333,6 +345,7 @@ function Sidebar({
                 id={t._id}
                 title={t.title}
                 pinned={t.pinned}
+                tools={(t as { tools?: boolean }).tools}
                 active={t._id === threadId}
                 onNavigate={onNavigate}
               />

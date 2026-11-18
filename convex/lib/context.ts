@@ -2,6 +2,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import type { ChatMessage } from "./anthropic";
 import { documentBlock } from "./documents";
+import { expandParts, usedTools } from "./toolParts";
 import { searchBlock } from "./webSearch";
 
 // Prefix for the summary message. Changing it changes every request's bytes after the
@@ -81,14 +82,21 @@ export async function assembleHistory(
 
   // Per-message effort and images ride along on user messages; the adapter turns them into
   // their own blocks, so request bytes depend only on stored data.
-  const toChat = (m: Doc<"messages">): ChatMessage => ({
-    role: m.role,
-    content: withAttachments(m),
-    ...(m.role === "user" && m.effort ? { effort: m.effort } : {}),
-    ...(m.role === "user" && m.images?.length ? { images: m.images } : {}),
-  });
+  const toChat = (m: Doc<"messages">): ChatMessage[] =>
+    // A reply that used tools goes back as its steps, results word for word (ADR 0003).
+    m.role === "assistant" && usedTools(m.parts)
+      ? expandParts(m.parts!)
+      : [
+          {
+            role: m.role,
+            content: withAttachments(m),
+            ...(m.role === "user" && m.effort ? { effort: m.effort } : {}),
+            ...(m.role === "user" && m.images?.length ? { images: m.images } : {}),
+          },
+        ];
   const verbatim = (ms: Doc<"messages">[]) =>
-    ms.filter((m) => m.content !== "").map(toChat);
+    // A reply still running a tool loop has no content yet, but its stored steps count.
+    ms.filter((m) => m.content !== "" || usedTools(m.parts)).flatMap(toChat);
   if (!latest)
     return { messages: verbatim(branch), layerEnd: 0, checkpoint: null };
   const cut = position.get(latest.coversUpToId)! + 1;

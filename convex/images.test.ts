@@ -267,12 +267,14 @@ describe("images in Anthropic threads", () => {
         displayName: "Sonnet",
         hidden: true,
         vision: true,
+        tools: true,
       },
       {
         id: "claude-new",
         displayName: "Claude New",
         hidden: false,
         vision: false,
+        tools: true,
       },
     ]);
   });

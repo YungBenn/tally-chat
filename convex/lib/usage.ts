@@ -14,6 +14,16 @@ export const usageValidator = v.object({
 export type Usage = Infer<typeof usageValidator>;
 export const USAGE_FIELDS = Object.keys(usageValidator.fields) as (keyof Usage)[];
 
+// A reply's usage is the sum of its steps' (spec phase 10); with one step it is that step's.
+export const sumUsage = (steps: Usage[]): Usage => {
+  const total = Object.fromEntries(USAGE_FIELDS.map((f) => [f, 0])) as Usage;
+  for (const s of steps) for (const f of USAGE_FIELDS) total[f] += s[f];
+  return total;
+};
+// undefined when any step has no price: a partial cost would be a guess.
+export const sumCost = (costs: (number | undefined)[]) =>
+  costs.some((c) => c === undefined) ? undefined : costs.reduce<number>((a, c) => a + c!, 0);
+
 export type AnthropicUsage = {
   input_tokens?: number;
   cache_read_input_tokens?: number;

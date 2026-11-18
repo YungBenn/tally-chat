@@ -1,6 +1,7 @@
 import { ConvexError } from "convex/values";
 import type { Effort } from "./effort";
 import type { MessageImage } from "./images";
+import type { ToolDefinition } from "./toolSet";
 import { guardedFetch, type GuardOptions } from "./urlGuard";
 import {
   normalizeAnthropicUsage,
@@ -13,6 +14,7 @@ export type ProviderModel = {
   displayName: string;
   hidden: boolean;
   vision?: boolean; // accepts images (spec phase 4)
+  tools?: boolean; // can call tools (spec phase 10)
 };
 
 // GET /v1/models is free, so it doubles as the key test and the model list.
@@ -67,12 +69,23 @@ export async function fetchAnthropicModels(
 // Anthropic body emits as a beta effort-only system message right after it.
 // images: stored images on a user message; the action loads them into imageData (base64)
 // before the request is built.
+// blocks and toolResults carry a tool loop's steps (spec phase 10, lib/toolParts): an assistant
+// step's thinking, text and tool calls, then the user turn holding their results. tool_use input
+// is JSON text, parsed only when the body is built.
+export type AssistantBlock =
+  | { type: "thinking"; thinking: string; signature: string }
+  | { type: "redacted_thinking"; data: string }
+  | { type: "text"; text: string }
+  | { type: "tool_use"; id: string; name: string; input: string };
+export type ToolResultBlock = { id: string; name: string; text: string; isError: boolean };
 export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   effort?: Effort;
   images?: MessageImage[];
   imageData?: { mediaType: MessageImage["mediaType"]; data: string }[];
+  blocks?: AssistantBlock[];
+  toolResults?: ToolResultBlock[];
 };
 
 const PER_MESSAGE_EFFORT_BETA = "mid-conversation-output-config-2026-07-01";
@@ -117,26 +130,52 @@ export type MessagesRequest = {
   maxTokens: number;
   cache?: CacheLayout; // absent (side jobs): no cache_control at all
   effort?: Effort; // output_config.effort; absent: the model's own default
+  tools?: ToolDefinition[]; // a thread's frozen tool set (spec phase 10), sent as stored
 };
 
-// The Messages API body. Breakpoints: the system prompt, the end of the checkpoint layer,
-// and top-level automatic caching sliding over the verbatim turns (plus the latest reply for
-// a keepalive): at most 4. Only marked messages become content-block arrays; the rest stay
+// The Messages API body. Breakpoints: the system prompt (tools come before it, so it caches them
+// too), the end of the checkpoint layer, and top-level automatic caching sliding over the verbatim
+// turns (plus the latest reply for a keepalive; none when the request ends in tool results): at most 4, leaving room for a router in front
+// of the API that adds a breakpoint of its own. Only marked messages become content-block arrays; the rest stay
 // plain strings, so a branch's request bytes stay stable from turn to turn.
 export function messagesBody(req: MessagesRequest, stream: boolean) {
   const cc = req.cache && { type: "ephemeral" as const, ttl: req.cache.ttl };
   const marked = new Set<number>();
   if (req.cache && req.cache.layerEnd > 0) marked.add(req.cache.layerEnd - 1);
   if (req.cache?.breakAt !== undefined) marked.add(req.cache.breakAt);
+  const tools = req.tools?.length ? req.tools : undefined;
   return {
     model: req.model,
     max_tokens: req.maxTokens,
     ...(req.effort ? { output_config: { effort: req.effort } } : {}),
+    // Tools come first in the cached prefix; the system prompt's breakpoint covers them.
+    ...(tools
+      ? {
+          tools: tools.map((t) => ({
+            name: t.name,
+            ...(t.description !== undefined ? { description: t.description } : {}),
+            input_schema: JSON.parse(t.inputSchema) as unknown,
+          })),
+        }
+      : {}),
     system: cc
       ? [{ type: "text" as const, text: req.system, cache_control: cc }]
       : req.system,
     // Breakpoint indices count the branch's messages; effort messages are inserted after them.
-    messages: req.messages.flatMap((m, i) => {
+    messages: req.messages.flatMap((m, i): object[] => {
+      // A tool step is always an array of blocks; a breakpoint goes on its last block.
+      if (m.blocks || m.toolResults) {
+        const blocks: Record<string, unknown>[] = m.blocks
+          ? m.blocks.map((b) => (b.type === "tool_use" ? { ...b, input: JSON.parse(b.input) as unknown } : { ...b }))
+          : m.toolResults!.map((r) => ({
+              type: "tool_result",
+              tool_use_id: r.id,
+              content: r.text,
+              ...(r.isError ? { is_error: true } : {}),
+            }));
+        if (marked.has(i) && cc) blocks[blocks.length - 1] = { ...blocks[blocks.length - 1], cache_control: cc };
+        return [{ role: m.role, content: blocks }];
+      }
       const text = marked.has(i)
         ? { type: "text" as const, text: m.content, cache_control: cc }
         : { type: "text" as const, text: m.content };
@@ -168,13 +207,18 @@ export function messagesBody(req: MessagesRequest, stream: boolean) {
           ]
         : [message];
     }),
-    ...(cc ? { cache_control: cc } : {}),
+    // Not on a request ending in tool results: 9router (cc/) adds its own marks to a
+    // tool_use -> tool_result request, and with this one it goes over 4.
+    ...(cc && !req.messages.at(-1)?.toolResults ? { cache_control: cc } : {}),
     stream,
   };
 }
 
 export type StreamEvent =
   | { type: "text"; text: string }
+  | { type: "toolCall"; id: string; name: string; input: unknown } // the model asks for a tool (spec phase 10)
+  | { type: "thinking"; thinking: string; signature: string } // a finished thinking block, to send back unchanged in a tool loop
+  | { type: "redactedThinking"; data: string }
   | ({ type: "usage" } & NormalizedUsage)
   | { type: "stop"; truncated: boolean }; // truncated: the reply stopped at max_tokens
 
@@ -208,6 +252,9 @@ export async function* streamAnthropicMessage(
   const decoder = new TextDecoder();
   let buffer = "";
   let usage: AnthropicUsage = {};
+  // tool_use blocks arrive as a start (id, name) and JSON fragments, per content block index.
+  const toolBlocks = new Map<number, { id: string; name: string; json: string }>();
+  const thinkingBlocks = new Map<number, { thinking: string; signature: string }>();
   for await (const bytes of res.body as unknown as AsyncIterable<Uint8Array>) {
     buffer += decoder.decode(bytes, { stream: true });
     let end: number;
@@ -223,7 +270,16 @@ export async function* streamAnthropicMessage(
       if (!data || data === "[DONE]") continue;
       const parsed = JSON.parse(data) as {
         type: string;
-        delta?: { type?: string; text?: string; stop_reason?: string };
+        index?: number;
+        content_block?: { type?: string; id?: string; name?: string; data?: string };
+        delta?: {
+          type?: string;
+          text?: string;
+          stop_reason?: string;
+          partial_json?: string;
+          thinking?: string;
+          signature?: string;
+        };
         message?: { usage?: AnthropicUsage };
         usage?: AnthropicUsage;
         error?: { message?: string };
@@ -233,6 +289,43 @@ export async function* streamAnthropicMessage(
         parsed.delta?.type === "text_delta"
       ) {
         yield { type: "text", text: parsed.delta.text ?? "" };
+      }
+      if (parsed.type === "content_block_start" && parsed.content_block?.type === "tool_use")
+        toolBlocks.set(parsed.index ?? 0, {
+          id: parsed.content_block.id ?? "",
+          name: parsed.content_block.name ?? "",
+          json: "",
+        });
+      if (parsed.type === "content_block_start" && parsed.content_block?.type === "thinking")
+        thinkingBlocks.set(parsed.index ?? 0, { thinking: "", signature: "" });
+      if (parsed.type === "content_block_start" && parsed.content_block?.type === "redacted_thinking")
+        yield { type: "redactedThinking", data: parsed.content_block.data ?? "" };
+      if (parsed.type === "content_block_delta" && parsed.delta?.type === "thinking_delta") {
+        const block = thinkingBlocks.get(parsed.index ?? 0);
+        if (block) block.thinking += parsed.delta.thinking ?? "";
+      }
+      if (parsed.type === "content_block_delta" && parsed.delta?.type === "signature_delta") {
+        const block = thinkingBlocks.get(parsed.index ?? 0);
+        if (block) block.signature += parsed.delta.signature ?? "";
+      }
+      if (parsed.type === "content_block_stop" && thinkingBlocks.has(parsed.index ?? 0)) {
+        yield { type: "thinking", ...thinkingBlocks.get(parsed.index ?? 0)! };
+        thinkingBlocks.delete(parsed.index ?? 0);
+      }
+      if (parsed.type === "content_block_delta" && parsed.delta?.type === "input_json_delta") {
+        const block = toolBlocks.get(parsed.index ?? 0);
+        if (block) block.json += parsed.delta.partial_json ?? "";
+      }
+      if (parsed.type === "content_block_stop" && toolBlocks.has(parsed.index ?? 0)) {
+        const { id, name, json } = toolBlocks.get(parsed.index ?? 0)!;
+        toolBlocks.delete(parsed.index ?? 0);
+        let input: unknown = {};
+        try {
+          input = json ? JSON.parse(json) : {};
+        } catch {
+          // a malformed argument string reaches the tool as no arguments
+        }
+        yield { type: "toolCall", id, name, input };
       }
       if (parsed.type === "message_delta" && parsed.delta?.stop_reason) {
         yield {

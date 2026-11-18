@@ -110,7 +110,7 @@ export const condenseNow = mutation({
     if (await condensePending(ctx, thread))
       throw new ConvexError("This thread is already condensing");
     const branch = await activeBranch(ctx, thread);
-    if (branch.some((m) => m.status === "streaming"))
+    if (branch.some((m) => (m.status === "streaming" || m.status === "waiting")))
       throw new ConvexError("Wait for the reply to finish");
     if ((await condensePlan(ctx, thread, branch, true)).kind !== "ready")
       throw new ConvexError(
@@ -244,7 +244,7 @@ export const input = internalQuery({
     const thread = await ctx.db.get("threads", threadId);
     if (!thread) return null;
     const branch = await activeBranch(ctx, thread);
-    if (branch.some((m) => m.status === "streaming")) return null;
+    if (branch.some((m) => (m.status === "streaming" || m.status === "waiting"))) return null;
     const plan = await condensePlan(ctx, thread, branch, force);
     if (plan.kind !== "ready") return null;
     if (await budgetReached(ctx, plan.settings, now)) return null; // side jobs pause while over budget
