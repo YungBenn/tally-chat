@@ -274,7 +274,7 @@ async function condenseNowEstimate(
   thread: Doc<"threads">,
   branch: Doc<"messages">[],
 ) {
-  if (branch.some((m) => m.status === "streaming")) return null;
+  if (branch.some((m) => (m.status === "streaming" || m.status === "waiting"))) return null;
   const plan = await condensePlan(ctx, thread, branch, true);
   if (plan.kind !== "ready") return null;
   return {

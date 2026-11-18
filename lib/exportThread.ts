@@ -6,7 +6,7 @@ export type ExportThread = {
   title: string;
   messages: {
     role: "user" | "assistant";
-    status: "streaming" | "done" | "stopped" | "error";
+    status: "streaming" | "waiting" | "done" | "stopped" | "error";
     text: string;
     model?: string;
     modelName?: string;

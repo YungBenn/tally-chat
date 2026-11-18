@@ -47,6 +47,8 @@ export const chatMessageValidator = v.object({
 });
 
 export const MAX_STEPS = 10;
+// A reply waits this long for approval before it stops (spec phase 10).
+export const APPROVAL_TIMEOUT_MS = 30 * 60_000;
 
 // The number of the step a reply is on: the one after the last step with parts.
 export const nextStep = (parts: Part[] | undefined) =>

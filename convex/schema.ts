@@ -123,6 +123,7 @@ export default defineSchema({
     content: v.string(), // final text; while streaming the text lives in streamId
     status: v.union(
       v.literal("streaming"),
+      v.literal("waiting"), // a tool step waits for the owner's approval; no action runs (spec phase 10)
       v.literal("done"),
       v.literal("stopped"),
       v.literal("error"),
@@ -146,6 +147,10 @@ export default defineSchema({
     // Replies that called a tool (spec phase 10): the ordered text, thinking, tool calls and results
     // of every step. content is then the text parts joined. Absent on replies without tools.
     parts: v.optional(v.array(partValidator)),
+    pendingApproval: v.optional(
+      v.object({ step: v.number(), callIds: v.array(v.string()), requestedAt: v.number() }),
+    ),
+    approvalExpired: v.optional(v.boolean()), // stopped because nobody approved for 30 minutes
     hitStepLimit: v.optional(v.boolean()), // truncated because the reply ran out of steps, not tokens
     stepStartedAt: v.optional(v.number()), // when the current step began; the stuck-reply sweep counts from it
     effort: v.optional(effortValidator), // user: a per-message change made here; replies: the level they ran at

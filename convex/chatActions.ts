@@ -199,12 +199,16 @@ export const generate = internalAction({
 
 // Runs the tool calls a step asked for, in parallel (spec phase 10). Every outcome, including a
 // timeout, an unreachable server or a tool the server no longer offers, becomes a result the
-// model sees; nothing here fails the reply. Calls to tools that aren't always allowed are
-// declined until ticket 06 adds approval.
+// model sees; nothing here fails the reply. Calls the owner declined (or that were never
+// approved) tell the model so.
 export const runTools = internalAction({
-  args: { messageId: v.id("messages"), step: v.number() },
+  args: {
+    messageId: v.id("messages"),
+    step: v.number(),
+    declined: v.array(v.string()), // calls the owner declined
+  },
   returns: v.null(),
-  handler: async (ctx, { messageId, step }) => {
+  handler: async (ctx, { messageId, step, declined }) => {
     const input = await ctx.runQuery(internal.chat.toolRunInput, { messageId, step });
     if (!input) return null; // the reply was closed meanwhile
     const stopped = new AbortController();
@@ -218,7 +222,7 @@ export const runTools = internalAction({
     const results = await Promise.all(
       input.calls.map(async (call): Promise<{ id: string; text: string; status: ToolStatus }> => {
         const fail = (text: string) => ({ id: call.id, text: `Error: ${text}`, status: "error" as const });
-        if (!call.alwaysAllowed) return { id: call.id, text: RESULT_NOTE.declined, status: "declined" };
+        if (declined.includes(call.id)) return { id: call.id, text: RESULT_NOTE.declined, status: "declined" };
         if (call.problem) return fail(call.problem);
         try {
           const headers = call.headersEncrypted

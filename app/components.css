@@ -709,6 +709,9 @@ button.tc-provider:hover { border-color: var(--border-strong); }
 .tc-toolcall-body > p:not(:first-child) { margin-top: 6px; }
 .tc-toolcall-pre { margin: 0; padding: 8px 10px; max-height: 240px; overflow: auto; border-radius: 6px; background: var(--surface); border: 1px solid var(--border-subtle); font: 400 12px/18px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) { .tc-toolcall-chevron { transition: none; } }
+.tc-approval { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; border: 1px solid var(--border-strong); border-radius: var(--radius-card); background: var(--surface); }
+.tc-approval-call { display: flex; flex-direction: column; gap: 6px; }
+.tc-approval-call[data-declined] .tc-toolcall-pre { opacity: 0.5; text-decoration: line-through; }
 /* A tool server's tools: name and description, then the always-allow switch (stays on phones). */
 .tc-tools-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; min-height: 48px; padding: 8px 16px; border-bottom: 1px solid var(--border-subtle); }
 .tc-tools-row:last-child { border-bottom: 0; }

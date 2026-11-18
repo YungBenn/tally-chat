@@ -15,7 +15,7 @@ import {
   toolUse,
   toolUseStop,
 } from "../test/sse";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { encryptSecret } from "./lib/vault";
 import schema from "./schema";
@@ -133,7 +133,7 @@ describe("the tool loop on Anthropic", () => {
     expect(view.text).toBe("Let me look.\n\nFound it.");
     expect(view.items).toEqual([
       { kind: "text", text: "Let me look." },
-      { kind: "tool", id: "toolu_1", tool: "search", server: "Docs", status: "ok", input: '{\n  "q": "cache"\n}', result: "result of search" },
+      { kind: "tool", id: "toolu_1", tool: "search", server: "Docs", alwaysAllowed: true, status: "ok", input: '{\n  "q": "cache"\n}', result: "result of search" },
       { kind: "text", text: "Found it." },
     ]);
   });
@@ -176,16 +176,6 @@ describe("the tool loop on Anthropic", () => {
     expect(peak).toBe(2);
     const results = (s.replyRequests()[1].messages.at(-1)!.content as Block[]).map((b) => [b.tool_use_id, b.content]);
     expect(results).toEqual([["a", "r1"], ["b", "r2"]]);
-  });
-
-  test("a tool that isn't always allowed gets a declined result and the loop continues", async () => {
-    const s = await setup({ steps: [{ calls: [call("d", "delete")] }, { text: "I could not delete it." }] });
-    await s.send("Delete everything");
-    expect(s.mcpCalls).toEqual([]);
-    expect(s.replyRequests()[1].messages.at(-1)!.content).toEqual([
-      { type: "tool_result", tool_use_id: "d", content: "The user declined this call.", is_error: true },
-    ]);
-    expect((await s.replies())[0]).toMatchObject({ status: "done", content: "I could not delete it." });
   });
 
   test("a call over 60 seconds becomes a timed-out result", async () => {
@@ -335,5 +325,116 @@ describe("the tool loop on Anthropic", () => {
     expect(replies[1].parts!.map((p) => p.type)).toEqual(["toolCall", "toolResult", "text"]);
     expect(replies[1].parentId).toBe(first.parentId);
     expect(s.mcpCalls).toHaveLength(2);
+  });
+});
+
+const pending = (s: Awaited<ReturnType<typeof setup>>) => s.replies().then(([r]) => r);
+
+describe("approving tool calls", () => {
+  test("a call to a tool that isn't always allowed pauses the reply with one prompt for the step; nothing runs", async () => {
+    const s = await setup({ steps: [{ text: "I'll clean up.", calls: [call("d", "delete"), call("q", "search", { q: "x" })] }, { text: "Done." }] });
+    await s.send("Clean up");
+    const reply = await pending(s);
+    expect(reply).toMatchObject({ status: "waiting", content: "" });
+    expect(reply.pendingApproval).toMatchObject({ step: 1, callIds: ["d", "q"] });
+    expect(s.mcpCalls).toEqual([]); // the always-allowed call waits with the other
+    expect(s.replyRequests()).toHaveLength(1);
+    const view = (await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!.messages[1];
+    expect(view.status).toBe("waiting");
+    expect(view.items!.filter((i) => i.kind === "tool").map((i) => (i.kind === "tool" ? [i.tool, i.status, i.alwaysAllowed] : []))).toEqual([
+      ["delete", "waiting", false],
+      ["search", "waiting", true],
+    ]);
+    // Nothing else can be sent until it is answered or stopped.
+    await expect(s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Hi" })).rejects.toThrow("Wait for the reply to finish");
+  });
+
+  test("allowing runs every call of the step in parallel and the results go back together", async () => {
+    const s = await setup({ steps: [{ calls: [call("d", "delete"), call("q", "search", { q: "x" })] }, { text: "Done." }] });
+    await s.send("Clean up");
+    const id = (await pending(s))._id;
+    await s.owner.mutation(api.chat.approveTools, { messageId: id, declined: [] });
+    await s.settle();
+    expect(s.mcpCalls.map((c) => c.name).sort()).toEqual(["delete", "search"]);
+    expect(s.replyRequests()[1].messages.at(-1)!.content).toEqual([
+      { type: "tool_result", tool_use_id: "d", content: "result of delete" },
+      { type: "tool_result", tool_use_id: "q", content: "result of search" },
+    ]);
+    expect(await pending(s)).toMatchObject({ status: "done", content: "Done." });
+    expect((await pending(s)).pendingApproval).toBeUndefined();
+  });
+
+  test("declining a call tells the model and the loop continues; the others still run", async () => {
+    const s = await setup({ steps: [{ calls: [call("d", "delete"), call("q", "search", { q: "x" })] }, { text: "I left it alone." }] });
+    await s.send("Clean up");
+    const id = (await pending(s))._id;
+    await expect(s.owner.mutation(api.chat.approveTools, { messageId: id, declined: ["nope"] })).rejects.toThrow("isn't waiting");
+    await s.owner.mutation(api.chat.approveTools, { messageId: id, declined: ["d"] });
+    await s.settle();
+    expect(s.mcpCalls.map((c) => c.name)).toEqual(["search"]);
+    expect(s.replyRequests()[1].messages.at(-1)!.content).toEqual([
+      { type: "tool_result", tool_use_id: "d", content: "The user declined this call.", is_error: true },
+      { type: "tool_result", tool_use_id: "q", content: "result of search" },
+    ]);
+    expect(await pending(s)).toMatchObject({ status: "done", content: "I left it alone." });
+    await expect(s.owner.mutation(api.chat.approveTools, { messageId: id, declined: [] })).rejects.toThrow("Nothing is waiting");
+  });
+
+  test("Stop cancels a pending approval and ends the reply", async () => {
+    const s = await setup({ steps: [{ text: "Working.", calls: [call("d", "delete")] }, { text: "Hello again." }] });
+    await s.send("Clean up");
+    const id = (await pending(s))._id;
+    await s.owner.mutation(api.chat.stop, { messageId: id });
+    expect(await pending(s)).toMatchObject({ status: "stopped", content: "Working." });
+    expect((await pending(s)).pendingApproval).toBeUndefined();
+    await s.settle();
+    expect(s.mcpCalls).toEqual([]);
+    // The thread is usable again, and the history holds no unanswered call.
+    await s.send("Hi");
+    expect(s.replyRequests()[1].messages.map((m) => m.content)).toEqual(["Clean up", "Working.", "Hi"]);
+  });
+
+  test("an approval left for 30 minutes stops the reply with Continue; the expiry is scheduled when it starts waiting", async () => {
+    const s = await setup({ steps: [{ calls: [call("d", "delete")] }, { text: "Continuing." }] });
+    await s.send("Clean up");
+    const reply = await pending(s);
+    const jobs = await s.t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    const expiry = jobs.find((j) => j.name.includes("expireApproval"))!;
+    expect(expiry.scheduledTime).toBe(reply.pendingApproval!.requestedAt + 30 * 60_000);
+    // Answering first makes the job a no-op; here nobody answers.
+    await s.t.mutation(internal.chat.expireApproval, { messageId: reply._id, step: 1 });
+    expect(await pending(s)).toMatchObject({ status: "stopped", truncated: true, approvalExpired: true });
+    const view = (await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!.messages[1];
+    expect(view.approvalExpired).toBe(true);
+    await s.send("Continue.");
+    expect(s.replyRequests()[1].messages.at(-1)).toEqual({ role: "user", content: "Continue." });
+  });
+
+  test("the stuck-reply sweep leaves a waiting reply alone, and closes one whose expiry was lost", async () => {
+    const s = await setup({ steps: [{ calls: [call("d", "delete")] }] });
+    await s.send("Clean up");
+    const id = (await pending(s))._id;
+    await s.t.run((ctx) => ctx.db.patch("messages", id, { stepStartedAt: 1 }));
+    expect(await s.t.mutation(internal.chat.sweepStuckReplies, {})).toBe(0);
+    expect((await pending(s)).status).toBe("waiting");
+    await s.t.run((ctx) => ctx.db.patch("messages", id, { pendingApproval: { step: 1, callIds: ["d"], requestedAt: Date.now() - 40 * 60_000 } }));
+    expect(await s.t.mutation(internal.chat.sweepStuckReplies, {})).toBe(1);
+    expect(await pending(s)).toMatchObject({ status: "stopped", approvalExpired: true });
+  });
+
+  test("keepalive keeps the cache warm while the approval waits, through the reply's last stored part, until 30 minutes pass", async () => {
+    const s = await setup({ steps: [{ text: "Ok.", calls: [call("d", "delete")] }] });
+    await s.send("Clean up");
+    const [reply] = await s.replies();
+    // The first step's request wrote the cache; nobody has typed in the thread (no presence).
+    await s.t.run((ctx) => ctx.db.patch("messages", reply._id, { usage: { ...reply.usage!, cacheWriteTokens5m: 100 } }));
+    const input = (now: number) => s.t.query(internal.keepalive.input, { threadId: s.threadId, now, warm: true });
+    const requestedAt = reply.pendingApproval!.requestedAt;
+    const waiting = await input(requestedAt + 5 * 60_000);
+    expect(waiting).not.toBeNull();
+    // The prefix runs through the step's text; its unanswered call is not part of it.
+    expect(waiting!.history).toEqual([{ role: "user", content: "Clean up" }, { role: "assistant", content: "Ok." }]);
+    expect(waiting!.tools).toHaveLength(2);
+    expect(await input(requestedAt + 31 * 60_000)).toBeNull();
   });
 });

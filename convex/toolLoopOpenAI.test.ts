@@ -90,6 +90,11 @@ describe("the tool loop on OpenAI-compatible providers", () => {
       { text: "Done." },
     ]);
     await s.send("Go");
+    // c2 isn't always allowed, so the step waits: allow everything but it.
+    const [waiting] = await s.replies();
+    expect(waiting.status).toBe("waiting");
+    await s.owner.mutation(api.chat.approveTools, { messageId: waiting._id, declined: ["c2"] });
+    await s.t.finishAllScheduledFunctions(() => {});
     const [first, second] = s.requests();
     expect(first.messages).toEqual([expect.objectContaining({ role: "system" }), { role: "user", content: "Go" }]);
     expect(second.messages.slice(2)).toEqual([

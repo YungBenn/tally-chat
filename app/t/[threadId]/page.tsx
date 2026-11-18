@@ -59,7 +59,7 @@ import {
   type OutputMode,
 } from "@/convex/lib/outputModes";
 import Markdown, { CopyButton } from "@/components/Markdown";
-import { ToolCallRow } from "@/components/ToolCalls";
+import { ApprovalPrompt, ToolCallRow } from "@/components/ToolCalls";
 import { api } from "@/convex/_generated/api";
 import { estimateTokens, tokens, usd } from "@/lib/format";
 import { useStoredChoice, useStoredFlag } from "@/lib/storedFlag";
@@ -345,6 +345,7 @@ export default function ThreadPage() {
   const send = useMutation(api.chat.send);
   const webSearch = useWebSearch();
   const stop = useMutation(api.chat.stop);
+  const approveTools = useMutation(api.chat.approveTools);
   const retry = useMutation(api.chat.retry);
   const deleteThread = useMutation(api.chat.deleteThread);
   const markActive = usePresence(threadId);
@@ -481,11 +482,12 @@ export default function ThreadPage() {
   const scroller = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
   const last = thread?.messages.at(-1);
-  const streaming = last?.status === "streaming";
+  // A reply waiting for approval is still in progress: sending is paused, Stop is offered.
+  const streaming = last?.status === "streaming" || last?.status === "waiting";
 
   // ⌘⇧C copies the last finished reply on this branch.
   useShortcut(SHORTCUTS.copyLastReply, () => {
-    const reply = thread?.messages.findLast((m) => m.role === "assistant" && m.status !== "streaming" && m.text);
+    const reply = thread?.messages.findLast((m) => m.role === "assistant" && m.status !== "streaming" && m.status !== "waiting" && m.text);
     if (reply)
       void navigator.clipboard.writeText(reply.text).then(() => toast({ title: "Copied the last reply" }));
   });
@@ -494,7 +496,7 @@ export default function ThreadPage() {
   // Follow new text only while the reader is at the bottom, so scrolling up to read isn't yanked back.
   useEffect(() => {
     if (atBottom) toBottom();
-  }, [last?.text, thread?.messages.length, atBottom]);
+  }, [last?.text, last?.items?.length, last?.status, thread?.messages.length, atBottom]);
 
   // Opening a search hit: switch to the branch holding it if needed (once), then mark it, which
   // opens a fold around it; the next effect scrolls to it. The URL drops the hit afterwards.
@@ -589,7 +591,7 @@ export default function ThreadPage() {
         {m.items ? (
           <>
             {m.items.map((item, i) =>
-              item.kind === "text" ? (
+              item.kind === "tool" && item.status === "waiting" ? null : item.kind === "text" ? ( // waiting calls show in the prompt below
                 <Markdown key={i} text={item.text} />
               ) : (
                 <ToolCallRow key={item.id} {...item} />
@@ -619,7 +621,13 @@ export default function ThreadPage() {
             {!m.usage && " Nothing was charged."}
           </ErrorState>
         )}
-        {m.status === "streaming" ? (
+        {m.status === "waiting" && m.items && (
+          <ApprovalPrompt
+            calls={m.items.flatMap((i) => (i.kind === "tool" && i.status === "waiting" ? [i] : []))}
+            onAnswer={(declined) => approveTools({ messageId: m._id, declined })}
+          />
+        )}
+        {m.status === "streaming" || m.status === "waiting" ? (
           m.text && (
             <p className="tc-mono text-mono-sm text-foreground-subtle">
               ~{tokens(estimateTokens(m.text))} out
@@ -640,7 +648,7 @@ export default function ThreadPage() {
             {m.status === "stopped" && <Badge>Stopped</Badge>}
             {m.truncated && (
               <Badge tone="warning" dot>
-                {m.hitStepLimit ? "Stopped after 10 steps" : "Hit the output limit"}
+                {m.hitStepLimit ? "Stopped after 10 steps" : m.approvalExpired ? "Approval timed out" : "Hit the output limit"}
               </Badge>
             )}
             {m.pinned && <Badge tone="accent">Pinned</Badge>}

@@ -95,7 +95,8 @@ export async function assembleHistory(
           },
         ];
   const verbatim = (ms: Doc<"messages">[]) =>
-    ms.filter((m) => m.content !== "").flatMap(toChat);
+    // A reply still running a tool loop has no content yet, but its stored steps count.
+    ms.filter((m) => m.content !== "" || usedTools(m.parts)).flatMap(toChat);
   if (!latest)
     return { messages: verbatim(branch), layerEnd: 0, checkpoint: null };
   const cut = position.get(latest.coversUpToId)! + 1;
