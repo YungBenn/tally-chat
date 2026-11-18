@@ -138,7 +138,7 @@ function UsageBody({ data, days: n }: { data: Summary; days: 7 | 30 }) {
         <StatTile label="Cache upkeep" value={usd(upkeep)} note="keepalives" />
       </div>
 
-      <div className="grid items-start gap-3 lg:grid-cols-[3fr_2fr]">
+      <div className="grid gap-3 lg:grid-cols-2">
         <Card title="Daily spend">
           <BarChart
             days={days.map((d) => d.day)}
@@ -160,7 +160,7 @@ function UsageBody({ data, days: n }: { data: Summary; days: 7 | 30 }) {
         </Card>
       </div>
 
-      <div className="grid items-start gap-3 lg:grid-cols-2">
+      <div className="grid gap-3 lg:grid-cols-2">
         <Card title="By day">
           <div className="tc-table-scroll">
             <table className="tc-table">

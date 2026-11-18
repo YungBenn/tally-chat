@@ -68,7 +68,7 @@ export function Legend({ items }: { items: Series[] }) {
   );
 }
 
-const W = 560;
+const W = 480; // about a half-width card's inner width, so 11px chart text renders near 11px
 
 /**
  * Stacked bars by day (design system: BarChart): series colors only, never holo; bars grow from
@@ -161,18 +161,18 @@ export function LineChart({
   dayLabel: (day: string) => string;
 }) {
   const id = useId();
-  const W = 400;
   const H = 180;
-  const pad = { l: 40, b: 22, t: 14, r: 10 };
+  const pad = { l: 46, b: 22, t: 14, r: 4 };
   const known = rates.filter((r): r is number => r !== null).map((r) => r * 100);
   const lo = known.length && Math.min(...known) < 50 ? 0 : 50;
-  const x = (i: number) => pad.l + (i / Math.max(1, rates.length - 1)) * (W - pad.l - pad.r);
+  // Each day sits at the center of its slot, like BarChart's bars, so the two charts line up.
+  const x = (i: number) => pad.l + ((i + 0.5) / Math.max(1, rates.length)) * (W - pad.l - pad.r);
   const y = (v: number) => H - pad.b - ((v - lo) / (100 - lo)) * (H - pad.b - pad.t);
   // Days without replies have no rate; the line joins the days that do.
   const points = rates.flatMap((r, i) => (r === null ? [] : [{ i, v: r * 100 }]));
   const d = points.map((p, k) => `${k ? "L" : "M"}${x(p.i).toFixed(1)} ${y(p.v).toFixed(1)}`).join(" ");
   const last = rates.findLastIndex((r) => r !== null);
-  const every = Math.ceil(days.length / 5);
+  const every = Math.ceil(days.length / 7);
   return (
     <svg className="tc-chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={label}>
       <defs>
@@ -188,7 +188,7 @@ export function LineChart({
       ))}
       {days.map((day, i) =>
         i % every === 0 ? (
-          <text key={day} x={x(i)} y={H - 4} textAnchor="middle">
+          <text key={day} x={x(i)} y={H - 6} textAnchor="middle">
             {dayLabel(day)}
           </text>
         ) : null,
