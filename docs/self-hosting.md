@@ -97,6 +97,39 @@ SearXNG asks other search engines on your behalf, so they still see your queries
 
 Already run SearXNG? Point the setting at it instead. Its `settings.yml` must list `json` under `search.formats`, or every search fails with HTTP 403. Naming the URL in Settings trusts its host, so it doesn't need a private host allowlist entry.
 
+## Tool servers
+
+Tools let the model call outside services during a reply. tally.chat speaks to remote MCP servers over Streamable HTTP: open **Tools** in the sidebar, add the server's URL and any headers it needs (such as `Authorization: Bearer ...`, encrypted like provider keys), and tally.chat connects and lists what it offers.
+
+A server on a private address (your LAN, another container) must be on the private host allowlist in Settings first, like a local model server.
+
+### A local (stdio) server behind a proxy
+
+Many MCP servers only speak stdio, meaning they run as a local process. tally.chat never launches processes, so wrap such a server in a small proxy container that exposes it over HTTP. This `docker-compose.override.yml` wraps the reference filesystem server with [supergateway](https://github.com/supercorp-ai/supergateway); swap the `--stdio` command for the server you want:
+
+```yaml
+services:
+  mcp-files:
+    image: node:22-alpine
+    restart: unless-stopped
+    command:
+      - npx
+      - -y
+      - supergateway
+      - --stdio
+      - npx -y @modelcontextprotocol/server-filesystem /files
+      - --outputTransport
+      - streamableHttp
+      - --port
+      - "8000"
+    volumes:
+      - ./my-files:/files:ro
+```
+
+Run `docker compose up -d`, add `mcp-files:8000` to the private host allowlist in Settings, then add a tool server with the URL `http://mcp-files:8000/mcp`. The port isn't published, so only containers on the compose network can reach it; if you publish it, set an API key on the proxy and send it as a header.
+
+A tool call runs whatever the server does with the access you gave it, so mount only what the model may read, read-only where you can. Each tool asks before it runs unless you mark it always allowed on the Tools page.
+
 ## HTTPS behind a reverse proxy
 
 To use tally.chat from your phone or another machine, put it behind HTTPS. It needs three hostnames: one for the app and two for the backend (its API and its HTTP actions). This example uses Caddy on the same server, which gets certificates from Let's Encrypt automatically:

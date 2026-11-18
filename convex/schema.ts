@@ -41,6 +41,30 @@ export default defineSchema({
       v.object({ caching: v.boolean(), reasoning: v.boolean() }),
     ),
   }).index("by_ownerId", ["ownerId"]),
+  // A remote MCP server (spec phase 10): its tools are offered to threads. Header values are
+  // encrypted as one blob and never leave the server; headerNames is all the client sees.
+  toolServers: defineTable({
+    ownerId: v.id("users"),
+    name: v.string(),
+    slug: v.string(), // prefixes this server's tool names in a thread; fixed once set
+    url: v.string(),
+    headersEncrypted: v.optional(v.string()),
+    headerNames: v.array(v.string()),
+    onForNewThreads: v.boolean(),
+    // The server's tool list as of the last test or refresh. inputSchema is JSON text: JSON
+    // Schema keys such as $schema can't be stored as document fields.
+    tools: v.array(
+      v.object({
+        name: v.string(),
+        description: v.optional(v.string()),
+        inputSchema: v.string(),
+      }),
+    ),
+    alwaysAllowed: v.array(v.string()), // tool names that run without asking; changes no request bytes
+    lastTest: v.optional(
+      v.object({ at: v.number(), ok: v.boolean(), error: v.optional(v.string()) }),
+    ),
+  }).index("by_ownerId", ["ownerId"]),
   threads: defineTable({
     ownerId: v.id("users"),
     title: v.string(),

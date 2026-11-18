@@ -698,6 +698,9 @@ button.tc-provider:hover { border-color: var(--border-strong); }
 .tc-models-row:last-child { border-bottom: 0; }
 .tc-models-head { min-height: 34px; background: var(--surface-sunken); border-bottom: 1px solid var(--border); font: 600 11px/14px var(--font-sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--foreground-muted); }
 @media (max-width: 639.98px) { .tc-models-row { grid-template-columns: minmax(0, 1fr) 56px 48px; } .tc-models-row > :nth-child(2) { display: none; } }
+/* A tool server's tools: name and description, then the always-allow switch (stays on phones). */
+.tc-tools-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; min-height: 48px; padding: 8px 16px; border-bottom: 1px solid var(--border-subtle); }
+.tc-tools-row:last-child { border-bottom: 0; }
 .tc-rename { display: flex; align-items: center; gap: 4px; min-width: 0; color: var(--foreground-subtle); }
 .tc-rename input { min-width: 0; flex: 0 1 auto; field-sizing: content; max-width: 100%; font: 400 13px/20px var(--font-sans); color: var(--foreground); background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 3px 6px; margin-left: -7px; outline: none; }
 .tc-rename input:hover { background: var(--surface-hover); }

@@ -13,6 +13,7 @@ import {
   IconPin,
   IconPinnedOff,
   IconPlugConnected,
+  IconTool,
   IconSearch,
   IconSettings,
   IconTrash,
@@ -199,6 +200,7 @@ function ThreadItem({
 const NAV = [
   { href: "/usage", label: "Usage", icon: IconChartBar },
   { href: "/providers", label: "Providers", icon: IconPlugConnected },
+  { href: "/tools", label: "Tools", icon: IconTool },
   { href: "/settings", label: "Settings", icon: IconSettings },
 ];
 

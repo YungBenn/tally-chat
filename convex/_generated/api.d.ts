@@ -29,6 +29,7 @@ import type * as lib_documents from "../lib/documents.js";
 import type * as lib_effort from "../lib/effort.js";
 import type * as lib_images from "../lib/images.js";
 import type * as lib_importParse from "../lib/importParse.js";
+import type * as lib_mcp from "../lib/mcp.js";
 import type * as lib_metering from "../lib/metering.js";
 import type * as lib_openaiCompatible from "../lib/openaiCompatible.js";
 import type * as lib_outputModes from "../lib/outputModes.js";
@@ -46,6 +47,8 @@ import type * as providerActions from "../providerActions.js";
 import type * as providers from "../providers.js";
 import type * as search from "../search.js";
 import type * as settings from "../settings.js";
+import type * as toolServerActions from "../toolServerActions.js";
+import type * as toolServers from "../toolServers.js";
 import type * as usage from "../usage.js";
 import type * as webSearch from "../webSearch.js";
 
@@ -77,6 +80,7 @@ declare const fullApi: ApiFromModules<{
   "lib/effort": typeof lib_effort;
   "lib/images": typeof lib_images;
   "lib/importParse": typeof lib_importParse;
+  "lib/mcp": typeof lib_mcp;
   "lib/metering": typeof lib_metering;
   "lib/openaiCompatible": typeof lib_openaiCompatible;
   "lib/outputModes": typeof lib_outputModes;
@@ -94,6 +98,8 @@ declare const fullApi: ApiFromModules<{
   providers: typeof providers;
   search: typeof search;
   settings: typeof settings;
+  toolServerActions: typeof toolServerActions;
+  toolServers: typeof toolServers;
   usage: typeof usage;
   webSearch: typeof webSearch;
 }>;
