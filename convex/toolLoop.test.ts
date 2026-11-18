@@ -121,6 +121,8 @@ describe("the tool loop on Anthropic", () => {
 
     expect(s.mcpCalls).toEqual([{ name: "search", args: { q: "cache" } }]);
     const [first, second] = s.replyRequests();
+    // Tools, tool results and a router's own breakpoint must fit Anthropic's limit of 4.
+    for (const body of [first, second]) expect(JSON.stringify(body).match(/"cache_control"/g)!.length).toBeLessThanOrEqual(3);
     expect(first.messages).toEqual([{ role: "user", content: "Find the cache docs" }]);
     expect(second.messages.slice(1)).toEqual([
       { role: "assistant", content: [{ type: "text", text: "Let me look." }, { type: "tool_use", id: "toolu_1", name: "docs__search", input: { q: "cache" } }] },

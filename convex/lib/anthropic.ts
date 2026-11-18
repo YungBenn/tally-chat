@@ -133,10 +133,10 @@ export type MessagesRequest = {
   tools?: ToolDefinition[]; // a thread's frozen tool set (spec phase 10), sent as stored
 };
 
-// The Messages API body. Breakpoints: the last tool, the system prompt, the end of the
-// checkpoint layer, and top-level automatic caching sliding over the verbatim turns: at most 4.
-// A keepalive also marks its latest reply, so with tools it drops the top-level one (it would
-// only mark the nudge) to stay within 4. Only marked messages become content-block arrays; the rest stay
+// The Messages API body. Breakpoints: the system prompt (tools come before it, so it caches them
+// too), the end of the checkpoint layer, and top-level automatic caching sliding over the verbatim
+// turns (plus the latest reply for a keepalive): at most 4, leaving room for a router in front
+// of the API that adds a breakpoint of its own. Only marked messages become content-block arrays; the rest stay
 // plain strings, so a branch's request bytes stay stable from turn to turn.
 export function messagesBody(req: MessagesRequest, stream: boolean) {
   const cc = req.cache && { type: "ephemeral" as const, ttl: req.cache.ttl };
@@ -148,14 +148,13 @@ export function messagesBody(req: MessagesRequest, stream: boolean) {
     model: req.model,
     max_tokens: req.maxTokens,
     ...(req.effort ? { output_config: { effort: req.effort } } : {}),
-    // Tools come first in the cached prefix, with a breakpoint on the last one.
+    // Tools come first in the cached prefix; the system prompt's breakpoint covers them.
     ...(tools
       ? {
-          tools: tools.map((t, i) => ({
+          tools: tools.map((t) => ({
             name: t.name,
             ...(t.description !== undefined ? { description: t.description } : {}),
             input_schema: JSON.parse(t.inputSchema) as unknown,
-            ...(cc && i === tools.length - 1 ? { cache_control: cc } : {}),
           })),
         }
       : {}),
@@ -208,7 +207,7 @@ export function messagesBody(req: MessagesRequest, stream: boolean) {
           ]
         : [message];
     }),
-    ...(cc && !(tools && req.cache?.breakAt !== undefined) ? { cache_control: cc } : {}),
+    ...(cc ? { cache_control: cc } : {}),
     stream,
   };
 }

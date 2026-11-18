@@ -96,7 +96,7 @@ describe("freezing a tool set", () => {
     expect(row!.toolSet![0].inputSchema).toBe(search.inputSchema);
   });
 
-  test("Anthropic: tools come first with a breakpoint on the last tool; schema keys such as $schema survive", async () => {
+  test("Anthropic: tools come first, covered by the system prompt's breakpoint; schema keys such as $schema survive", async () => {
     const s = await setup();
     const threadId = await s.thread(s.anthropicId, "claude-sonnet-5-5");
     await s.send(threadId, "Hi");
@@ -104,8 +104,10 @@ describe("freezing a tool set", () => {
     expect(Object.keys(body).indexOf("tools")).toBeLessThan(Object.keys(body).indexOf("system"));
     expect(body.tools!.map((x) => x.name)).toEqual(["docs__search", "docs__read_file"]);
     expect(body.tools![0]).toEqual({ name: "docs__search", description: "Search the docs", input_schema: JSON.parse(search.inputSchema) });
-    expect(body.tools![1].cache_control).toEqual(FIVE_MIN);
-    expect(body.tools![0].cache_control).toBeUndefined();
+    // The system prompt's breakpoint covers the tools before it; no request goes over 4 breakpoints.
+    expect(body.tools!.every((x) => x.cache_control === undefined)).toBe(true);
+    expect(body.system).toEqual([expect.objectContaining({ cache_control: FIVE_MIN })]);
+    expect(JSON.stringify(body).match(/"cache_control"/g)!.length).toBeLessThanOrEqual(3);
     expect(body.tools![1].description).toBeUndefined();
   });
 
