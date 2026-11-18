@@ -135,7 +135,7 @@ export type MessagesRequest = {
 
 // The Messages API body. Breakpoints: the system prompt (tools come before it, so it caches them
 // too), the end of the checkpoint layer, and top-level automatic caching sliding over the verbatim
-// turns (plus the latest reply for a keepalive): at most 4, leaving room for a router in front
+// turns (plus the latest reply for a keepalive; none when the request ends in tool results): at most 4, leaving room for a router in front
 // of the API that adds a breakpoint of its own. Only marked messages become content-block arrays; the rest stay
 // plain strings, so a branch's request bytes stay stable from turn to turn.
 export function messagesBody(req: MessagesRequest, stream: boolean) {
@@ -207,7 +207,9 @@ export function messagesBody(req: MessagesRequest, stream: boolean) {
           ]
         : [message];
     }),
-    ...(cc ? { cache_control: cc } : {}),
+    // Not on a request ending in tool results: 9router (cc/) adds its own marks to a
+    // tool_use -> tool_result request, and with this one it goes over 4.
+    ...(cc && !req.messages.at(-1)?.toolResults ? { cache_control: cc } : {}),
     stream,
   };
 }

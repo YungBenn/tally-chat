@@ -34,7 +34,7 @@ afterEach(() => {
 
 type Block = { type: string; [k: string]: unknown };
 type Msg = { role: string; content: string | Block[] };
-type Body = { max_tokens: number; stream: boolean; messages: Msg[]; tools?: unknown[] };
+type Body = { max_tokens: number; stream: boolean; messages: Msg[]; tools?: unknown[]; cache_control?: object };
 // What the fake model does for the nth reply request: tool calls, or text to finish with.
 type Step = { text?: string; calls?: { id: string; name: string; args: object }[]; thinking?: { thinking: string; signature: string } };
 
@@ -123,6 +123,10 @@ describe("the tool loop on Anthropic", () => {
     const [first, second] = s.replyRequests();
     // Tools, tool results and a router's own breakpoint must fit Anthropic's limit of 4.
     for (const body of [first, second]) expect(JSON.stringify(body).match(/"cache_control"/g)!.length).toBeLessThanOrEqual(3);
+    // A request ending in tool results drops top-level caching: 9router (cc/) adds marks that
+    // push a tool_use -> tool_result request over 4 alongside it.
+    expect(first.cache_control).toEqual(expect.objectContaining({ type: "ephemeral" }));
+    expect(second.cache_control).toBeUndefined();
     expect(first.messages).toEqual([{ role: "user", content: "Find the cache docs" }]);
     expect(second.messages.slice(1)).toEqual([
       { role: "assistant", content: [{ type: "text", text: "Let me look." }, { type: "tool_use", id: "toolu_1", name: "docs__search", input: { q: "cache" } }] },
