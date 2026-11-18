@@ -34,7 +34,7 @@ import {
   deleteStream,
   streamText,
 } from "./lib/textStream";
-import { priceFor, usageValidator } from "./lib/usage";
+import { priceFor, sumCost, sumUsage, usageValidator } from "./lib/usage";
 import { requireOwner } from "./owner";
 import { importSourceValidator } from "./schema";
 import {
@@ -1032,7 +1032,9 @@ export const stopRequested = internalQuery({
     (await ctx.db.get("messages", messageId))?.stopRequested === true,
 });
 
-// The single transition out of "streaming". Content is written here once and never again.
+// The single transition out of "streaming": the end of a reply's last step. A reply is one step
+// today; a step that asks for tools will schedule the next one here instead (spec phase 10).
+// Content is written here once and never again.
 export const finalize = internalMutation({
   args: {
     messageId: v.id("messages"),
@@ -1086,6 +1088,7 @@ export const finalize = internalMutation({
       return null;
     }
 
+    // A step is metered as it finishes; the reply's usage and cost are the sum of its steps.
     const cost = await meterCall(ctx, {
       ownerId: message.ownerId,
       threadId: message.threadId,
@@ -1093,13 +1096,18 @@ export const finalize = internalMutation({
       model: message.model ?? "",
       normalized: { usage, reports, reportedCostMicroUsd },
     });
+    const steps = [
+      ...(message.steps ?? []),
+      { usage, costMicroUsd: cost ?? undefined },
+    ];
     await ctx.db.patch("messages", messageId, {
       status,
       content,
       error,
       truncated,
-      usage,
-      costMicroUsd: cost ?? undefined,
+      usage: sumUsage(steps.map((s) => s.usage)),
+      costMicroUsd: sumCost(steps.map((s) => s.costMicroUsd)),
+      steps,
     });
 
     const thread = await ctx.db.get("threads", message.threadId);

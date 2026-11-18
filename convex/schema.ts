@@ -102,8 +102,15 @@ export default defineSchema({
     error: v.optional(v.string()),
     model: v.optional(v.string()),
     providerId: v.optional(v.id("providers")),
-    usage: v.optional(usageValidator), // as reported by the provider
+    usage: v.optional(usageValidator), // as reported by the provider; a reply's is the sum of its steps
     costMicroUsd: v.optional(v.number()), // absent with usage present = model has no price
+    // Replies: usage and cost of each step (one model request) in order. Absent on replies from
+    // before phase 10, which were one step.
+    steps: v.optional(
+      v.array(
+        v.object({ usage: usageValidator, costMicroUsd: v.optional(v.number()) }),
+      ),
+    ),
     outputMode: v.optional(outputModeValidator), // replies: the length limit asked for; absent = normal
     truncated: v.optional(v.boolean()), // replies that stopped at that limit
     effort: v.optional(effortValidator), // user: a per-message change made here; replies: the level they ran at
