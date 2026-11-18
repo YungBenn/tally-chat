@@ -13,7 +13,7 @@ import { CURRENT_SYSTEM_PROMPT_VERSION, systemPrompt } from "./lib/systemPrompts
 import { cacheExpiresAt, cacheTtlValidator } from "./lib/cacheStatus";
 import { keepalivePending, restartKeepalive, touchedCache } from "./keepalive";
 import { coveredIds, scheduleCondense } from "./condense";
-import { assertWithinBudget, budgetReached } from "./lib/budget";
+import { assertWithinBudget, BUDGET_REACHED, budgetReached } from "./lib/budget";
 import { assembleHistory } from "./lib/context";
 import {
   MODE_MAX_TOKENS,
@@ -35,6 +35,17 @@ import {
   streamText,
 } from "./lib/textStream";
 import { priceFor, sumCost, sumUsage, usageValidator } from "./lib/usage";
+import {
+  chatMessageValidator,
+  joinText,
+  MAX_STEPS,
+  nextStep,
+  expandParts,
+  toolStatusValidator,
+  usedTools,
+  type Part,
+  type ToolStatus,
+} from "./lib/toolParts";
 import {
   freezeTools,
   supportsTools,
@@ -196,6 +207,29 @@ const messageView = v.object({
     v.literal("error"),
   ),
   text: v.string(),
+  // Replies that called tools: what happened, in order (the text between calls, each call and its
+  // result). While the reply runs, text is only the current step's, still streaming.
+  items: v.optional(
+    v.array(
+      v.union(
+        v.object({ kind: v.literal("text"), text: v.string() }),
+        v.object({
+          kind: v.literal("tool"),
+          id: v.string(),
+          tool: v.string(),
+          server: v.union(v.null(), v.string()),
+          status: v.union(
+            v.literal("running"),
+            v.literal("notRun"), // the reply ended before it ran
+            toolStatusValidator,
+          ),
+          input: v.string(),
+          result: v.optional(v.string()),
+        }),
+      ),
+    ),
+  ),
+  hitStepLimit: v.optional(v.boolean()),
   error: v.optional(v.string()),
   model: v.optional(v.string()),
   modelName: v.optional(v.string()), // the provider's display name for model, when it still lists it
@@ -282,6 +316,15 @@ export const getThread = query({
           )?.displayName
         : undefined;
     const covered = await coveredIds(ctx, thread._id);
+    const serverNames = new Map(
+      (
+        await Promise.all(
+          [...new Set((thread.toolSet ?? []).map((t) => t.serverId))].map(
+            (id) => ctx.db.get("toolServers", id),
+          ),
+        )
+      ).flatMap((s) => (s ? [[s._id, s.name] as const] : [])),
+    );
     const messages = await Promise.all(
       branch.map(async (m) => ({
         _id: m._id,
@@ -303,6 +346,8 @@ export const getThread = query({
           m.status === "streaming" && m.streamId
             ? await streamText(ctx, m.streamId)
             : m.content,
+        items: usedTools(m.parts) ? toolItems(m, thread, serverNames) : undefined,
+        hitStepLimit: m.hitStepLimit,
         error: m.error,
         model: m.model,
         modelName: await modelName(m),
@@ -360,6 +405,54 @@ export const getThread = query({
     };
   },
 });
+
+type ReplyItem =
+  | { kind: "text"; text: string }
+  | {
+      kind: "tool";
+      id: string;
+      tool: string;
+      server: string | null;
+      status: "running" | "notRun" | ToolStatus;
+      input: string;
+      result?: string;
+    };
+
+// A tool-using reply as the thread shows it: its text and each call beside its result.
+function toolItems(
+  m: Doc<"messages">,
+  thread: Doc<"threads">,
+  serverNames: Map<Id<"toolServers">, string>,
+) {
+  const parts = m.parts ?? [];
+  const results = new Map(
+    parts.flatMap((p) => (p.type === "toolResult" ? [[p.id, p] as const] : [])),
+  );
+  const pretty = (json: string) => {
+    try {
+      return JSON.stringify(JSON.parse(json), null, 2);
+    } catch {
+      return json;
+    }
+  };
+  return parts.flatMap((p): ReplyItem[] => {
+    if (p.type === "text") return p.text ? [{ kind: "text", text: p.text }] : [];
+    if (p.type !== "toolCall") return [];
+    const frozen = thread.toolSet?.find((t) => t.name === p.name);
+    const result = results.get(p.id);
+    return [
+      {
+        kind: "tool",
+        id: p.id,
+        tool: frozen?.tool ?? p.name,
+        server: (frozen && serverNames.get(frozen.serverId)) ?? null,
+        status: result?.status ?? (m.status === "streaming" ? "running" : "notRun"),
+        input: pretty(p.input),
+        result: result?.text,
+      },
+    ];
+  });
+}
 
 async function assertNotStreaming(ctx: QueryCtx, thread: Doc<"threads">) {
   const leaf = thread.activeLeafId
@@ -953,7 +1046,10 @@ export const sweepStuckReplies = internalMutation({
           .lt("_creationTime", Date.now() - STUCK_REPLY_MS),
       )
       .take(100);
+    let closed = 0;
     for (const m of stuck) {
+      // A reply working through a tool loop is alive while its steps keep starting.
+      if ((m.stepStartedAt ?? 0) > Date.now() - STUCK_REPLY_MS) continue;
       const content = m.streamId ? await streamText(ctx, m.streamId) : "";
       await ctx.runMutation(internal.chat.finalize, {
         messageId: m._id,
@@ -962,8 +1058,9 @@ export const sweepStuckReplies = internalMutation({
         pending: "",
         error: "The reply was interrupted",
       });
+      closed++;
     }
-    return stuck.length;
+    return closed;
   },
 });
 
@@ -1003,14 +1100,7 @@ export const generationInput = internalQuery({
         }),
       ),
       allowlist: v.array(v.string()),
-      history: v.array(
-        v.object({
-          role: v.union(v.literal("user"), v.literal("assistant")),
-          content: v.string(),
-          effort: v.optional(effortValidator),
-          images: v.optional(v.array(imageValidator)),
-        }),
-      ),
+      history: v.array(chatMessageValidator),
       layerEnd: v.number(),
       tools: v.optional(v.array(toolDefinitionValidator)),
       cacheTtl: cacheTtlValidator,
@@ -1051,13 +1141,13 @@ export const generationInput = internalQuery({
       allowlist: settings?.allowlistedHosts ?? [],
       // A cheaper reply starts cold, so it sends the level in force once, at the top, rather than
       // per-message changes its model may not accept (spec phase 7).
-      history: oneOff
-        ? history.messages.map((m) => ({
-            role: m.role,
-            content: m.content,
-            ...(m.images ? { images: m.images } : {}),
-          }))
-        : history.messages,
+      // The reply's own earlier steps follow the branch: its tool calls and their results.
+      history: [
+        ...(oneOff
+          ? history.messages.map((m) => ({ ...m, effort: undefined }))
+          : history.messages),
+        ...(message.parts ? expandParts(message.parts) : []),
+      ],
       layerEnd: history.layerEnd,
       // The thread's frozen tools, byte for byte, when the reply's model can call them.
       tools:
@@ -1083,9 +1173,20 @@ export const stopRequested = internalQuery({
     (await ctx.db.get("messages", messageId))?.stopRequested === true,
 });
 
-// The single transition out of "streaming": the end of a reply's last step. A reply is one step
-// today; a step that asks for tools will schedule the next one here instead (spec phase 10).
-// Content is written here once and never again.
+const thinkingValidator = v.union(
+  v.object({
+    type: v.literal("thinking"),
+    thinking: v.string(),
+    signature: v.string(),
+  }),
+  v.object({ type: v.literal("redactedThinking"), data: v.string() }),
+);
+
+// The end of a reply's step (spec phase 10): the usage is metered and added to the reply's steps.
+// A step that asked for tools (and has a step, the budget and no stop request left) stores its
+// calls and schedules them to run; the reply stays "streaming" and no action runs until then.
+// Any other end is the single transition out of "streaming": content is written here once and
+// never again. A reply that called no tool is one step and has no parts.
 export const finalize = internalMutation({
   args: {
     messageId: v.id("messages"),
@@ -1094,7 +1195,7 @@ export const finalize = internalMutation({
       v.literal("stopped"),
       v.literal("error"),
     ),
-    content: v.string(),
+    content: v.string(), // this step's text
     pending: v.string(),
     error: v.optional(v.string()),
     usage: v.optional(usageValidator),
@@ -1106,6 +1207,12 @@ export const finalize = internalMutation({
       v.object({ startedAt: v.number(), ttl: cacheTtlValidator }),
     ),
     truncated: v.optional(v.boolean()), // the provider stopped at max_tokens
+    thinking: v.optional(v.array(thinkingValidator)), // this step's thinking blocks
+    toolCalls: v.optional(
+      v.array(
+        v.object({ id: v.string(), name: v.string(), input: v.string() }),
+      ),
+    ),
   },
   returns: v.null(),
   handler: async (
@@ -1121,49 +1228,96 @@ export const finalize = internalMutation({
       reportedCostMicroUsd,
       cacheRequest,
       truncated,
+      thinking,
+      toolCalls,
     },
   ) => {
     const message = await ctx.db.get("messages", messageId);
     if (!message || message.status !== "streaming") return null;
-    if (message.streamId)
-      await appendChunk(ctx, message.streamId, pending, true);
-    if (!usage) {
-      await ctx.db.patch("messages", messageId, {
-        status,
-        content,
-        error,
-        truncated,
-      });
-      const thread = await ctx.db.get("threads", message.threadId);
-      if (status === "done" && thread) await scheduleCondense(ctx, thread);
-      return null;
+    const step = nextStep(message.parts);
+    const thread = await ctx.db.get("threads", message.threadId);
+
+    // Does the reply go on? Only a finished step that asked for tools can.
+    let calls = status === "done" ? (toolCalls ?? []) : [];
+    let end = { status, error, truncated, hitStepLimit: undefined as boolean | undefined };
+    if (calls.length) {
+      const settings = await ctx.db
+        .query("settings")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", message.ownerId))
+        .unique();
+      if (message.stopRequested) {
+        end = { ...end, status: "stopped" };
+        calls = [];
+      } else if (step >= MAX_STEPS) {
+        // Step ten asked for more: finish as truncated; Continue asks again.
+        end = { ...end, truncated: true, hitStepLimit: true };
+        calls = [];
+      } else if (await budgetReached(ctx, settings, Date.now())) {
+        end = { ...end, status: "error", error: BUDGET_REACHED };
+        calls = [];
+      }
+    }
+    const loop = calls.length > 0;
+
+    const stepParts: Part[] = [
+      ...(thinking ?? []).map((t) => ({ ...t, step })),
+      ...(content ? [{ type: "text" as const, step, text: content }] : []),
+      ...calls.map((c) => ({ type: "toolCall" as const, step, ...c })),
+    ];
+    const withTools = usedTools(message.parts) || loop;
+    const parts = withTools ? [...(message.parts ?? []), ...stepParts] : undefined;
+
+    if (message.streamId) {
+      // A step that goes on hands its text to the parts, so its stream is not needed any more.
+      if (loop) await deleteStream(ctx, message.streamId);
+      else await appendChunk(ctx, message.streamId, pending, true);
     }
 
     // A step is metered as it finishes; the reply's usage and cost are the sum of its steps.
-    const cost = await meterCall(ctx, {
-      ownerId: message.ownerId,
-      threadId: message.threadId,
-      providerId: message.providerId,
-      model: message.model ?? "",
-      normalized: { usage, reports, reportedCostMicroUsd },
-    });
-    const steps = [
-      ...(message.steps ?? []),
-      { usage, costMicroUsd: cost ?? undefined },
-    ];
-    await ctx.db.patch("messages", messageId, {
-      status,
-      content,
-      error,
-      truncated,
-      usage: sumUsage(steps.map((s) => s.usage)),
-      costMicroUsd: sumCost(steps.map((s) => s.costMicroUsd)),
-      steps,
-    });
+    let metered: Partial<Doc<"messages">> = {};
+    if (usage) {
+      const cost = await meterCall(ctx, {
+        ownerId: message.ownerId,
+        threadId: message.threadId,
+        providerId: message.providerId,
+        model: message.model ?? "",
+        normalized: { usage, reports, reportedCostMicroUsd },
+      });
+      const steps = [
+        ...(message.steps ?? []),
+        { usage, costMicroUsd: cost ?? undefined },
+      ];
+      metered = {
+        usage: sumUsage(steps.map((s) => s.usage)),
+        costMicroUsd: sumCost(steps.map((s) => s.costMicroUsd)),
+        steps,
+      };
+    }
 
-    const thread = await ctx.db.get("threads", message.threadId);
+    if (loop) {
+      await ctx.db.patch("messages", messageId, {
+        ...metered,
+        parts,
+        streamId: undefined,
+      });
+      await ctx.scheduler.runAfter(0, internal.chatActions.runTools, {
+        messageId,
+        step,
+      });
+    } else {
+      await ctx.db.patch("messages", messageId, {
+        ...metered,
+        status: end.status,
+        content: parts ? joinText(parts) : content,
+        error: end.error,
+        truncated: end.truncated,
+        hitStepLimit: end.hitStepLimit,
+        parts,
+      });
+    }
+
     // A cheaper reply's cache belongs to another model: the thread's touch and keepalive stay.
-    if (thread && !isCheaperReply(message, thread)) {
+    if (usage && thread && !isCheaperReply(message, thread)) {
       // A cache-marked request that the provider says read or wrote the cache touched it.
       const touchedAt =
         cacheRequest && touchedCache(usage) ? cacheRequest.startedAt : null;
@@ -1177,7 +1331,7 @@ export const finalize = internalMutation({
 
     // The first successful reply in a thread gets a side-job title, once (from the thread's
     // first message, so a failed first reply doesn't leave the thread untitled).
-    if (status === "done" && thread && !thread.titleRequested) {
+    if (!loop && usage && end.status === "done" && thread && !thread.titleRequested) {
       await ctx.db.patch("threads", thread._id, { titleRequested: true });
       await ctx.scheduler.runAfter(0, internal.chatActions.generateTitle, {
         threadId: thread._id,
@@ -1185,7 +1339,123 @@ export const finalize = internalMutation({
       });
     }
     // A finished reply may have grown the thread past the condense threshold (spec phase 6).
-    if (status === "done" && thread) await scheduleCondense(ctx, thread);
+    if (!loop && end.status === "done" && thread) await scheduleCondense(ctx, thread);
+    return null;
+  },
+});
+
+// What runTools needs for the calls of one step: each call with its server, whether the tool is
+// always allowed, and why it can't run if it can't (a tool the thread never had, a removed server,
+// a tool the server stopped offering). null once the reply is closed or being stopped.
+export const toolRunInput = internalQuery({
+  args: { messageId: v.id("messages"), step: v.number() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      allowlist: v.array(v.string()),
+      calls: v.array(
+        v.object({
+          id: v.string(),
+          input: v.string(),
+          alwaysAllowed: v.boolean(),
+          tool: v.optional(v.string()), // the server's own name for it
+          url: v.optional(v.string()),
+          headersEncrypted: v.optional(v.string()),
+          problem: v.optional(v.string()),
+        }),
+      ),
+    }),
+  ),
+  handler: async (ctx, { messageId, step }) => {
+    const message = await ctx.db.get("messages", messageId);
+    if (!message || message.status !== "streaming" || message.stopRequested)
+      return null;
+    const thread = await ctx.db.get("threads", message.threadId);
+    if (!thread) return null;
+    const settings = await ctx.db
+      .query("settings")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", message.ownerId))
+      .unique();
+    const calls = [];
+    for (const part of message.parts ?? []) {
+      if (part.type !== "toolCall" || part.step !== step) continue;
+      const frozen = thread.toolSet?.find((t) => t.name === part.name);
+      const server = frozen && (await ctx.db.get("toolServers", frozen.serverId));
+      const offered = !!frozen && !!server?.tools.some((t) => t.name === frozen.tool);
+      calls.push({
+        id: part.id,
+        input: part.input,
+        alwaysAllowed: !!frozen && !!server?.alwaysAllowed.includes(frozen.tool),
+        tool: frozen?.tool,
+        url: server?.url,
+        headersEncrypted: server?.headersEncrypted,
+        problem: !frozen
+          ? `this thread has no tool called ${part.name}`
+          : !server
+            ? "the tool server was removed"
+            : !offered
+              ? "the server no longer offers this tool"
+              : undefined,
+      });
+    }
+    return { allowlist: settings?.allowlistedHosts ?? [], calls };
+  },
+});
+
+// The calls of a step have run: their results join the reply's parts and the next step starts,
+// unless the reply was stopped or the daily budget is reached (checked before every step).
+export const finishTools = internalMutation({
+  args: {
+    messageId: v.id("messages"),
+    step: v.number(),
+    results: v.array(
+      v.object({
+        id: v.string(),
+        text: v.string(),
+        status: toolStatusValidator,
+      }),
+    ),
+  },
+  returns: v.null(),
+  handler: async (ctx, { messageId, step, results }) => {
+    const message = await ctx.db.get("messages", messageId);
+    const done = (message?.parts ?? []).some(
+      (p) => p.type === "toolResult" && p.step === step,
+    );
+    if (!message || message.status !== "streaming" || done) return null;
+    // A stopped reply keeps no results: its calls then count as never made.
+    if (message.stopRequested) {
+      await ctx.db.patch("messages", messageId, {
+        status: "stopped",
+        content: joinText(message.parts ?? []),
+      });
+      return null;
+    }
+    const parts: Part[] = [
+      ...(message.parts ?? []),
+      ...results.map((r) => ({ type: "toolResult" as const, step, ...r })),
+    ];
+    const settings = await ctx.db
+      .query("settings")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", message.ownerId))
+      .unique();
+    if (await budgetReached(ctx, settings, Date.now())) {
+      await ctx.db.patch("messages", messageId, {
+        status: "error",
+        error: BUDGET_REACHED,
+        content: joinText(parts),
+        parts,
+      });
+      return null;
+    }
+    await ctx.db.patch("messages", messageId, {
+      parts,
+      streamId: await createStream(ctx),
+      stepStartedAt: Date.now(),
+    });
+    await ctx.scheduler.runAfter(0, internal.chatActions.generate, {
+      messageId,
+    });
     return null;
   },
 });

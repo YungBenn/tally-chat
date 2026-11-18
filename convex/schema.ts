@@ -9,6 +9,7 @@ import { usageValidator } from "./lib/usage";
 import { searchResultValidator } from "./lib/webSearch";
 import { documentRefValidator } from "./lib/documents";
 import { frozenToolValidator } from "./lib/toolSet";
+import { partValidator } from "./lib/toolParts";
 
 export const importSourceValidator = v.union(
   v.literal("chatgpt"),
@@ -142,6 +143,11 @@ export default defineSchema({
     ),
     outputMode: v.optional(outputModeValidator), // replies: the length limit asked for; absent = normal
     truncated: v.optional(v.boolean()), // replies that stopped at that limit
+    // Replies that called a tool (spec phase 10): the ordered text, thinking, tool calls and results
+    // of every step. content is then the text parts joined. Absent on replies without tools.
+    parts: v.optional(v.array(partValidator)),
+    hitStepLimit: v.optional(v.boolean()), // truncated because the reply ran out of steps, not tokens
+    stepStartedAt: v.optional(v.number()), // when the current step began; the stuck-reply sweep counts from it
     effort: v.optional(effortValidator), // user: a per-message change made here; replies: the level they ran at
     images: v.optional(v.array(imageValidator)), // user messages: images sent with it, fixed at creation
     search: v.optional(v.boolean()), // user messages: searched the web before the reply (see searches)

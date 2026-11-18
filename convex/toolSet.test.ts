@@ -15,8 +15,6 @@ import {
   oaiToolFinish,
   sse,
   textDelta,
-  toolUse,
-  toolUseStop,
 } from "../test/sse";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -182,28 +180,7 @@ describe("freezing a tool set", () => {
 });
 
 describe("a model that asks for a tool", () => {
-  test("Anthropic: the reply ends with the not-wired-up note, not a crash", async () => {
-    const s = await setup();
-    fake!.restore();
-    fake = fakeFetch({
-      [ANTHROPIC]: {
-        body: sse(
-          messageStart({ input_tokens: 10, cache_read_input_tokens: 0 }),
-          textDelta("Let me look."),
-          toolUse(1, "toolu_1", "docs__search", '{"q":', '"cache"}'),
-          toolUseStop({ output_tokens: 5 }),
-          messageStop,
-        ),
-      },
-    });
-    const threadId = await s.thread(s.anthropicId, "claude-sonnet-5-5");
-    await s.send(threadId, "Hi");
-    const reply = (await s.owner.query(api.chat.getThread, { threadId }))!.messages[1];
-    expect(reply.status).toBe("done");
-    expect(reply.text).toBe("Let me look.\n\n[The model asked to use a tool (docs__search), but tools aren't wired up yet.]");
-  });
-
-  test("OpenAI-compatible: the same note", async () => {
+  test("OpenAI-compatible: the reply ends with the not-wired-up note, not a crash", async () => {
     const s = await setup();
     fake!.restore();
     fake = fakeFetch({ [OPENAI]: { body: oaiToolCall(0, "call_1", "docs__search", '{"q":"x"}') + oaiToolFinish({ prompt_tokens: 10, completion_tokens: 2 }) + oaiDone } });

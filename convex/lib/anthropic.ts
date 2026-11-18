@@ -69,12 +69,23 @@ export async function fetchAnthropicModels(
 // Anthropic body emits as a beta effort-only system message right after it.
 // images: stored images on a user message; the action loads them into imageData (base64)
 // before the request is built.
+// blocks and toolResults carry a tool loop's steps (spec phase 10, lib/toolParts): an assistant
+// step's thinking, text and tool calls, then the user turn holding their results. tool_use input
+// is JSON text, parsed only when the body is built.
+export type AssistantBlock =
+  | { type: "thinking"; thinking: string; signature: string }
+  | { type: "redacted_thinking"; data: string }
+  | { type: "text"; text: string }
+  | { type: "tool_use"; id: string; name: string; input: string };
+export type ToolResultBlock = { id: string; text: string; isError: boolean };
 export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   effort?: Effort;
   images?: MessageImage[];
   imageData?: { mediaType: MessageImage["mediaType"]; data: string }[];
+  blocks?: AssistantBlock[];
+  toolResults?: ToolResultBlock[];
 };
 
 const PER_MESSAGE_EFFORT_BETA = "mid-conversation-output-config-2026-07-01";
@@ -152,7 +163,20 @@ export function messagesBody(req: MessagesRequest, stream: boolean) {
       ? [{ type: "text" as const, text: req.system, cache_control: cc }]
       : req.system,
     // Breakpoint indices count the branch's messages; effort messages are inserted after them.
-    messages: req.messages.flatMap((m, i) => {
+    messages: req.messages.flatMap((m, i): object[] => {
+      // A tool step is always an array of blocks; a breakpoint goes on its last block.
+      if (m.blocks || m.toolResults) {
+        const blocks: Record<string, unknown>[] = m.blocks
+          ? m.blocks.map((b) => (b.type === "tool_use" ? { ...b, input: JSON.parse(b.input) as unknown } : { ...b }))
+          : m.toolResults!.map((r) => ({
+              type: "tool_result",
+              tool_use_id: r.id,
+              content: r.text,
+              ...(r.isError ? { is_error: true } : {}),
+            }));
+        if (marked.has(i) && cc) blocks[blocks.length - 1] = { ...blocks[blocks.length - 1], cache_control: cc };
+        return [{ role: m.role, content: blocks }];
+      }
       const text = marked.has(i)
         ? { type: "text" as const, text: m.content, cache_control: cc }
         : { type: "text" as const, text: m.content };
@@ -192,6 +216,8 @@ export function messagesBody(req: MessagesRequest, stream: boolean) {
 export type StreamEvent =
   | { type: "text"; text: string }
   | { type: "toolCall"; id: string; name: string; input: unknown } // the model asks for a tool (spec phase 10)
+  | { type: "thinking"; thinking: string; signature: string } // a finished thinking block, to send back unchanged in a tool loop
+  | { type: "redactedThinking"; data: string }
   | ({ type: "usage" } & NormalizedUsage)
   | { type: "stop"; truncated: boolean }; // truncated: the reply stopped at max_tokens
 
@@ -227,6 +253,7 @@ export async function* streamAnthropicMessage(
   let usage: AnthropicUsage = {};
   // tool_use blocks arrive as a start (id, name) and JSON fragments, per content block index.
   const toolBlocks = new Map<number, { id: string; name: string; json: string }>();
+  const thinkingBlocks = new Map<number, { thinking: string; signature: string }>();
   for await (const bytes of res.body as unknown as AsyncIterable<Uint8Array>) {
     buffer += decoder.decode(bytes, { stream: true });
     let end: number;
@@ -243,8 +270,15 @@ export async function* streamAnthropicMessage(
       const parsed = JSON.parse(data) as {
         type: string;
         index?: number;
-        content_block?: { type?: string; id?: string; name?: string };
-        delta?: { type?: string; text?: string; stop_reason?: string; partial_json?: string };
+        content_block?: { type?: string; id?: string; name?: string; data?: string };
+        delta?: {
+          type?: string;
+          text?: string;
+          stop_reason?: string;
+          partial_json?: string;
+          thinking?: string;
+          signature?: string;
+        };
         message?: { usage?: AnthropicUsage };
         usage?: AnthropicUsage;
         error?: { message?: string };
@@ -261,6 +295,22 @@ export async function* streamAnthropicMessage(
           name: parsed.content_block.name ?? "",
           json: "",
         });
+      if (parsed.type === "content_block_start" && parsed.content_block?.type === "thinking")
+        thinkingBlocks.set(parsed.index ?? 0, { thinking: "", signature: "" });
+      if (parsed.type === "content_block_start" && parsed.content_block?.type === "redacted_thinking")
+        yield { type: "redactedThinking", data: parsed.content_block.data ?? "" };
+      if (parsed.type === "content_block_delta" && parsed.delta?.type === "thinking_delta") {
+        const block = thinkingBlocks.get(parsed.index ?? 0);
+        if (block) block.thinking += parsed.delta.thinking ?? "";
+      }
+      if (parsed.type === "content_block_delta" && parsed.delta?.type === "signature_delta") {
+        const block = thinkingBlocks.get(parsed.index ?? 0);
+        if (block) block.signature += parsed.delta.signature ?? "";
+      }
+      if (parsed.type === "content_block_stop" && thinkingBlocks.has(parsed.index ?? 0)) {
+        yield { type: "thinking", ...thinkingBlocks.get(parsed.index ?? 0)! };
+        thinkingBlocks.delete(parsed.index ?? 0);
+      }
       if (parsed.type === "content_block_delta" && parsed.delta?.type === "input_json_delta") {
         const block = toolBlocks.get(parsed.index ?? 0);
         if (block) block.json += parsed.delta.partial_json ?? "";

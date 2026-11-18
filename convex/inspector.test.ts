@@ -405,6 +405,20 @@ describe("one turn", () => {
       },
       costMicroUsd: Math.round(40 * 2 + 3000 * 0.1 + 100 * 2.5 + 60 * 10),
       savedMicroUsd: 3000 * 1.9 - 100 * 0.5,
+      // One step, the reply itself.
+      steps: [
+        {
+          usage: {
+            inputTokens: 40,
+            cacheReadTokens: 3000,
+            cacheWriteTokens5m: 100,
+            cacheWriteTokens1h: 0,
+            outputTokens: 60,
+            reasoningTokens: 0,
+          },
+          costMicroUsd: Math.round(40 * 2 + 3000 * 0.1 + 100 * 2.5 + 60 * 10),
+        },
+      ],
     });
     const user = (await s.owner.query(api.chat.getThread, {
       threadId: s.threadId,

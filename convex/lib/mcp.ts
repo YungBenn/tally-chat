@@ -1,6 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport, StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { ConvexError } from "convex/values";
+import { resultText } from "./toolResult";
 import { guardedFetch, type GuardOptions } from "./urlGuard";
 
 // Remote MCP over Streamable HTTP only (spec phase 10). Every request goes through the URL
@@ -24,10 +25,10 @@ async function withClient<T>(
   });
   const client = new Client({ name: "tally-chat", version: "0.1.0" });
   try {
-    await client.connect(transport, { signal: AbortSignal.timeout(CONNECT_TIMEOUT_MS) });
+    await client.connect(transport, { signal: AbortSignal.timeout(CONNECT_TIMEOUT_MS) }).catch((err) => {
+      throw toConvexError(err);
+    });
     return await run(client);
-  } catch (err) {
-    throw toConvexError(err);
   } finally {
     await client.close().catch(() => {});
   }
@@ -50,10 +51,44 @@ export const listMcpTools = (url: string, headers: Record<string, string>, guard
     const tools: McpTool[] = [];
     let cursor: string | undefined;
     do {
-      const page = await client.listTools({ cursor }, { timeout: CONNECT_TIMEOUT_MS });
+      const page = await client.listTools({ cursor }, { timeout: CONNECT_TIMEOUT_MS }).catch((err) => {
+        throw toConvexError(err);
+      });
       for (const t of page.tools)
         tools.push({ name: t.name, description: t.description, inputSchema: JSON.stringify(t.inputSchema) });
       cursor = page.nextCursor;
     } while (cursor && tools.length < MAX_TOOLS);
     return tools.slice(0, MAX_TOOLS);
   });
+
+export const TOOL_CALL_TIMEOUT_MS = 60_000;
+
+// One tool call on its own connection. `stopped` aborts it (the reply was stopped). A call over
+// 60 seconds comes back as timedOut, a protocol or transport error as error: never a throw, so
+// a failing tool can't fail the reply (spec phase 10).
+export async function callMcpTool(
+  url: string,
+  headers: Record<string, string>,
+  guard: GuardOptions,
+  name: string,
+  args: Record<string, unknown>,
+  stopped: AbortSignal,
+): Promise<{ status: "ok" | "error" | "timedOut"; text: string }> {
+  const timeout = AbortSignal.timeout(TOOL_CALL_TIMEOUT_MS);
+  try {
+    return await withClient(url, headers, guard, async (client) => {
+      const result = await client.callTool({ name, arguments: args }, undefined, {
+        signal: AbortSignal.any([timeout, stopped]),
+        timeout: TOOL_CALL_TIMEOUT_MS,
+      });
+      return {
+        status: result.isError ? ("error" as const) : ("ok" as const),
+        text: resultText(result.content as { type: string; text?: string }[] | undefined),
+      };
+    });
+  } catch (err) {
+    if (timeout.aborted) return { status: "timedOut", text: "" };
+    const reason = err instanceof ConvexError ? String(err.data) : err instanceof Error ? err.message : "";
+    return { status: "error", text: reason.slice(0, 300) };
+  }
+}

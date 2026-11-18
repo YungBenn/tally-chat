@@ -50,6 +50,8 @@ const totalInput = (u: Usage) =>
   u.cacheReadTokens +
   u.cacheWriteTokens5m +
   u.cacheWriteTokens1h;
+// A reply's last step carries the whole request it measured: earlier steps are inside it.
+const lastStepUsage = (m: Doc<"messages">) => m.steps?.at(-1)?.usage ?? m.usage;
 const RECENT_REPLIES = 5; // the expected output is the mean of this many latest replies
 
 const layerValidator = v.object({
@@ -230,8 +232,10 @@ export const get = query({
         lastActiveAt: thread.lastActiveAt ?? null,
         ttl,
         lastReadTokens:
-          replies.findLast((m) => !isCheaperReply(m, thread))?.usage
-            ?.cacheReadTokens ?? null,
+          (() => {
+            const reply = replies.findLast((m) => !isCheaperReply(m, thread));
+            return reply ? (lastStepUsage(reply)?.cacheReadTokens ?? null) : null;
+          })(),
       },
       // The level in force for the next send: the latest per-message change, else the thread's.
       effort: effortFor(thread, provider)
@@ -366,7 +370,9 @@ async function editHints(
       m.usage &&
       (i < cut || !checkpoint || m._creationTime > checkpoint._creationTime);
     before = measures
-      ? totalInput(m.usage!) + m.usage!.outputTokens - m.usage!.reasoningTokens
+      ? totalInput(lastStepUsage(m)!) +
+        lastStepUsage(m)!.outputTokens -
+        lastStepUsage(m)!.reasoningTokens
       : before + estimateMessage(m);
   }
   return hints;
@@ -452,7 +458,7 @@ export async function contextLayers(
   let estimated: boolean;
   if (measuredAt >= cut) {
     const reply = branch[measuredAt];
-    const u = reply.usage!;
+    const u = lastStepUsage(reply)!;
     const measured =
       totalInput(u) +
       u.outputTokens -
@@ -549,6 +555,10 @@ export const turn = query({
       usage: usageValidator,
       costMicroUsd: v.union(v.null(), v.number()),
       savedMicroUsd: v.union(v.null(), v.number()), // null when the model has no price
+      // Every step of the reply (spec phase 10): one entry unless it ran tools.
+      steps: v.array(
+        v.object({ usage: usageValidator, costMicroUsd: v.union(v.null(), v.number()) }),
+      ),
     }),
   ),
   handler: async (ctx, { messageId }) => {
@@ -567,6 +577,10 @@ export const turn = query({
       effort: m.effort ?? null,
       usage: m.usage,
       costMicroUsd: m.costMicroUsd ?? null,
+      steps: (m.steps ?? [{ usage: m.usage, costMicroUsd: m.costMicroUsd }]).map((s) => ({
+        usage: s.usage,
+        costMicroUsd: s.costMicroUsd ?? null,
+      })),
       savedMicroUsd:
         free || priceFor(model)?.input !== undefined
           ? savedFor(free, model, m.usage)

@@ -152,6 +152,26 @@ function CostBreakdown({ messageId }: { messageId: Id<"messages"> }) {
           </span>
         </div>
       )}
+      {turn.steps.length > 1 && (
+        <div className="mt-1 flex flex-col gap-1.5" aria-label="Steps">
+          <p className="text-overline text-foreground-muted uppercase">{turn.steps.length} steps</p>
+          {turn.steps.map((step, i) => {
+            const input = totalInput(step.usage);
+            const hit = input > 0 ? Math.round((step.usage.cacheReadTokens / input) * 100) : 0;
+            return (
+              <div key={i} className="flex items-baseline gap-2 text-body-sm">
+                <span className="w-11 shrink-0 text-foreground-muted">Step {i + 1}</span>
+                <span className="tc-mono flex-1 whitespace-nowrap text-mono-sm text-foreground-muted">
+                  {tokens(input)} in · {hit}% hit · {tokens(step.usage.outputTokens)} out
+                </span>
+                <span className="tc-mono text-mono-sm text-foreground">
+                  {step.costMicroUsd === null ? "unknown" : usd(step.costMicroUsd)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
       <p className="text-caption text-foreground-subtle">
         {turn.model}
         {turn.effort ? ` · effort ${turn.effort}` : ""}

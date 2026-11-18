@@ -59,6 +59,7 @@ import {
   type OutputMode,
 } from "@/convex/lib/outputModes";
 import Markdown, { CopyButton } from "@/components/Markdown";
+import { ToolCallRow } from "@/components/ToolCalls";
 import { api } from "@/convex/_generated/api";
 import { estimateTokens, tokens, usd } from "@/lib/format";
 import { useStoredChoice, useStoredFlag } from "@/lib/storedFlag";
@@ -582,8 +583,24 @@ export default function ThreadPage() {
         data-streaming={m.status === "streaming" ? "true" : undefined}
       >
         {m.status === "streaming" && m.text && <StreamRail />}
-        {m.status === "streaming" && !m.text && <ThinkingIndicator />}
-        {m.text && <Markdown text={m.text} />}
+        {m.status === "streaming" &&
+          !m.text &&
+          !m.items?.some((i) => i.kind === "tool" && i.status === "running") && <ThinkingIndicator />}
+        {m.items ? (
+          <>
+            {m.items.map((item, i) =>
+              item.kind === "text" ? (
+                <Markdown key={i} text={item.text} />
+              ) : (
+                <ToolCallRow key={item.id} {...item} />
+              ),
+            )}
+            {/* While it runs, text is the step still streaming; after, the items hold all of it. */}
+            {m.status === "streaming" && m.text && <Markdown text={m.text} />}
+          </>
+        ) : (
+          m.text && <Markdown text={m.text} />
+        )}
         {m.status === "error" && (
           <ErrorState
             title="Reply failed"
@@ -623,7 +640,7 @@ export default function ThreadPage() {
             {m.status === "stopped" && <Badge>Stopped</Badge>}
             {m.truncated && (
               <Badge tone="warning" dot>
-                Hit the output limit
+                {m.hitStepLimit ? "Stopped after 10 steps" : "Hit the output limit"}
               </Badge>
             )}
             {m.pinned && <Badge tone="accent">Pinned</Badge>}
