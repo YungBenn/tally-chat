@@ -89,6 +89,7 @@ export const generate = internalAction({
     // Set when the request carried cache breakpoints: the cache lifetime counts from its start.
     let cacheRequest: { startedAt: number; ttl: CacheTtl } | undefined;
     let truncated = false;
+    const toolCalls: string[] = []; // tools the model asked for
     const finish = (status: "done" | "stopped" | "error", error?: string) =>
       ctx.runMutation(internal.chat.finalize, {
         messageId,
@@ -120,6 +121,7 @@ export const generate = internalAction({
           messages: await loadImages(ctx, input.history),
           maxTokens: input.maxTokens,
           effort: input.effort,
+          tools: input.tools,
           cache: { ttl, layerEnd: input.layerEnd },
         },
         { allowlist: input.allowlist, resolve: systemResolve },
@@ -139,6 +141,10 @@ export const generate = internalAction({
           truncated = event.truncated;
           continue;
         }
+        if (event.type === "toolCall") {
+          toolCalls.push(event.name);
+          continue;
+        }
         const text = event.text;
         full += text;
         pending += text;
@@ -151,6 +157,12 @@ export const generate = internalAction({
           await finish("stopped");
           return null;
         }
+      }
+      // ponytail: tools aren't run yet (phase 10 ticket 04); say so instead of ending silently.
+      if (toolCalls.length) {
+        const note = `${full ? "\n\n" : ""}[The model asked to use a tool (${toolCalls.join(", ")}), but tools aren't wired up yet.]`;
+        full += note;
+        pending += note;
       }
       await finish("done");
     } catch (err) {
@@ -272,7 +284,7 @@ export const condense = internalAction({
       for await (const event of events) {
         if (event.type === "text") text += event.text;
         else if (event.type === "stop") truncated = event.truncated;
-        else
+        else if (event.type === "usage")
           usage = {
             usage: event.usage,
             reports: event.reports,
@@ -325,6 +337,7 @@ export const keepalive = internalAction({
           system: input.system,
           messages: await loadImages(ctx, input.history),
           effort: input.effort,
+          tools: input.tools,
           cache: { ttl: input.ttl, layerEnd: input.layerEnd },
         },
         { allowlist: input.allowlist, resolve: systemResolve },

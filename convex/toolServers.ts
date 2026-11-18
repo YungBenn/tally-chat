@@ -15,7 +15,8 @@ const toolServerView = v.object({
   url: v.string(),
   headerNames: v.array(v.string()),
   onForNewThreads: v.boolean(),
-  tools: v.array(v.object({ name: v.string(), description: v.optional(v.string()) })),
+  // tokens: a rough size of the tool's definition, for the new-thread cost estimate.
+  tools: v.array(v.object({ name: v.string(), description: v.optional(v.string()), tokens: v.number() })),
   alwaysAllowed: v.array(v.string()),
   lastTest: v.union(
     v.null(),
@@ -30,7 +31,11 @@ const toView = (s: Doc<"toolServers">) => ({
   url: s.url,
   headerNames: s.headerNames,
   onForNewThreads: s.onForNewThreads,
-  tools: s.tools.map(({ name, description }) => ({ name, description })),
+  tools: s.tools.map(({ name, description, inputSchema }) => ({
+    name,
+    description,
+    tokens: Math.ceil(JSON.stringify({ name, description, inputSchema }).length / 4),
+  })),
   alwaysAllowed: s.alwaysAllowed,
   lastTest: s.lastTest ?? null,
 });

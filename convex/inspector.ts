@@ -28,6 +28,7 @@ import {
   usageValidator,
   type Usage,
 } from "./lib/usage";
+import { toDefinition } from "./lib/toolSet";
 import { requireOwner } from "./owner";
 import { SEARCH_TOKENS_ESTIMATE } from "./lib/webSearch";
 
@@ -53,6 +54,7 @@ const RECENT_REPLIES = 5; // the expected output is the mean of this many latest
 
 const layerValidator = v.object({
   kind: v.union(
+    v.literal("tools"),
     v.literal("system"),
     v.literal("checkpoint"),
     v.literal("turns"),
@@ -325,7 +327,10 @@ async function editHints(
 ) {
   const prefix = layers.reduce((sum, l) => sum + l.tokens, 0);
   if (prefix < MIN_CACHEABLE_TOKENS) return [];
-  const system = layers[0].tokens;
+  // Tools and the system prompt both sit before everything else and stay cached through a fork.
+  const system = layers
+    .filter((l) => l.kind === "tools" || l.kind === "system")
+    .reduce((sum, l) => sum + l.tokens, 0);
   const checkpointLayer =
     layers.find((l) => l.kind === "checkpoint")?.tokens ?? 0;
   const { checkpoint } = await assembleHistory(
@@ -379,12 +384,26 @@ export async function contextLayers(
   const system = estimateTokens(
     systemPrompt(thread.systemPromptVersion, thread.instructions) ?? "",
   );
+  // The thread's frozen tool definitions go first in every request (spec phase 10).
+  const toolTokens = thread.toolSet?.length
+    ? estimateTokens(JSON.stringify(thread.toolSet.map(toDefinition)))
+    : 0;
   const layers: {
-    kind: "system" | "checkpoint" | "turns";
+    kind: "tools" | "system" | "checkpoint" | "turns";
     label: string;
     tokens: number;
     estimated: boolean;
   }[] = [
+    ...(toolTokens
+      ? [
+          {
+            kind: "tools" as const,
+            label: `${thread.toolSet!.length} ${thread.toolSet!.length === 1 ? "tool" : "tools"}`,
+            tokens: toolTokens,
+            estimated: true,
+          },
+        ]
+      : []),
     { kind: "system", label: "system prompt", tokens: system, estimated: true },
   ];
   if (branch.length === 0) return layers;
@@ -435,7 +454,12 @@ export async function contextLayers(
     const reply = branch[measuredAt];
     const u = reply.usage!;
     const measured =
-      totalInput(u) + u.outputTokens - u.reasoningTokens - system - layerTokens;
+      totalInput(u) +
+      u.outputTokens -
+      u.reasoningTokens -
+      toolTokens -
+      system -
+      layerTokens;
     const later = branch
       .slice(measuredAt + 1)
       .reduce((sum, m) => sum + estimateMessage(m), 0);

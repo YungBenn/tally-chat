@@ -38,3 +38,23 @@ export const oaiFinish = (usage: object) =>
   chunk({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }) +
   chunk({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [], usage });
 export const oaiDone = "data: [DONE]\n\n";
+
+// A tool_use content block: start, argument fragments, stop (Anthropic).
+export const toolUse = (index: number, id: string, name: string, ...argFragments: string[]) =>
+  encode({ type: "content_block_start", index, content_block: { type: "tool_use", id, name, input: {} } }) +
+  argFragments.map((partial_json) => encode({ type: "content_block_delta", index, delta: { type: "input_json_delta", partial_json } })).join("") +
+  encode({ type: "content_block_stop", index });
+export const toolUseStop = (usage: object) => encode({ type: "message_delta", delta: { stop_reason: "tool_use" }, usage });
+
+// An OpenAI-compatible tool call chunk (id and name first, then the arguments).
+export const oaiToolCall = (index: number, id: string, name: string, args: string) =>
+  chunk({
+    id: "c",
+    object: "chat.completion.chunk",
+    created: 0,
+    model: "m",
+    choices: [{ index: 0, delta: { tool_calls: [{ index, id, type: "function", function: { name, arguments: args } }] } }],
+  });
+export const oaiToolFinish = (usage: object) =>
+  chunk({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] }) +
+  chunk({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [], usage });

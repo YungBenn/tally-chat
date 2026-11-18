@@ -1,5 +1,5 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { streamText } from "ai";
+import { jsonSchema, streamText, tool } from "ai";
 import { ConvexError } from "convex/values";
 import type { MessagesRequest, StreamEvent } from "./anthropic";
 import type { ProviderModel } from "./anthropic";
@@ -82,12 +82,26 @@ export async function* streamOpenAICompatible(
           }
         : { role: m.role, content: m.content },
     ),
+    // A thread's frozen tools, in stored order, with no execute: the SDK reports the model's call
+    // as a tool-call part and tally.chat's own loop runs it (spec phase 10).
+    ...(req.tools?.length
+      ? {
+          tools: Object.fromEntries(
+            req.tools.map((t) => [
+              t.name,
+              tool({ description: t.description, inputSchema: jsonSchema(JSON.parse(t.inputSchema)) }),
+            ]),
+          ),
+        }
+      : {}),
     maxOutputTokens: req.maxTokens,
     maxRetries: 0, // a silent retry is a second bill the user never sees
     abortSignal: signal,
   });
   for await (const part of result.stream) {
     if (part.type === "text-delta") yield { type: "text", text: part.text };
+    else if (part.type === "tool-call")
+      yield { type: "toolCall", id: part.toolCallId, name: part.toolName, input: part.input };
     else if (part.type === "error") {
       const error = part.error;
       if (error instanceof ConvexError) throw error;

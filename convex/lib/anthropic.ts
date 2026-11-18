@@ -1,6 +1,7 @@
 import { ConvexError } from "convex/values";
 import type { Effort } from "./effort";
 import type { MessageImage } from "./images";
+import type { ToolDefinition } from "./toolSet";
 import { guardedFetch, type GuardOptions } from "./urlGuard";
 import {
   normalizeAnthropicUsage,
@@ -13,6 +14,7 @@ export type ProviderModel = {
   displayName: string;
   hidden: boolean;
   vision?: boolean; // accepts images (spec phase 4)
+  tools?: boolean; // can call tools (spec phase 10)
 };
 
 // GET /v1/models is free, so it doubles as the key test and the model list.
@@ -117,21 +119,35 @@ export type MessagesRequest = {
   maxTokens: number;
   cache?: CacheLayout; // absent (side jobs): no cache_control at all
   effort?: Effort; // output_config.effort; absent: the model's own default
+  tools?: ToolDefinition[]; // a thread's frozen tool set (spec phase 10), sent as stored
 };
 
-// The Messages API body. Breakpoints: the system prompt, the end of the checkpoint layer,
-// and top-level automatic caching sliding over the verbatim turns (plus the latest reply for
-// a keepalive): at most 4. Only marked messages become content-block arrays; the rest stay
+// The Messages API body. Breakpoints: the last tool, the system prompt, the end of the
+// checkpoint layer, and top-level automatic caching sliding over the verbatim turns: at most 4.
+// A keepalive also marks its latest reply, so with tools it drops the top-level one (it would
+// only mark the nudge) to stay within 4. Only marked messages become content-block arrays; the rest stay
 // plain strings, so a branch's request bytes stay stable from turn to turn.
 export function messagesBody(req: MessagesRequest, stream: boolean) {
   const cc = req.cache && { type: "ephemeral" as const, ttl: req.cache.ttl };
   const marked = new Set<number>();
   if (req.cache && req.cache.layerEnd > 0) marked.add(req.cache.layerEnd - 1);
   if (req.cache?.breakAt !== undefined) marked.add(req.cache.breakAt);
+  const tools = req.tools?.length ? req.tools : undefined;
   return {
     model: req.model,
     max_tokens: req.maxTokens,
     ...(req.effort ? { output_config: { effort: req.effort } } : {}),
+    // Tools come first in the cached prefix, with a breakpoint on the last one.
+    ...(tools
+      ? {
+          tools: tools.map((t, i) => ({
+            name: t.name,
+            ...(t.description !== undefined ? { description: t.description } : {}),
+            input_schema: JSON.parse(t.inputSchema) as unknown,
+            ...(cc && i === tools.length - 1 ? { cache_control: cc } : {}),
+          })),
+        }
+      : {}),
     system: cc
       ? [{ type: "text" as const, text: req.system, cache_control: cc }]
       : req.system,
@@ -168,13 +184,14 @@ export function messagesBody(req: MessagesRequest, stream: boolean) {
           ]
         : [message];
     }),
-    ...(cc ? { cache_control: cc } : {}),
+    ...(cc && !(tools && req.cache?.breakAt !== undefined) ? { cache_control: cc } : {}),
     stream,
   };
 }
 
 export type StreamEvent =
   | { type: "text"; text: string }
+  | { type: "toolCall"; id: string; name: string; input: unknown } // the model asks for a tool (spec phase 10)
   | ({ type: "usage" } & NormalizedUsage)
   | { type: "stop"; truncated: boolean }; // truncated: the reply stopped at max_tokens
 
@@ -208,6 +225,8 @@ export async function* streamAnthropicMessage(
   const decoder = new TextDecoder();
   let buffer = "";
   let usage: AnthropicUsage = {};
+  // tool_use blocks arrive as a start (id, name) and JSON fragments, per content block index.
+  const toolBlocks = new Map<number, { id: string; name: string; json: string }>();
   for await (const bytes of res.body as unknown as AsyncIterable<Uint8Array>) {
     buffer += decoder.decode(bytes, { stream: true });
     let end: number;
@@ -223,7 +242,9 @@ export async function* streamAnthropicMessage(
       if (!data || data === "[DONE]") continue;
       const parsed = JSON.parse(data) as {
         type: string;
-        delta?: { type?: string; text?: string; stop_reason?: string };
+        index?: number;
+        content_block?: { type?: string; id?: string; name?: string };
+        delta?: { type?: string; text?: string; stop_reason?: string; partial_json?: string };
         message?: { usage?: AnthropicUsage };
         usage?: AnthropicUsage;
         error?: { message?: string };
@@ -233,6 +254,27 @@ export async function* streamAnthropicMessage(
         parsed.delta?.type === "text_delta"
       ) {
         yield { type: "text", text: parsed.delta.text ?? "" };
+      }
+      if (parsed.type === "content_block_start" && parsed.content_block?.type === "tool_use")
+        toolBlocks.set(parsed.index ?? 0, {
+          id: parsed.content_block.id ?? "",
+          name: parsed.content_block.name ?? "",
+          json: "",
+        });
+      if (parsed.type === "content_block_delta" && parsed.delta?.type === "input_json_delta") {
+        const block = toolBlocks.get(parsed.index ?? 0);
+        if (block) block.json += parsed.delta.partial_json ?? "";
+      }
+      if (parsed.type === "content_block_stop" && toolBlocks.has(parsed.index ?? 0)) {
+        const { id, name, json } = toolBlocks.get(parsed.index ?? 0)!;
+        toolBlocks.delete(parsed.index ?? 0);
+        let input: unknown = {};
+        try {
+          input = json ? JSON.parse(json) : {};
+        } catch {
+          // a malformed argument string reaches the tool as no arguments
+        }
+        yield { type: "toolCall", id, name, input };
       }
       if (parsed.type === "message_delta" && parsed.delta?.stop_reason) {
         yield {

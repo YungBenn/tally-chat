@@ -21,6 +21,7 @@ import { assembleHistory } from "./lib/context";
 import { meterCall } from "./lib/metering";
 import { usageValidator, type Usage } from "./lib/usage";
 import { systemPrompt } from "./lib/systemPrompts";
+import { supportsTools, toDefinition, toolDefinitionValidator } from "./lib/toolSet";
 
 // Keepalive (spec phase 2): while the owner is in a thread, refresh its 5-minute cache shortly
 // before it expires, so pausing to read doesn't make the next turn a full cache write.
@@ -118,6 +119,7 @@ export const input = internalQuery({
         }),
       ),
       layerEnd: v.number(),
+      tools: v.optional(v.array(toolDefinitionValidator)), // the thread's frozen tools: same prefix as a real turn
       ttl: cacheTtlValidator,
       allowlist: v.array(v.string()),
     }),
@@ -170,6 +172,10 @@ export const input = internalQuery({
       system: systemPrompt(thread.systemPromptVersion, thread.instructions),
       history: history.messages,
       layerEnd: history.layerEnd,
+      tools:
+        thread.toolSet?.length && supportsTools(provider, thread.modelId)
+          ? thread.toolSet.map(toDefinition)
+          : undefined,
       ttl: thread.cacheTtl ?? "5m",
       allowlist: settings?.allowlistedHosts ?? [],
     };

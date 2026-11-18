@@ -8,6 +8,7 @@ import {
   IconInfoCircle,
   IconPencil,
   IconSettings,
+  IconTool,
   IconX,
 } from "@tabler/icons-react";
 import { useMutation, useQuery } from "convex/react";
@@ -36,7 +37,7 @@ const BADGE: Record<State, { tone?: BadgeTone; label: string }> = {
   provider: { label: "provider" },
   fresh: { tone: "fresh", label: "fresh" },
 };
-const ICON = { system: IconSettings, checkpoint: IconArrowsMinimize, turns: IconHistory, next: IconPencil };
+const ICON = { tools: IconTool, system: IconSettings, checkpoint: IconArrowsMinimize, turns: IconHistory, next: IconPencil };
 
 type Layer = { key: string; icon: keyof typeof ICON; name: string; tokens: number; estimated: boolean; state: State; price: string };
 

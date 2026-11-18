@@ -160,12 +160,14 @@ export function NewThreadCostStrip({
   draft,
   draftImages,
   draftDocTokens = 0,
+  draftToolTokens = 0,
 }: {
   providerId: Id<"providers">;
   modelId: string;
   draft: string;
   draftImages?: { width: number; height: number }[];
   draftDocTokens?: number; // attached documents' text
+  draftToolTokens?: number; // the tool definitions the first send freezes
 }) {
   const data = useQuery(api.inspector.newThread, { providerId, modelId });
   const settled = useDebounced(draft);
@@ -176,7 +178,7 @@ export function NewThreadCostStrip({
     history: "cold",
     prefixTokens: 0,
     draftTokens:
-      data.systemTokens + estimateTokens(settled) + imagesTokens(draftImages) + draftDocTokens + (search ? SEARCH_TOKENS_ESTIMATE : 0),
+      data.systemTokens + estimateTokens(settled) + imagesTokens(draftImages) + draftDocTokens + draftToolTokens + (search ? SEARCH_TOKENS_ESTIMATE : 0),
     expectedOutputTokens: null,
   });
   return <Strip cost={cost} cache={<span>new thread</span>} />;

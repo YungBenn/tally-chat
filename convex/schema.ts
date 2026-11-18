@@ -8,6 +8,7 @@ import { outputModeValidator } from "./lib/outputModes";
 import { usageValidator } from "./lib/usage";
 import { searchResultValidator } from "./lib/webSearch";
 import { documentRefValidator } from "./lib/documents";
+import { frozenToolValidator } from "./lib/toolSet";
 
 export const importSourceValidator = v.union(
   v.literal("chatgpt"),
@@ -33,6 +34,7 @@ export default defineSchema({
         displayName: v.string(),
         hidden: v.boolean(),
         vision: v.optional(v.boolean()), // accepts images; absent = no
+        tools: v.optional(v.boolean()), // can call tools (spec phase 10); see lib/toolSet supportsTools
       }),
     ),
     free: v.optional(v.boolean()), // owner says it costs nothing (local models): cost is recorded as $0
@@ -72,6 +74,9 @@ export default defineSchema({
     modelId: v.string(),
     systemPromptVersion: v.number(),
     instructions: v.optional(v.string()), // the owner's custom instructions when the thread began
+    // The tool definitions the first send froze (spec phase 10); every request sends these bytes.
+    // Absent or empty = no tools.
+    toolSet: v.optional(v.array(frozenToolValidator)),
     activeLeafId: v.optional(v.id("messages")),
     titleRequested: v.optional(v.boolean()), // the side-job title runs once per thread
     renamed: v.optional(v.boolean()), // the owner named it; a side-job title never replaces that

@@ -12,6 +12,7 @@ import ChatShell from "@/components/ChatShell";
 import { EmptyState } from "@/components/ui/feedback";
 import Composer from "@/components/Composer";
 import ModeControl from "@/components/ModeControl";
+import { ToolPickerButton, useToolPicker } from "@/components/ToolPicker";
 import { SearchToggle, useWebSearch } from "@/components/WebSearch";
 import { DEFAULT_EFFORT, type Effort } from "@/convex/lib/effort";
 import type { MessageImage } from "@/convex/lib/images";
@@ -174,10 +175,11 @@ export default function NewThread() {
   const anthropic =
     providers?.find((p) => p._id === selected?.split("|")[0])?.apiStyle ===
     "anthropic";
-  const vision =
-    providers
-      ?.find((p) => p._id === selected?.split("|")[0])
-      ?.models.find((m) => m.id === selected?.split("|")[1])?.vision === true;
+  const selectedModel = providers
+    ?.find((p) => p._id === selected?.split("|")[0])
+    ?.models.find((m) => m.id === selected?.split("|")[1]);
+  const vision = selectedModel?.vision === true;
+  const toolPicker = useToolPicker(selectedModel?.tools === true);
 
   return (
     <ChatShell>
@@ -227,6 +229,7 @@ export default function NewThread() {
                   {webSearch.available && (
                     <SearchToggle on={webSearch.on} onChange={webSearch.setOn} />
                   )}
+                  {toolPicker.available && <ToolPickerButton picker={toolPicker} />}
                 </>
               )
             }
@@ -255,6 +258,7 @@ export default function NewThread() {
                   draft={draft}
                   draftImages={draftImages}
                   draftDocTokens={draftDocTokens}
+                  draftToolTokens={toolPicker.tokens}
                 />
               )
             }
@@ -277,6 +281,7 @@ export default function NewThread() {
                   images: images.length ? images : undefined,
                   search: webSearch.on || undefined,
                   documents: documents.length ? documents : undefined,
+                  tools: toolPicker.picks,
                 });
                 router.push(`/t/${threadId}`);
               } catch (err) {

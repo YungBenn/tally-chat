@@ -35,6 +35,14 @@ import {
   streamText,
 } from "./lib/textStream";
 import { priceFor, sumCost, sumUsage, usageValidator } from "./lib/usage";
+import {
+  freezeTools,
+  supportsTools,
+  toDefinition,
+  toolDefinitionValidator,
+  toolPickValidator,
+  type ToolPick,
+} from "./lib/toolSet";
 import { requireOwner } from "./owner";
 import { importSourceValidator } from "./schema";
 import {
@@ -621,6 +629,39 @@ async function ownedMessage(
   return message;
 }
 
+// The first send freezes the thread's tool set (spec phase 10): the exact definitions, with names
+// made unique by each server's slug. Later requests send these bytes whatever the servers do.
+async function freezeToolSet(
+  ctx: MutationCtx,
+  thread: Doc<"threads">,
+  picks: ToolPick[] | undefined,
+) {
+  const provider = await ctx.db.get("providers", thread.providerId);
+  const capable = supportsTools(provider, thread.modelId);
+  if (picks?.length && !capable)
+    throw new ConvexError("This model can't call tools");
+  const servers = await ctx.db
+    .query("toolServers")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", thread.ownerId))
+    .take(100);
+  const chosen =
+    picks ??
+    (capable
+      ? servers
+          .filter((s) => s.onForNewThreads)
+          .flatMap((s) => s.tools.map((t) => ({ serverId: s._id, tool: t.name })))
+      : []);
+  for (const pick of chosen) {
+    const server = servers.find((s) => s._id === pick.serverId);
+    if (!server?.tools.some((t) => t.name === pick.tool))
+      throw new ConvexError("That tool is no longer offered");
+  }
+  if (chosen.length)
+    await ctx.db.patch("threads", thread._id, {
+      toolSet: freezeTools(servers, chosen),
+    });
+}
+
 export const send = mutation({
   args: {
     threadId: v.id("threads"),
@@ -631,11 +672,14 @@ export const send = mutation({
     model: v.optional(replyModelValidator), // reply with this model once (spec phase 7)
     search: v.optional(v.boolean()), // search the web for this message before the reply
     documents: v.optional(v.array(v.id("documents"))), // from documents.extract, sent once
+    // A thread's first message only: the tools the thread freezes. Absent = every tool of the
+    // servers that are on for new threads.
+    tools: v.optional(v.array(toolPickValidator)),
   },
   returns: v.null(),
   handler: async (
     ctx,
-    { threadId, content, mode, effort, images, model, search, documents },
+    { threadId, content, mode, effort, images, model, search, documents, tools },
   ) => {
     const ownerId = await requireOwner(ctx);
     const thread = await ownedThread(ctx, ownerId, threadId);
@@ -648,6 +692,7 @@ export const send = mutation({
     if (search && !(await searchUrlOf(ctx, ownerId)))
       throw new ConvexError("Set a SearXNG URL in Settings to search the web");
     const docs = await claimDocuments(ctx, ownerId, thread, documents ?? []);
+    if (!thread.activeLeafId) await freezeToolSet(ctx, thread, tools);
     const parent = thread.activeLeafId
       ? await ctx.db.get("messages", thread.activeLeafId)
       : null;
@@ -967,6 +1012,7 @@ export const generationInput = internalQuery({
         }),
       ),
       layerEnd: v.number(),
+      tools: v.optional(v.array(toolDefinitionValidator)),
       cacheTtl: cacheTtlValidator,
       maxTokens: v.number(),
     }),
@@ -1013,6 +1059,11 @@ export const generationInput = internalQuery({
           }))
         : history.messages,
       layerEnd: history.layerEnd,
+      // The thread's frozen tools, byte for byte, when the reply's model can call them.
+      tools:
+        thread.toolSet?.length && supportsTools(provider, model)
+          ? thread.toolSet.map(toDefinition)
+          : undefined,
       // With keepalive off, pauses up to an hour stay cheap from the second turn on (the first
       // turn's prefix is too short to be worth a 2x write). On, keepalive covers the pauses.
       maxTokens: MODE_MAX_TOKENS[message.outputMode ?? "normal"],
