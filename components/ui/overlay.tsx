@@ -56,6 +56,7 @@ export function Popover({
   align = "start",
   open,
   onOpenChange,
+  initialFocus,
   className,
   children,
 }: {
@@ -66,6 +67,7 @@ export function Popover({
   align?: "start" | "center" | "end";
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  initialFocus?: React.ComponentProps<typeof BasePopover.Popup>["initialFocus"];
   className?: string;
   children: React.ReactNode;
 }) {
@@ -76,6 +78,7 @@ export function Popover({
         <BasePopover.Positioner side={side} align={align} sideOffset={6} className="tc-layer-popover">
           <BasePopover.Popup
             className={cn("tc-float tc-popover tc-pop", live && "holo-border holo-subtle", className)}
+            initialFocus={initialFocus}
           >
             {title && <BasePopover.Title className="tc-popover-title">{title}</BasePopover.Title>}
             {children}

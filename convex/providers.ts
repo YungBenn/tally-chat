@@ -24,6 +24,7 @@ const providerView = v.object({
       hidden: v.boolean(),
       vision: v.optional(v.boolean()),
       tools: v.boolean(), // can call tools: Anthropic models by default, others when the owner says so
+      favorite: v.boolean(), // starred in the model picker
     }),
   ),
 });
@@ -49,6 +50,7 @@ const toView = ({
   models: models.map((m) => ({
     ...m,
     tools: supportsTools({ apiStyle, models }, m.id),
+    favorite: m.favorite ?? false,
   })),
 });
 
@@ -73,11 +75,12 @@ export const updateModel = mutation({
     displayName: v.optional(v.string()),
     vision: v.optional(v.boolean()), // "accepts images", set by the owner for OpenAI-compatible models
     tools: v.optional(v.boolean()), // "can call tools", set by the owner for OpenAI-compatible models
+    favorite: v.optional(v.boolean()), // starred in the model picker
   },
   returns: v.null(),
   handler: async (
     ctx,
-    { providerId, modelId, hidden, displayName, vision, tools },
+    { providerId, modelId, hidden, displayName, vision, tools, favorite },
   ) => {
     const ownerId = await requireOwner(ctx);
     const provider = await ctx.db.get("providers", providerId);
@@ -92,6 +95,7 @@ export const updateModel = mutation({
             displayName: displayName?.trim() || m.displayName,
             vision: vision ?? m.vision,
             tools: tools ?? m.tools,
+            favorite: favorite ?? m.favorite,
           },
     );
     await ctx.db.patch("providers", providerId, { models });
@@ -133,10 +137,11 @@ const modelValidator = v.object({
   hidden: v.boolean(),
   vision: v.optional(v.boolean()),
   tools: v.optional(v.boolean()),
+  favorite: v.optional(v.boolean()),
 });
 
-// A refreshed model list: new models are added, known ones keep the owner's name and hidden
-// flag, and image support comes from the provider. Models the provider no longer lists are dropped.
+// A refreshed model list: new models are added, known ones keep the owner's name, hidden and
+// favorite flags, and image support comes from the provider. Models the provider no longer lists are dropped.
 export const mergeModels = internalMutation({
   args: { providerId: v.id("providers"), models: v.array(modelValidator) },
   returns: v.null(),
@@ -153,6 +158,7 @@ export const mergeModels = internalMutation({
               ...m,
               displayName: before.displayName,
               hidden: before.hidden,
+              favorite: before.favorite,
               vision: m.vision ?? before.vision,
               tools: m.tools ?? before.tools,
             }

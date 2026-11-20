@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import BudgetBanner, { useSendingPaused } from "@/components/BudgetBanner";
 import BrandMark from "@/components/BrandMark";
@@ -19,9 +20,8 @@ import type { MessageImage } from "@/convex/lib/images";
 import type { OutputMode } from "@/convex/lib/outputModes";
 import { NewThreadCostStrip } from "@/components/CostStrip";
 import EffortControl from "@/components/EffortControl";
-import { ModelPickerButton } from "@/components/ModelMenu";
+import { ModelPicker, ModelPickerButton } from "@/components/ModelMenu";
 import { Button as UiButton, IconButton } from "@/components/ui/button";
-import { Menu, MenuItem, MenuLabel } from "@/components/ui/overlay";
 import { SHORTCUTS } from "@/lib/shortcuts";
 import { useShortcut } from "@/lib/useShortcut";
 import { estimateTokens, usd } from "@/lib/format";
@@ -99,17 +99,13 @@ function StartCheaper({
   );
 }
 
-// The new thread's model: grouped by provider, ⌘M opens it.
+// The new thread's model: the shared picker without prices, ⌘M opens it.
 function NewThreadModelMenu({
   providers,
   selected,
   onPick,
 }: {
-  providers: {
-    _id: Id<"providers">;
-    name: string;
-    models: { id: string; displayName: string; hidden?: boolean }[];
-  }[];
+  providers: FunctionReturnType<typeof api.providers.list>;
   selected: string;
   onPick: (value: string) => void;
 }) {
@@ -119,33 +115,28 @@ function NewThreadModelMenu({
   const name =
     providers.find((p) => p._id === pid)?.models.find((m) => m.id === mid)
       ?.displayName ?? mid;
-  const shown = providers.filter((p) => p.models.some((m) => !m.hidden));
   return (
-    <Menu
-      side="top"
+    <ModelPicker
+      title="Model for this thread"
       open={open}
       onOpenChange={setOpen}
       trigger={<ModelPickerButton name={name} aria-label={`Model: ${name}`} />}
-      className="w-[min(20rem,calc(100vw-2rem))]"
-    >
-      <MenuLabel>Model for this thread</MenuLabel>
-      {shown.map((p) => (
-        <div key={p._id} role="group" aria-label={p.name}>
-          {shown.length > 1 && <div className="tc-menu-group">{p.name}</div>}
-          {p.models
-            .filter((m) => !m.hidden)
-            .map((m) => (
-              <MenuItem
-                key={m.id}
-                check={selected === `${p._id}|${m.id}`}
-                onClick={() => onPick(`${p._id}|${m.id}`)}
-              >
-                {m.displayName}
-              </MenuItem>
-            ))}
-        </div>
-      ))}
-    </Menu>
+      models={providers.flatMap((p) =>
+        p.models
+          .filter((m) => !m.hidden)
+          .map((m) => ({
+            providerId: p._id,
+            modelId: m.id,
+            name: m.displayName,
+            provider: p.name,
+            vision: m.vision === true,
+            tools: m.tools,
+            favorite: m.favorite,
+          })),
+      )}
+      selected={{ providerId: pid as Id<"providers">, modelId: mid }}
+      onPick={(c) => onPick(`${c.providerId}|${c.modelId}`)}
+    />
   );
 }
 

@@ -268,6 +268,7 @@ describe("images in Anthropic threads", () => {
         hidden: true,
         vision: true,
         tools: true,
+        favorite: false,
       },
       {
         id: "claude-new",
@@ -275,6 +276,7 @@ describe("images in Anthropic threads", () => {
         hidden: false,
         vision: false,
         tools: true,
+        favorite: false,
       },
     ]);
   });
