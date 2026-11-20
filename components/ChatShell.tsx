@@ -27,6 +27,7 @@ import { useParams, usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import BrandMark from "@/components/BrandMark";
 import BudgetMeter from "@/components/BudgetMeter";
+import SettingsDialog from "@/components/SettingsDialog";
 import { THREAD_DRAG_TYPE } from "@/components/Composer";
 import { Button, IconButton } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/feedback";
@@ -211,7 +212,6 @@ const NAV = [
   { href: "/usage", label: "Usage", icon: IconChartBar },
   { href: "/providers", label: "Providers", icon: IconPlugConnected },
   { href: "/tools", label: "Tools", icon: IconTool },
-  { href: "/settings", label: "Settings", icon: IconSettings },
 ];
 
 function Sidebar({
@@ -398,6 +398,11 @@ function Sidebar({
             {label}
           </Link>
         ))}
+        {/* Settings open as a dialog over the current page (SettingsDialog). */}
+        <a href="#settings" onClick={onNavigate} className="tc-nav">
+          <IconSettings size={16} stroke={1.5} />
+          Settings
+        </a>
         <button
           type="button"
           className="tc-nav"
@@ -514,6 +519,7 @@ export default function ChatShell({
         )}
         {children}
       </main>
+      <SettingsDialog />
     </div>
   );
 }
