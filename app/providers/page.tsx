@@ -12,7 +12,6 @@ import {
 } from "@tabler/icons-react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
-import Link from "next/link";
 import { useState } from "react";
 import ChatShell from "@/components/ChatShell";
 import { Button } from "@/components/ui/button";
@@ -201,9 +200,9 @@ function AddProvider({ onDone, canCancel }: { onDone: () => void; canCancel: boo
         />
         <p className="text-caption text-foreground-subtle sm:col-span-2">
           Private or http addresses, like Ollama on your network, must be on the{" "}
-          <Link href="/settings" className="text-accent underline underline-offset-2">
+          <a href="#settings/network" className="text-accent underline underline-offset-2">
             private host allowlist
-          </Link>{" "}
+          </a>{" "}
           first.
         </p>
         {error && (

@@ -212,9 +212,9 @@ function ServerForm({ server, onDone, canCancel }: { server?: Server; onDone: ()
         )}
         <p className="text-caption text-foreground-subtle sm:col-span-2">
           Private or http addresses must be on the{" "}
-          <Link href="/settings" className="text-accent underline underline-offset-2">
+          <a href="#settings/network" className="text-accent underline underline-offset-2">
             private host allowlist
-          </Link>{" "}
+          </a>{" "}
           first.
         </p>
         {error && (
