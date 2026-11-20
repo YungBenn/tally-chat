@@ -105,8 +105,21 @@ describe("managing a provider", () => {
     await owner.mutation(api.providers.updateModel, { providerId, modelId: "claude-sonnet-5-5", displayName: "Sonnet" });
     const [view] = await owner.query(api.providers.list, {});
     expect(view.models).toEqual([
-      { id: "claude-sonnet-5-5", displayName: "Sonnet", hidden: false, vision: false, tools: true },
-      { id: "claude-haiku-5-5", displayName: "Claude Haiku 5.5", hidden: true, vision: false, tools: true },
+      { id: "claude-sonnet-5-5", displayName: "Sonnet", hidden: false, vision: false, tools: true, favorite: false },
+      { id: "claude-haiku-5-5", displayName: "Claude Haiku 5.5", hidden: true, vision: false, tools: true, favorite: false },
+    ]);
+  });
+
+  test("owner can star a model, and a refreshed model list keeps the star", async () => {
+    const { owner } = await setup();
+    fake = fakeFetch({ [MODELS_URL]: modelsOk });
+    const providerId = await owner.action(api.providerActions.add, input);
+    await owner.mutation(api.providers.updateModel, { providerId, modelId: "claude-haiku-5-5", favorite: true });
+    await owner.action(api.providerActions.refreshModels, { providerId });
+    const [view] = await owner.query(api.providers.list, {});
+    expect(view.models.map((m) => [m.id, m.favorite])).toEqual([
+      ["claude-sonnet-5-5", false],
+      ["claude-haiku-5-5", true],
     ]);
   });
 
