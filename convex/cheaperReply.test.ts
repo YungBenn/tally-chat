@@ -134,7 +134,7 @@ describe("per-model cost estimates", () => {
     const info = (await s.owner.query(api.inspector.get, { threadId: s.threadId }))!;
     const prefix = info.next.prefixTokens;
     const out = info.next.expectedOutputTokens!;
-    const touched = (await s.state())?.cacheTouchedAt!;
+    const touched = (await s.state())!.cacheTouchedAt!;
     const estimate = (now: number) =>
       s.owner.query(api.inspector.modelEstimates, { threadId: s.threadId, now, draftTokens: 10, maxOutputTokens: 4000 });
     const micro = (prefixPrice: number, input: number, output: number) =>

@@ -16,6 +16,7 @@ import { ConvexError } from "convex/values";
 import { AnimatePresence, motion } from "motion/react";
 import { useRef, useState } from "react";
 import { CacheGlyph, useCacheTemp } from "@/components/CacheStatus";
+import { useThreadCache } from "@/lib/useCacheState";
 import { ThinkingIndicator } from "@/components/Messages";
 import { Button, IconButton } from "@/components/ui/button";
 import { Badge, type BadgeTone } from "@/components/ui/feedback";
@@ -286,7 +287,7 @@ function InspectorBody({
 }) {
   const search = useWebSearch().on;
   const data = useQuery(api.inspector.get, { threadId });
-  const cache = useCacheTemp(data?.cache ?? { expiresAt: null, keepaliveScheduled: false, lastActiveAt: null });
+  const cache = useCacheTemp(useThreadCache(threadId));
   if (!data)
     return <p className="text-body-sm text-foreground-muted">{data === null ? "This thread was deleted." : "Loading…"}</p>;
 

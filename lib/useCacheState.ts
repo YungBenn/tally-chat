@@ -1,7 +1,17 @@
 "use client";
 
+import { useQuery } from "convex/react";
 import { useEffect, useState } from "react";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { ACTIVE_WINDOW_MS, cacheState } from "@/convex/lib/cacheStatus";
+
+const NO_CACHE = { expiresAt: null, keepaliveScheduled: false, lastActiveAt: null };
+
+// A thread's cache timing (its own query, so presence re-runs nothing else), cold while loading.
+export function useThreadCache(threadId: Id<"threads">) {
+  return useQuery(api.threadState.cache, { threadId }) ?? NO_CACHE;
+}
 
 // A thread's cache state judged against the current time, re-rendering at the moments it can
 // change on its own (the cache expiring, the owner's activity window closing).

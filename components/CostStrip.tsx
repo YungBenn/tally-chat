@@ -11,6 +11,7 @@ import { imageTokens } from "@/convex/lib/images";
 import { estimateTokens, usd } from "@/lib/format";
 import { nextSendMicroUsd } from "@/lib/nextSend";
 import { rollCells } from "@/lib/rolling";
+import { useThreadCache } from "@/lib/useCacheState";
 import { useWebSearch } from "@/components/WebSearch";
 import { SEARCH_TOKENS_ESTIMATE } from "@/convex/lib/webSearch";
 
@@ -136,7 +137,8 @@ export default function CostStrip({
   onOpen: () => void;
 }) {
   const data = useQuery(api.inspector.get, { threadId });
-  const { temp } = useCacheTemp(data?.cache ?? NO_CACHE);
+  const timing = useThreadCache(threadId);
+  const { temp } = useCacheTemp(timing);
   const settled = useDebounced(draft);
   const search = useWebSearch().on;
   if (!data) return <div className="tc-cost" aria-hidden />;
@@ -150,7 +152,7 @@ export default function CostStrip({
     expectedOutputTokens:
       next.expectedOutputTokens === null ? null : Math.min(next.expectedOutputTokens, MODE_MAX_TOKENS[mode]),
   });
-  return <Strip cost={cost} cache={<CacheLabel cache={cache} />} hit={thread.hitRate} onOpen={onOpen} />;
+  return <Strip cost={cost} cache={<CacheLabel cache={{ ...timing, managed: cache.managed }} />} hit={thread.hitRate} onOpen={onOpen} />;
 }
 
 // On a new thread there's no history yet: the system prompt and the draft go out as fresh input.
