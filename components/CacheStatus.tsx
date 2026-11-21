@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { HoloGradient } from "@/components/ui/feedback";
 import { Tooltip } from "@/components/ui/overlay";
 import { cacheRing, type CacheTemp } from "@/lib/cacheRing";
@@ -13,28 +13,41 @@ const C = 2 * Math.PI * R;
 /** The ring and dot alone: warm breathes with a holo ring, cooling turns amber, cold is a plain dot. */
 export function CacheGlyph({ temp, remaining }: { temp: CacheTemp; remaining: number }) {
   const id = useId();
+  const ring = useRef<SVGCircleElement>(null);
+  const last = useRef(remaining);
+  // The ring drains a tenth of a pixel a second, so those steps snap; only a refill eases.
+  // Easing every step would repaint the ring every frame for as long as the cache is warm.
+  useLayoutEffect(() => {
+    ring.current?.toggleAttribute("data-ease", Math.abs(remaining - last.current) > 0.02);
+    last.current = remaining;
+  }, [remaining]);
+  // The dot is an HTML element, not an SVG circle, so its breathing runs on the compositor
+  // instead of re-painting every frame while the cache is warm.
   return (
-    <svg width={14} height={14} viewBox="0 0 14 14" aria-hidden>
-      <defs>
-        <HoloGradient id={id} x2={14} y2={14} />
-      </defs>
-      <circle cx={7} cy={7} r={R} stroke="var(--border)" strokeWidth={1.25} fill="none" />
-      {temp !== "cold" && (
-        <circle
-          className="tc-cache-ring"
-          cx={7}
-          cy={7}
-          r={R}
-          stroke={temp === "warm" ? `url(#${id})` : "var(--cache-cooling)"}
-          strokeWidth={1.25}
-          fill="none"
-          strokeDasharray={C}
-          strokeDashoffset={C * (1 - remaining)}
-          strokeLinecap="round"
-        />
-      )}
-      <circle className="tc-cache-dot" cx={7} cy={7} r={2.25} fill={`var(--cache-${temp})`} />
-    </svg>
+    <span className="tc-cache-glyph" aria-hidden>
+      <svg width={14} height={14} viewBox="0 0 14 14">
+        <defs>
+          <HoloGradient id={id} x2={14} y2={14} />
+        </defs>
+        <circle cx={7} cy={7} r={R} stroke="var(--border)" strokeWidth={1.25} fill="none" />
+        {temp !== "cold" && (
+          <circle
+            ref={ring}
+            className="tc-cache-ring"
+            cx={7}
+            cy={7}
+            r={R}
+            stroke={temp === "warm" ? `url(#${id})` : "var(--cache-cooling)"}
+            strokeWidth={1.25}
+            fill="none"
+            strokeDasharray={C}
+            strokeDashoffset={C * (1 - remaining)}
+            strokeLinecap="round"
+          />
+        )}
+      </svg>
+      <i className="tc-cache-dot" style={{ background: `var(--cache-${temp})` }} />
+    </span>
   );
 }
 

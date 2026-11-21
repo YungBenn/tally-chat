@@ -1,7 +1,8 @@
 "use client";
 
 import { useId } from "react";
-import { motion, useReducedMotion } from "motion/react";
+import { useReducedMotion } from "motion/react";
+import * as m from "motion/react-m";
 import { HoloGradient } from "@/components/ui/feedback";
 import { duration, ease } from "@/lib/motion";
 
@@ -40,7 +41,7 @@ export default function BrandMark({
         <defs>
           <HoloGradient id={id} x1={4} y1={4} x2={44} y2={44} />
         </defs>
-        <motion.rect
+        <m.rect
           x={3.5}
           y={3.5}
           width={41}
@@ -50,7 +51,7 @@ export default function BrandMark({
           strokeWidth={1.5}
           {...path(0)}
         />
-        <motion.path
+        <m.path
           d="M22 11v21.5c0 3 1.8 4.5 4.5 4.5H30"
           stroke="var(--foreground)"
           strokeWidth={3}
@@ -58,14 +59,14 @@ export default function BrandMark({
           strokeLinejoin="round"
           {...path(1)}
         />
-        <motion.path
+        <m.path
           d="M14.5 21.5L31.5 16.5"
           stroke="var(--accent)"
           strokeWidth={3}
           strokeLinecap="round"
           {...path(2)}
         />
-        <motion.path
+        <m.path
           d="M12 39v2.5M16 39v2.5M32 39v2.5M36 39v2.5"
           stroke={`url(#${id})`}
           strokeLinecap="round"

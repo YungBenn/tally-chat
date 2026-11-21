@@ -2,7 +2,8 @@
 
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useQuery } from "convex/react";
-import { motion, useReducedMotion } from "motion/react";
+import { useReducedMotion } from "motion/react";
+import * as m from "motion/react-m";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import BrandMark from "@/components/BrandMark";
@@ -56,7 +57,7 @@ export default function SignIn() {
 
   return (
     <main className="tc-grid-bg flex min-h-dvh flex-col items-center justify-center gap-6 px-4 py-10">
-      <motion.div
+      <m.div
         variants={enter}
         initial="initial"
         animate="animate"
@@ -106,7 +107,7 @@ export default function SignIn() {
             {setup ? "Set password" : "Unlock"}
           </Button>
         </form>
-      </motion.div>
+      </m.div>
       <p className="text-caption text-foreground-subtle">Chat with any model. See what every turn costs.</p>
     </main>
   );
