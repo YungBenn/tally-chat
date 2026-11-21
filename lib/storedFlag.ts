@@ -10,28 +10,32 @@ const subscribe = (l: () => void) => {
   return () => listeners.delete(l);
 };
 
+// The try/catch lives outside the hooks: React Compiler skips a hook whose try block holds a ternary.
+function getItem(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function setItem(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {}
+  listeners.forEach((l) => l());
+}
+
 export function useStoredFlag(
   key: string,
   fallback: boolean,
 ): [boolean, (value: boolean) => void] {
   const read = useCallback(() => {
-    try {
-      const stored = localStorage.getItem(key);
-      return stored === null ? fallback : stored === "1";
-    } catch {
-      return fallback;
-    }
+    const stored = getItem(key);
+    return stored === null ? fallback : stored === "1";
   }, [key, fallback]);
   const value = useSyncExternalStore(subscribe, read, () => fallback);
-  const set = useCallback(
-    (next: boolean) => {
-      try {
-        localStorage.setItem(key, next ? "1" : "0");
-      } catch {}
-      listeners.forEach((l) => l());
-    },
-    [key],
-  );
+  const set = useCallback((next: boolean) => setItem(key, next ? "1" : "0"), [key]);
   return [value, set];
 }
 
@@ -42,22 +46,10 @@ export function useStoredChoice<T extends string>(
   allowed: readonly T[],
 ): [T, (value: T) => void] {
   const read = useCallback(() => {
-    try {
-      const stored = localStorage.getItem(key) as T | null;
-      return stored !== null && allowed.includes(stored) ? stored : fallback;
-    } catch {
-      return fallback;
-    }
+    const stored = getItem(key) as T | null;
+    return stored !== null && allowed.includes(stored) ? stored : fallback;
   }, [key, fallback, allowed]);
   const value = useSyncExternalStore(subscribe, read, () => fallback);
-  const set = useCallback(
-    (next: T) => {
-      try {
-        localStorage.setItem(key, next);
-      } catch {}
-      listeners.forEach((l) => l());
-    },
-    [key],
-  );
+  const set = useCallback((next: T) => setItem(key, next), [key]);
   return [value, set];
 }

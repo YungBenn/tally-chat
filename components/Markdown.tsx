@@ -51,6 +51,9 @@ function naturalSize(svg: string) {
   return el.outerHTML;
 }
 
+// Outside the hook: React Compiler can't compile a dynamic import().
+const loadMermaid = () => import("mermaid");
+
 /**
  * A mermaid block as a diagram, once its source parses (so a block still streaming in shows as
  * code). Mermaid loads only when a reply has a diagram, and redraws with the color scheme.
@@ -63,7 +66,7 @@ function useMermaid(source: string | null) {
     if (source === null) return;
     let live = true;
     const timer = setTimeout(async () => {
-      const { default: mermaid } = await import("mermaid");
+      const { default: mermaid } = await loadMermaid();
       // Mermaid derives shades from real colors, so it gets the design tokens' resolved values.
       const css = getComputedStyle(document.documentElement);
       const token = (name: string) => css.getPropertyValue(name).trim();
