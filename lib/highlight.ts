@@ -22,9 +22,12 @@ const theme: ThemeRegistration = {
 let highlighter: Promise<HighlighterCore> | undefined;
 let ready: HighlighterCore | undefined;
 
+/** Whether the highlighter and this language have loaded; until then code stays plain. */
+export const languageReady = (lang: string) => !!ready?.getLoadedLanguages().includes(lang);
+
 /** Tokens for code whose highlighter and language are already loaded, else null. */
 export function tokensNow(code: string, lang: string): ThemedToken[][] | null {
-  if (!ready?.getLoadedLanguages().includes(lang)) return null;
+  if (!ready || !languageReady(lang)) return null;
   return ready.codeToTokensBase(code, { lang, theme: "tally" });
 }
 

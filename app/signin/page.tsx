@@ -38,8 +38,10 @@ export default function SignIn() {
     if (setup && value !== form.get("confirm")) return fail("confirm", "Passwords don't match.");
     setLoading(true);
     setError(null);
+    // Decided before the try: React Compiler can't compile a ternary inside one.
+    const flow = setup ? "signUp" : "signIn";
     try {
-      await signIn("password", { flow: setup ? "signUp" : "signIn", password: value });
+      await signIn("password", { flow, password: value });
       router.push("/");
     } catch (err) {
       const message = err instanceof Error ? err.message : "";

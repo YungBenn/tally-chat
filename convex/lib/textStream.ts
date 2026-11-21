@@ -1,20 +1,30 @@
-import { PersistentTextStreaming, type StreamId } from "@convex-dev/persistent-text-streaming";
-import { components } from "../_generated/api";
-import type { ActionCtx, MutationCtx, QueryCtx } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 
-// Streamed text lives in the persistent-text-streaming component until the reply
-// finishes, then it is copied onto the message. We drive streams from a scheduled
-// action, not the component's browser-driven HTTP helper (docs/spike-convex-self-host.md),
-// so this is the one place that calls the component's undocumented `lib.addChunk`.
-// The package version is pinned exactly in package.json for that reason.
-const streaming = new PersistentTextStreaming(components.persistentTextStreaming);
+// A streaming reply's text lives in its own `streams` row until the step ends (ADR 0004), so a
+// flush touches only that row: the thread query never reads it and doesn't re-run. The row is
+// created with each step and deleted by chat.finalize in the transaction that writes the text
+// onto the message.
+const row = (ctx: QueryCtx, messageId: Id<"messages">) =>
+  ctx.db
+    .query("streams")
+    .withIndex("by_messageId", (q) => q.eq("messageId", messageId))
+    .unique();
 
-export const createStream = (ctx: MutationCtx) => streaming.createStream(ctx);
+export const createStream = (ctx: MutationCtx, messageId: Id<"messages">) =>
+  ctx.db.insert("streams", { messageId, text: "" });
 
-export const streamText = async (ctx: QueryCtx, streamId: string) =>
-  (await streaming.getStreamBody(ctx, streamId as StreamId)).text;
+// The text so far, or null when no step is streaming.
+export const streamText = async (ctx: QueryCtx, messageId: Id<"messages">) =>
+  (await row(ctx, messageId))?.text ?? null;
 
-export const deleteStream = (ctx: MutationCtx, streamId: string) => streaming.deleteStream(ctx, streamId as StreamId);
+export async function appendStream(ctx: MutationCtx, messageId: Id<"messages">, text: string) {
+  const stream = await row(ctx, messageId);
+  if (stream) await ctx.db.patch("streams", stream._id, { text: stream.text + text });
+  return stream !== null;
+}
 
-export const appendChunk = (ctx: ActionCtx | MutationCtx, streamId: string, text: string, final: boolean) =>
-  ctx.runMutation(components.persistentTextStreaming.lib.addChunk, { streamId: streamId as StreamId, text, final });
+export async function deleteStream(ctx: MutationCtx, messageId: Id<"messages">) {
+  const stream = await row(ctx, messageId);
+  if (stream) await ctx.db.delete("streams", stream._id);
+}

@@ -19,7 +19,7 @@ import {
 } from "./keepalive";
 import { coveredIds, scheduleCondense } from "./condense";
 import { assertWithinBudget, BUDGET_REACHED, budgetReached } from "./lib/budget";
-import { assembleHistory } from "./lib/context";
+import { assembleHistory, latestCheckpoint } from "./lib/context";
 import {
   MODE_MAX_TOKENS,
   outputModeValidator,
@@ -34,7 +34,7 @@ import {
 import { DEFAULT_EFFORT, effortValidator, type Effort } from "./lib/effort";
 import { meterCall } from "./lib/metering";
 import {
-  appendChunk,
+  appendStream,
   createStream,
   deleteStream,
   streamText,
@@ -407,12 +407,9 @@ export const getThread = query({
         ).map((s) => s._id),
         role: m.role,
         status: m.status,
-        // A streaming reply reads its text from the stream, so a reload or a second
-        // device sees what has arrived so far and keeps updating.
-        text:
-          m.status === "streaming" && m.streamId
-            ? await streamText(ctx, m.streamId)
-            : m.content,
+        // Stored content only: a streaming step's text is in streamingText, so a flush
+        // doesn't re-run this query (ADR 0004).
+        text: m.content,
         items: usedTools(m.parts) ? toolItems(m, thread, servers) : undefined,
         hitStepLimit: m.hitStepLimit,
         approvalExpired: m.approvalExpired,
@@ -440,7 +437,7 @@ export const getThread = query({
         })),
       })),
     );
-    const { checkpoint } = await assembleHistory(
+    const checkpoint = await latestCheckpoint(
       ctx,
       thread._id,
       branch.map((m) => m._id),
@@ -771,12 +768,12 @@ async function startReply(
     pinned: false,
     content: "",
     status: "streaming",
-    streamId: await createStream(ctx),
     model: modelId,
     providerId: provider?._id ?? thread.providerId,
     outputMode,
     effort: await effortInForce(ctx, thread, user, provider),
   });
+  await createStream(ctx, assistantId);
   // ponytail: first message as title until side-job titles land (ticket 11).
   const title =
     thread.activeLeafId || thread.renamed
@@ -1065,7 +1062,7 @@ export const purgeThread = internalMutation({
         waiting = true;
         continue;
       }
-      if (m.streamId) await deleteStream(ctx, m.streamId);
+      await deleteStream(ctx, m._id);
       for (const image of m.images ?? [])
         await ctx.storage.delete(image.storageId);
       if (m.search) {
@@ -1130,12 +1127,10 @@ export const sweepStuckReplies = internalMutation({
     for (const m of stuck) {
       // A reply working through a tool loop is alive while its steps keep starting.
       if ((m.stepStartedAt ?? 0) > Date.now() - STUCK_REPLY_MS) continue;
-      const content = m.streamId ? await streamText(ctx, m.streamId) : "";
       await ctx.runMutation(internal.chat.finalize, {
         messageId: m._id,
         status: "error",
-        content,
-        pending: "",
+        content: (await streamText(ctx, m._id)) ?? "",
         error: "The reply was interrupted",
       });
       closed++;
@@ -1184,7 +1179,8 @@ export const generationInput = internalQuery({
   returns: v.union(
     v.null(),
     v.object({
-      streamId: v.string(),
+      stopRequested: v.boolean(),
+      queuedAt: v.number(),
       model: v.string(),
       effort: v.optional(effortValidator),
       system: v.string(),
@@ -1209,8 +1205,7 @@ export const generationInput = internalQuery({
   ),
   handler: async (ctx, { messageId }) => {
     const message = await ctx.db.get("messages", messageId);
-    if (!message || message.status !== "streaming" || !message.streamId)
-      return null;
+    if (!message || message.status !== "streaming") return null;
     const thread = await ctx.db.get("threads", message.threadId);
     if (!thread) return null; // deleted while queued; purgeThread stops and removes the reply
     // The reply's own model: the thread's, or another one for a cheaper reply (spec phase 7).
@@ -1230,7 +1225,9 @@ export const generationInput = internalQuery({
       message.ancestorIds,
     );
     return {
-      streamId: message.streamId,
+      stopRequested: message.stopRequested === true,
+      // When this step was queued, for the reply timing log: later steps set stepStartedAt.
+      queuedAt: message.stepStartedAt ?? message._creationTime,
       model,
       system: systemPrompt(thread.systemPromptVersion, thread.instructions),
       provider: provider && {
@@ -1266,6 +1263,30 @@ export const generationInput = internalQuery({
   },
 });
 
+// A streaming step's text so far, for its owner; null once the step has ended (ADR 0004). The
+// thread page watches it only for the branch's last message while it streams.
+export const streamingText = query({
+  args: { messageId: v.id("messages") },
+  returns: v.union(v.null(), v.string()),
+  handler: async (ctx, { messageId }) => {
+    const ownerId = await requireOwner(ctx);
+    await ownedMessage(ctx, ownerId, messageId);
+    return await streamText(ctx, messageId);
+  },
+});
+
+// One flush of a streaming step: appends the text and says whether to stop, in one round trip.
+// A step whose row is gone was closed meanwhile (stuck-reply sweep), so it stops too.
+export const flush = internalMutation({
+  args: { messageId: v.id("messages"), text: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, { messageId, text }) => {
+    const message = await ctx.db.get("messages", messageId);
+    if (!(await appendStream(ctx, messageId, text))) return true;
+    return message?.stopRequested === true;
+  },
+});
+
 export const stopRequested = internalQuery({
   args: { messageId: v.id("messages") },
   returns: v.boolean(),
@@ -1296,7 +1317,6 @@ export const finalize = internalMutation({
       v.literal("error"),
     ),
     content: v.string(), // this step's text
-    pending: v.string(),
     error: v.optional(v.string()),
     usage: v.optional(usageValidator),
     reports: v.optional(
@@ -1321,7 +1341,6 @@ export const finalize = internalMutation({
       messageId,
       status,
       content,
-      pending,
       error,
       usage,
       reports,
@@ -1367,11 +1386,9 @@ export const finalize = internalMutation({
     const withTools = usedTools(message.parts) || loop;
     const parts = withTools ? [...(message.parts ?? []), ...stepParts] : undefined;
 
-    if (message.streamId) {
-      // A step that goes on hands its text to the parts, so its stream is not needed any more.
-      if (loop) await deleteStream(ctx, message.streamId);
-      else await appendChunk(ctx, message.streamId, pending, true);
-    }
+    // The step's text moves onto the message (content, or parts when the reply goes on) in this
+    // same transaction, so no moment shows it twice or not at all.
+    await deleteStream(ctx, messageId);
 
     // A step is metered as it finishes; the reply's usage and cost are the sum of its steps.
     let metered: Partial<Doc<"messages">> = {};
@@ -1400,7 +1417,6 @@ export const finalize = internalMutation({
       await ctx.db.patch("messages", messageId, {
         ...metered,
         parts,
-        streamId: undefined,
         ...(approval
           ? {
               status: "waiting" as const,
@@ -1633,9 +1649,9 @@ export const finishTools = internalMutation({
     }
     await ctx.db.patch("messages", messageId, {
       parts,
-      streamId: await createStream(ctx),
       stepStartedAt: Date.now(),
     });
+    await createStream(ctx, messageId);
     await ctx.scheduler.runAfter(0, internal.chatActions.generate, {
       messageId,
     });
