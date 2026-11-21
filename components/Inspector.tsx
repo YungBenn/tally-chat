@@ -13,7 +13,8 @@ import {
 } from "@tabler/icons-react";
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence } from "motion/react";
+import * as m from "motion/react-m";
 import { useRef, useState } from "react";
 import { CacheGlyph, useCacheTemp } from "@/components/CacheStatus";
 import { ThinkingIndicator } from "@/components/Messages";
@@ -63,7 +64,7 @@ function ContextBar({ layers, selected }: { layers: Layer[]; selected: number })
           aria-label={layers.map((l) => `${l.name} ${tokens(l.tokens)} tokens ${BADGE[l.state].label}`).join(", ")}
         >
           {layers.map((l, i) => (
-            <motion.div
+            <m.div
               layout
               transition={transition.layout}
               key={l.key}
@@ -458,7 +459,7 @@ export default function Inspector({
   return (
     <AnimatePresence initial={false}>
       {open && (
-        <motion.aside
+        <m.aside
           aria-label="Inspector"
           className="shrink-0 overflow-hidden border-l border-border"
           initial={{ width: 0 }}
@@ -471,7 +472,7 @@ export default function Inspector({
               {body}
             </Panel>
           </div>
-        </motion.aside>
+        </m.aside>
       )}
     </AnimatePresence>
   );

@@ -353,11 +353,13 @@ textarea.tc-input { height: auto; min-height: 84px; padding: 10px 12px; resize: 
 .tc-cache { --holo-inset: 1px; display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px 0 4px; border-radius: 9999px; font: 500 12px/1 var(--font-sans); color: var(--foreground-muted); background: var(--surface-raised); border: 1px solid var(--border); cursor: default; white-space: nowrap; }
 .tc-cache svg { flex: none; }
 .tc-cache[data-state="warm"] { border-color: transparent; color: var(--foreground); }
-.tc-cache-dot { transform-origin: center; transform-box: fill-box; }
+.tc-cache-glyph { position: relative; flex: none; display: inline-flex; }
+.tc-cache-dot { position: absolute; top: 4.75px; left: 4.75px; width: 4.5px; height: 4.5px; border-radius: 50%; }
 .tc-cache[data-state="warm"] .tc-cache-dot { animation: tc-breathe 4s ease-in-out infinite; }
 @keyframes tc-breathe { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.55; transform: scale(0.8); } }
 .tc-cache .tc-num { color: var(--foreground-subtle); font-size: 12px; }
-.tc-cache-ring { transition: stroke-dashoffset 1000ms linear; transform: rotate(-90deg); transform-origin: 50% 50%; }
+.tc-cache-ring { transform: rotate(-90deg); transform-origin: 50% 50%; }
+.tc-cache-ring[data-ease] { transition: stroke-dashoffset 1000ms linear; }
 
 /* Thinking indicator */
 .tc-thinking { display: inline-flex; align-items: center; gap: 10px; font: 500 13px/20px var(--font-sans); color: var(--foreground-muted); }
@@ -593,6 +595,8 @@ textarea.tc-input { height: auto; min-height: 84px; padding: 10px 12px; resize: 
 .tc-turn-user > .tc-msg-actions { position: absolute; top: 100%; right: 0; margin-top: 2px; z-index: 1; }
 .tc-turn-user .tc-user-bubble { max-width: 85%; overflow-wrap: anywhere; }
 .tc-assistant { position: relative; }
+/* Finished replies offscreen skip layout and paint; once seen, `auto` keeps their real height. */
+.tc-assistant:not([data-streaming]) { content-visibility: auto; contain-intrinsic-block-size: auto 320px; }
 .tc-assistant[data-streaming="true"] { animation: tc-msg-in 400ms var(--ease-enter); }
 @keyframes tc-msg-in { from { opacity: 0; transform: translateY(8px); } }
 .tc-reveal { opacity: 0; transition: opacity 160ms var(--ease-standard); }
