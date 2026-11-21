@@ -12,6 +12,7 @@ import { activeBranch, sideJobModelFor } from "./chat";
 import { contextLayers, nextPrices } from "./inspector";
 import { warmAfterCondense } from "./keepalive";
 import { budgetReached } from "./lib/budget";
+import { requestCacheTtl } from "./lib/cacheStatus";
 import {
   condenseSettings,
   CONTEXT_WINDOW_SHARE,
@@ -177,7 +178,8 @@ export async function condensePlan(
     summaryInputTokens,
     summaryTokens,
     caching: provider?.capabilities?.caching === true,
-    thread: nextPrices(provider, thread.modelId, thread.cacheTtl ?? "5m"),
+    // The next request's lifetime, not the last touch's: thread state stays out of the inspector.
+    thread: nextPrices(provider, thread.modelId, requestCacheTtl(settings?.keepaliveEnabled, branch.length + 1)),
     side: sidePrices(sideJob.provider, sideJob.model),
   });
   const payback = economics?.paybackTurns ?? null;

@@ -8,6 +8,7 @@ import { api, internal } from "./_generated/api";
 import { cacheState } from "./lib/cacheStatus";
 import { CURRENT_SYSTEM_PROMPT_VERSION, SYSTEM_PROMPTS } from "./lib/systemPrompts";
 import { encryptSecret } from "./lib/vault";
+import { patchThreadState } from "./threadState";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -79,11 +80,12 @@ async function setup(opts: { usage?: object; keepaliveStatus?: number } = {}) {
   };
   const keepalives = () => fake!.requests.filter((r) => (r.body as Body).stream === false).map((r) => r.body as Body);
   const thread = () => tab1.query(api.chat.getThread, { threadId });
+  const cache = () => tab1.query(api.threadState.cache, { threadId });
   const state = async () => {
-    const th = (await thread())!;
-    return cacheState(th.cacheExpiresAt, Date.now(), { scheduled: th.keepaliveScheduled, lastActiveAt: th.lastActiveAt }).state;
+    const c = (await cache())!;
+    return cacheState(c.expiresAt, Date.now(), { scheduled: c.keepaliveScheduled, lastActiveAt: c.lastActiveAt }).state;
   };
-  return { t, tab1, tab2, ownerId, threadId, openaiId, settle, later, send, keepalives, thread, state };
+  return { t, tab1, tab2, ownerId, threadId, openaiId, settle, later, send, keepalives, thread, cache, state };
 }
 
 describe("keepalive", () => {
@@ -116,6 +118,30 @@ describe("keepalive", () => {
     expect(await s.state()).toBe("keepalive");
   });
 
+  // Presence and cache bookkeeping live in their own table, so they don't re-run the thread
+  // page's queries every minute (spec phase 12, user story 38).
+  test("presence and keepalive updates leave the thread, thread list and inspector results unchanged", async () => {
+    const s = await setup();
+    await s.tab1.mutation(api.chat.markActive, { threadId: s.threadId });
+    await s.send("Hi");
+    const views = async () => ({
+      thread: await s.thread(),
+      list: await s.tab1.query(api.chat.listThreads, {}),
+      inspector: await s.tab1.query(api.inspector.get, { threadId: s.threadId }),
+    });
+    const before = await views();
+    await s.later(1 * MIN);
+    await s.tab1.mutation(api.chat.markActive, { threadId: s.threadId });
+    expect(await views()).toEqual(before);
+
+    await s.later(3.5 * MIN);
+    expect(s.keepalives()).toHaveLength(1);
+    const after = await views();
+    expect(after.thread).toEqual(before.thread);
+    expect(after.list).toEqual(before.list);
+    expect(await s.state()).toBe("keepalive");
+  });
+
   test("keepalives are side jobs of kind keepalive, metered into the rollups", async () => {
     const s = await setup();
     await s.tab1.mutation(api.chat.markActive, { threadId: s.threadId });
@@ -134,7 +160,7 @@ describe("keepalive", () => {
     await s.send("Hi");
     for (let i = 0; i < 8; i++) await s.later(4.5 * MIN); // 36 minutes
     expect(s.keepalives()).toHaveLength(6); // 4.5, 9, ..., 27; at 31.5 the owner is gone
-    expect((await s.thread())!.keepaliveScheduled).toBe(false);
+    expect((await s.cache())!.keepaliveScheduled).toBe(false);
     expect(await s.state()).toBe("cold"); // the last keepalive's 5 minutes ran out at 32
   });
 
@@ -147,7 +173,7 @@ describe("keepalive", () => {
     const uncached = await setup({ usage: NO_CACHING });
     await uncached.tab1.mutation(api.chat.markActive, { threadId: uncached.threadId });
     await uncached.send("Hi");
-    expect((await uncached.thread())!.keepaliveScheduled).toBe(false);
+    expect((await uncached.cache())!.keepaliveScheduled).toBe(false);
     await uncached.later(10 * MIN);
     expect(uncached.keepalives()).toHaveLength(0);
 
@@ -164,7 +190,7 @@ describe("keepalive", () => {
     await s.tab1.mutation(api.chat.markActive, { threadId: s.threadId });
     await s.send("Hi");
     // Pretend the touch was long ago (e.g. the job was delayed): a keepalive would pay a cold write.
-    await s.t.run((ctx) => ctx.db.patch("threads", s.threadId, { cacheTouchedAt: Date.now() - 6 * MIN }));
+    await s.t.run((ctx) => patchThreadState(ctx, s.threadId, { cacheTouchedAt: Date.now() - 6 * MIN }));
     await s.later(4.5 * MIN);
     expect(s.keepalives()).toHaveLength(0);
   });
@@ -231,11 +257,11 @@ describe("keepalive", () => {
     const s = await setup({ keepaliveStatus: 500 });
     await s.tab1.mutation(api.chat.markActive, { threadId: s.threadId });
     await s.send("Hi");
-    const before = (await s.thread())!.cacheExpiresAt;
+    const before = (await s.cache())!.expiresAt;
     await s.later(4.5 * MIN);
     expect(s.keepalives()).toHaveLength(1);
-    const after = (await s.thread())!;
-    expect(after.cacheExpiresAt).toBe(before);
+    const after = (await s.cache())!;
+    expect(after.expiresAt).toBe(before);
     expect(after.keepaliveScheduled).toBe(false);
     expect(await s.t.run((ctx) => ctx.db.query("sideJobs").collect())).toEqual(
       expect.not.arrayContaining([expect.objectContaining({ kind: "keepalive" })]),
@@ -246,7 +272,7 @@ describe("keepalive", () => {
     await s.tab1.mutation(api.chat.markActive, { threadId: s.threadId });
     await s.send("Again");
     expect((await s.thread())!.messages.at(-1)!.status).toBe("done");
-    expect((await s.thread())!.keepaliveScheduled).toBe(true); // the next reply restarted the cycle
+    expect((await s.cache())!.keepaliveScheduled).toBe(true); // the next reply restarted the cycle
   });
 
   test("a deleted thread stops its keepalive and the purge removes keepalive side jobs", async () => {
@@ -276,9 +302,9 @@ describe("keepalive switch and the 1-hour fallback", () => {
     expect(new Set(breakpoints(first).map((b) => b.ttl))).toEqual(new Set(["5m"]));
     expect(breakpoints(second).map((b) => b.ttl)).toEqual(["1h", "1h"]);
 
-    const thread = (await s.thread())!;
-    expect(thread.keepaliveScheduled).toBe(false);
-    expect(thread.cacheExpiresAt! - Date.now()).toBeGreaterThan(55 * MIN); // the status uses the hour
+    const cache = (await s.cache())!;
+    expect(cache.keepaliveScheduled).toBe(false);
+    expect(cache.expiresAt! - Date.now()).toBeGreaterThan(55 * MIN); // the status uses the hour
     await s.later(10 * MIN);
     expect(s.keepalives()).toHaveLength(0);
     expect(await s.state()).toBe("warm");
