@@ -1185,6 +1185,7 @@ export const generationInput = internalQuery({
     v.null(),
     v.object({
       streamId: v.string(),
+      queuedAt: v.number(),
       model: v.string(),
       effort: v.optional(effortValidator),
       system: v.string(),
@@ -1231,6 +1232,8 @@ export const generationInput = internalQuery({
     );
     return {
       streamId: message.streamId,
+      // When this step was queued, for the reply timing log: later steps set stepStartedAt.
+      queuedAt: message.stepStartedAt ?? message._creationTime,
       model,
       system: systemPrompt(thread.systemPromptVersion, thread.instructions),
       provider: provider && {
