@@ -16,7 +16,7 @@ import {
   requestCacheTtl,
 } from "./lib/cacheStatus";
 import { threadState } from "./threadState";
-import { assembleHistory } from "./lib/context";
+import { assembleHistory, type History } from "./lib/context";
 import { condensePending, condensePlan } from "./condense";
 import { imageTokens } from "./lib/images";
 import {
@@ -211,7 +211,13 @@ export const get = query({
     const branch = await activeBranch(ctx, thread);
     const replies = branch.filter((m) => m.role === "assistant" && m.usage);
 
-    const layers = await contextLayers(ctx, thread, branch);
+    // Built once per run: the layers, edit hints and both condense plans all read it.
+    const history = await assembleHistory(
+      ctx,
+      thread._id,
+      branch.map((m) => m._id),
+    );
+    const layers = await contextLayers(ctx, thread, branch, history);
     const settings = await ctx.db
       .query("settings")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
@@ -251,10 +257,10 @@ export const get = query({
       },
       editHints:
         provider?.apiStyle === "anthropic" && prices
-          ? await editHints(ctx, thread, branch, layers, prices)
+          ? editHints(branch, history.checkpoint, layers, prices)
           : [],
-      condense: await condenseStatus(ctx, thread, branch),
-      condenseNow: await condenseNowEstimate(ctx, thread, branch),
+      condense: await condenseStatus(ctx, thread, branch, history),
+      condenseNow: await condenseNowEstimate(ctx, thread, branch, history),
       thread: await threadFigures(ctx, ownerId, threadId),
     };
   },
@@ -266,9 +272,10 @@ async function condenseNowEstimate(
   ctx: QueryCtx,
   thread: Doc<"threads">,
   branch: Doc<"messages">[],
+  history: History,
 ) {
   if (branch.some((m) => (m.status === "streaming" || m.status === "waiting"))) return null;
-  const plan = await condensePlan(ctx, thread, branch, true);
+  const plan = await condensePlan(ctx, thread, branch, true, history);
   if (plan.kind !== "ready") return null;
   return {
     costMicroUsd:
@@ -286,8 +293,9 @@ async function condenseStatus(
   ctx: QueryCtx,
   thread: Doc<"threads">,
   branch: Doc<"messages">[],
+  history: History,
 ) {
-  const plan = await condensePlan(ctx, thread, branch);
+  const plan = await condensePlan(ctx, thread, branch, false, history);
   const { inTokens } = plan;
   if (plan.kind === "off") return { state: "off" as const, inTokens };
   if (await condensePending(ctx, thread))
@@ -315,10 +323,9 @@ const MIN_HINT_MICRO_USD = 10_000; // under a cent isn't worth a hint
 // since older cache entries expire, so everything after them up to the message is a cache write.
 // Compared with continuing (the whole prefix read from cache), that's the extra cost. It can
 // overstate a very recent edit; it never understates one.
-async function editHints(
-  ctx: QueryCtx,
-  thread: Doc<"threads">,
+function editHints(
   branch: Doc<"messages">[],
+  checkpoint: Doc<"checkpoints"> | null,
   layers: { kind: string; tokens: number }[],
   p: { cacheRead: number; cacheWrite: number },
 ) {
@@ -330,11 +337,6 @@ async function editHints(
     .reduce((sum, l) => sum + l.tokens, 0);
   const checkpointLayer =
     layers.find((l) => l.kind === "checkpoint")?.tokens ?? 0;
-  const { checkpoint } = await assembleHistory(
-    ctx,
-    thread._id,
-    branch.map((m) => m._id),
-  );
   const cut = checkpoint
     ? branch.findIndex((m) => m._id === checkpoint.coversUpToId) + 1
     : 0;
@@ -379,6 +381,7 @@ export async function contextLayers(
   ctx: QueryCtx,
   thread: Doc<"threads">,
   branch: Doc<"messages">[],
+  built?: History, // the branch's history, when the caller already has it
 ) {
   const system = estimateTokens(
     systemPrompt(thread.systemPromptVersion, thread.instructions) ?? "",
@@ -407,11 +410,13 @@ export async function contextLayers(
   ];
   if (branch.length === 0) return layers;
 
-  const history = await assembleHistory(
-    ctx,
-    thread._id,
-    branch.map((m) => m._id),
-  );
+  const history =
+    built ??
+    (await assembleHistory(
+      ctx,
+      thread._id,
+      branch.map((m) => m._id),
+    ));
   const layerText = history.messages.slice(0, history.layerEnd);
   // Turn numbers count user messages on the branch; verbatim turns start after the checkpoint.
   const cut = history.checkpoint

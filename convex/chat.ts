@@ -15,7 +15,7 @@ import { restartKeepalive, touchedCache, warmAfterCondense } from "./keepalive";
 import { patchThreadState, threadState } from "./threadState";
 import { coveredIds, scheduleCondense } from "./condense";
 import { assertWithinBudget, BUDGET_REACHED, budgetReached } from "./lib/budget";
-import { assembleHistory } from "./lib/context";
+import { assembleHistory, latestCheckpoint } from "./lib/context";
 import {
   MODE_MAX_TOKENS,
   outputModeValidator,
@@ -430,7 +430,7 @@ export const getThread = query({
         })),
       })),
     );
-    const { checkpoint } = await assembleHistory(
+    const checkpoint = await latestCheckpoint(
       ctx,
       thread._id,
       branch.map((m) => m._id),
