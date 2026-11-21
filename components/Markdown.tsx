@@ -6,9 +6,8 @@ import { memo, useEffect, useId, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
 import { Button, IconButton } from "@/components/ui/button";
+import { remarkPlugins, splitBlocks } from "@/lib/markdownBlocks";
 import { normalizeMath } from "@/lib/mathDelimiters";
 import { useMedia } from "@/lib/useMedia";
 
@@ -129,25 +128,35 @@ function CodeBlock({ children }: { children?: React.ReactNode }) {
   );
 }
 
-// Memoized so a streaming reply re-parses only when its own text changes.
+const components = {
+  pre: CodeBlock,
+  a: (props: React.ComponentProps<"a">) => <a {...props} target="_blank" rel="noreferrer" />,
+  table: (props: React.ComponentProps<"table">) => (
+    <div className="tc-table-scroll">
+      <table {...props} />
+    </div>
+  ),
+};
+
+// One top-level block; memoized so a streaming reply re-renders only the block still growing.
+const Block = memo(function Block({ text }: { text: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={remarkPlugins}
+      rehypePlugins={[[rehypeHighlight, { detect: false }], rehypeKatex]}
+      components={components}
+    >
+      {text}
+    </ReactMarkdown>
+  );
+});
+
 export default memo(function Markdown({ text, className }: { text: string; className?: string }) {
   return (
     <div className={className ?? "tc-prose"}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
-        rehypePlugins={[[rehypeHighlight, { detect: false }], rehypeKatex]}
-        components={{
-          pre: CodeBlock,
-          a: (props) => <a {...props} target="_blank" rel="noreferrer" />,
-          table: (props) => (
-            <div className="tc-table-scroll">
-              <table {...props} />
-            </div>
-          ),
-        }}
-      >
-        {normalizeMath(text)}
-      </ReactMarkdown>
+      {splitBlocks(normalizeMath(text)).map((block, i) => (
+        <Block key={i} text={block} />
+      ))}
     </div>
   );
 });
