@@ -3,6 +3,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
 import { savedFor } from "./lib/metering";
+import { patchThreadState, threadState } from "./threadState";
 import { dayIn } from "./lib/rollups";
 import { USAGE_FIELDS, type Usage } from "./lib/usage";
 
@@ -97,6 +98,46 @@ export const backfillThreadStartedAt = internalMutation({
     }
     if (!page.isDone)
       await ctx.scheduler.runAfter(0, internal.migrations.backfillThreadStartedAt, { cursor: page.continueCursor });
+    return null;
+  },
+});
+
+const MOVE_BATCH = 200;
+
+// Phase 12: moves each thread's presence and cache bookkeeping to its threadStates row, in
+// batches, and clears it from the thread. A value already on the state row was written after the
+// deploy, so it is newer and stays. Runs on every self-host deploy (selfhost/setup.ts); moved
+// threads have nothing left to move, so it's safe to run again. Locally:
+// `npx convex run migrations:moveThreadState`.
+export const moveThreadState = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.null(),
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db.query("threads").paginate({ numItems: MOVE_BATCH, cursor: cursor ?? null });
+    for (const t of page.page) {
+      const moved = {
+        lastActiveAt: t.lastActiveAt,
+        cacheTouchedAt: t.cacheTouchedAt,
+        cacheTtl: t.cacheTtl,
+        keepaliveJobId: t.keepaliveJobId,
+      };
+      if (Object.values(moved).every((x) => x === undefined)) continue;
+      const state = await threadState(ctx, t._id);
+      await patchThreadState(ctx, t._id, {
+        lastActiveAt: state?.lastActiveAt ?? moved.lastActiveAt,
+        cacheTouchedAt: state?.cacheTouchedAt ?? moved.cacheTouchedAt,
+        cacheTtl: state?.cacheTtl ?? moved.cacheTtl,
+        keepaliveJobId: state?.keepaliveJobId ?? moved.keepaliveJobId,
+      });
+      await ctx.db.patch("threads", t._id, {
+        lastActiveAt: undefined,
+        cacheTouchedAt: undefined,
+        cacheTtl: undefined,
+        keepaliveJobId: undefined,
+      });
+    }
+    if (!page.isDone)
+      await ctx.scheduler.runAfter(0, internal.migrations.moveThreadState, { cursor: page.continueCursor });
     return null;
   },
 });
