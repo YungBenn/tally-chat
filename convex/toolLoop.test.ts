@@ -116,7 +116,14 @@ const call = (id: string, name: string, args: object = {}) => ({ id, name: `docs
 describe("the tool loop on Anthropic", () => {
   test("an always-allowed call runs, its result goes back, and the reply is the text of every step", async () => {
     const s = await setup({ steps: [{ text: "Let me look.", calls: [call("toolu_1", "search", { q: "cache" })] }, { text: "Found it." }] });
+    const log = vi.spyOn(console, "log");
     await s.send("Find the cache docs");
+
+    // Each step logs one timing line when it finishes (spec phase 12, reply timing log).
+    const timing = log.mock.calls.map(([line]) => String(line)).filter((line) => line.startsWith("reply step "));
+    expect(timing).toHaveLength(2);
+    for (const line of timing)
+      expect(line).toMatch(/^reply step \S+ status=done queue=\d+ms input=\d+ms firstEvent=\d+ms firstText=\d+ms total=\d+ms$/);
 
     expect(s.mcpCalls).toEqual([{ name: "search", args: { q: "cache" } }]);
     const [first, second] = s.replyRequests();
