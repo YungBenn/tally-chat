@@ -12,7 +12,7 @@ import {
 import { CURRENT_SYSTEM_PROMPT_VERSION, systemPrompt } from "./lib/systemPrompts";
 import { cacheTtlValidator, requestCacheTtl } from "./lib/cacheStatus";
 import { restartKeepalive, touchedCache, warmAfterCondense } from "./keepalive";
-import { patchThreadState } from "./threadState";
+import { patchThreadState, threadState } from "./threadState";
 import { coveredIds, scheduleCondense } from "./condense";
 import { assertWithinBudget, BUDGET_REACHED, budgetReached } from "./lib/budget";
 import { assembleHistory } from "./lib/context";
@@ -1069,6 +1069,8 @@ export const purgeThread = internalMutation({
       .withIndex("by_threadId", (q) => q.eq("threadId", threadId))
       .take(PURGE_BATCH);
     for (const c of checkpoints) await ctx.db.delete("checkpoints", c._id);
+    const state = await threadState(ctx, threadId);
+    if (state) await ctx.db.delete("threadStates", state._id);
     const sideJobs = await ctx.db
       .query("sideJobs")
       .withIndex("by_threadId", (q) => q.eq("threadId", threadId))
