@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && next build",
     "start": "next start",
-    "lint": "eslint . --ignore-pattern \"convex/_generated/**\" --ignore-pattern \"docs/**\" --ignore-pattern \"prototypes/**\"",
+    "lint": "eslint . --ignore-pattern \"convex/_generated/**\" --ignore-pattern \"docs/**\" --ignore-pattern \"prototypes/**\" && node scripts/compiler-coverage.mjs",
     "test": "vitest run",
     "sync-prices": "node scripts/sync-prices.mjs"
   },
