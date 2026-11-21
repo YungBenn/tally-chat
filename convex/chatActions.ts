@@ -59,6 +59,8 @@ export const generate = internalAction({
   args: { messageId: v.id("messages") },
   returns: v.null(),
   handler: async (ctx, { messageId }) => {
+    // Reply timing log (spec phase 12): one line per step, times from the action's start.
+    const startedAt = Date.now();
     // Web search first (lib/webSearch): the reply's request carries the stored results.
     const search = await ctx.runQuery(internal.webSearch.pending, {
       replyId: messageId,
@@ -73,9 +75,19 @@ export const generate = internalAction({
             })
           : { query: search.query, results: [], error: "web search is off" }),
       });
+    const inputStart = Date.now();
     const input = await ctx.runQuery(internal.chat.generationInput, {
       messageId,
     });
+    const inputMs = Date.now() - inputStart;
+    let firstEventAt: number | undefined;
+    let firstTextAt: number | undefined;
+    const since = (at?: number) =>
+      at === undefined ? "-" : `${at - startedAt}ms`;
+    const logTiming = (status: string) =>
+      console.log(
+        `reply step ${messageId} status=${status} queue=${input ? `${Math.round(startedAt - input.queuedAt)}ms` : "-"} input=${inputMs}ms firstEvent=${since(firstEventAt)} firstText=${since(firstTextAt)} total=${since(Date.now())}`,
+      );
     if (!input) {
       // Thread deleted before we started: close the reply so the purge can remove it.
       await ctx.runMutation(internal.chat.finalize, {
@@ -84,6 +96,7 @@ export const generate = internalAction({
         content: "",
         pending: "",
       });
+      logTiming("stopped");
       return null;
     }
     let full = "";
@@ -100,8 +113,11 @@ export const generate = internalAction({
       | { type: "thinking"; thinking: string; signature: string }
       | { type: "redactedThinking"; data: string }
     )[] = [];
-    const finish = (status: "done" | "stopped" | "error", error?: string) =>
-      ctx.runMutation(internal.chat.finalize, {
+    const finish = async (
+      status: "done" | "stopped" | "error",
+      error?: string,
+    ) => {
+      await ctx.runMutation(internal.chat.finalize, {
         messageId,
         status,
         content: full,
@@ -113,6 +129,9 @@ export const generate = internalAction({
         toolCalls,
         ...usage,
       });
+      if (full && firstTextAt === undefined) firstTextAt = Date.now();
+      logTiming(status);
+    };
 
     const abort = new AbortController();
     try {
@@ -145,6 +164,7 @@ export const generate = internalAction({
       );
       let lastFlush = Date.now();
       for await (const event of deltas) {
+        firstEventAt ??= Date.now();
         if (event.type === "usage") {
           usage = {
             usage: event.usage,
@@ -174,6 +194,7 @@ export const generate = internalAction({
         pending += text;
         if (Date.now() - lastFlush < FLUSH_MS) continue;
         await appendChunk(ctx, input.streamId, pending, false);
+        firstTextAt ??= Date.now();
         pending = "";
         lastFlush = Date.now();
         if (await ctx.runQuery(internal.chat.stopRequested, { messageId })) {
