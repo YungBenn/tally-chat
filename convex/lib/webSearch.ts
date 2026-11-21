@@ -28,6 +28,9 @@ export function parseSearxng(json: unknown): SearchResult[] {
   if (!Array.isArray(results)) return [];
   return results
     .filter((r): r is { title: string; url: string; content?: unknown } => typeof r?.title === "string" && typeof r?.url === "string")
+    // Some engines return links without a host (Brave's "http:///go/v1/…" redirects): useless as
+    // a source and a waste of tokens, so skip them before taking the first few.
+    .filter((r) => /^https?:\/\/[^/\s]/i.test(r.url))
     .slice(0, MAX_RESULTS)
     .map((r) => ({ title: r.title.trim(), url: r.url, snippet: clip(typeof r.content === "string" ? r.content.trim() : "") }));
 }
