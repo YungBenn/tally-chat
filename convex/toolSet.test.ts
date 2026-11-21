@@ -152,6 +152,16 @@ describe("freezing a tool set", () => {
     expect(s.anthropicBodies()[2].tools).toBeUndefined();
   });
 
+  test("a thread started in one step freezes the tools picked before its first send", async () => {
+    const s = await setup();
+    const threadId = await s.owner.mutation(api.chat.startThread, {
+      providerId: s.anthropicId, modelId: "claude-sonnet-5-5", content: "Hi", tools: [{ serverId: s.docsId, tool: "read.file" }],
+    });
+    await s.t.finishAllScheduledFunctions(() => {});
+    expect(s.anthropicBodies()[0].tools!.map((x) => x.name)).toEqual(["docs__read_file"]);
+    expect((await s.t.run((ctx) => ctx.db.get("threads", threadId)))!.toolSet!.map((x) => x.name)).toEqual(["docs__read_file"]);
+  });
+
   test("a model without tools gets none; the Providers list says which models can call tools", async () => {
     const s = await setup();
     const providers = await s.owner.query(api.providers.list, {});

@@ -135,6 +135,37 @@ describe("sending a message", () => {
   });
 });
 
+describe("starting a thread in one step", () => {
+  const threadCount = (t: ReturnType<typeof convexTest>) => t.run(async (ctx) => (await ctx.db.query("threads").collect()).length);
+
+  test("creates the thread, the user message and the streaming reply together, with the choices made before sending", async () => {
+    const { t, owner, providerId } = await setup();
+    fake = fakeFetch({ [MESSAGES_URL]: reply("Hi") });
+    const threadId = await owner.mutation(api.chat.startThread, {
+      providerId, modelId: "claude-sonnet-5-5", effort: "low", content: "  Hello there  ", mode: "quick",
+    });
+    const thread = (await owner.query(api.chat.getThread, { threadId }))!;
+    expect(thread.title).toBe("Hello there");
+    expect(thread.messages.map((m) => [m.role, m.status, m.text])).toEqual([
+      ["user", "done", "Hello there"],
+      ["assistant", "streaming", ""],
+    ]);
+    expect(thread.messages[1].effort).toBe("low");
+    await t.finishAllScheduledFunctions(() => {});
+    expect(await lastAssistant(owner, threadId)).toMatchObject({ status: "done", text: "Hi" });
+    expect((fake.requests[0].body as { max_tokens: number }).max_tokens).toBe(2048);
+  });
+
+  test("validates like creating and sending; a refused start leaves no thread", async () => {
+    const { t, owner, providerId } = await setup();
+    const start = (args: { modelId: string; content: string }) => owner.mutation(api.chat.startThread, { providerId, ...args });
+    await expect(start({ modelId: "claude-old", content: "Hi" })).rejects.toThrow("Model not available");
+    await expect(start({ modelId: "claude-sonnet-5-5", content: "   " })).rejects.toThrow("Message is empty");
+    await expect(t.mutation(api.chat.startThread, { providerId, modelId: "claude-sonnet-5-5", content: "Hi" })).rejects.toThrow("Not logged in");
+    expect(await threadCount(t)).toBe(1); // only setup's
+  });
+});
+
 describe("streaming, reload and stop", () => {
   test("mid-stream reads show the text so far; stop aborts the request and keeps what streamed", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });

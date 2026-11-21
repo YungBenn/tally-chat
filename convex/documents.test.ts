@@ -131,6 +131,19 @@ describe("sending with documents", () => {
   });
 });
 
+describe("starting a thread with documents", () => {
+  test("a thread started in one step claims its documents and sends them first", async () => {
+    const s = await setup();
+    fake = fakeFetch({ [MESSAGES_URL]: { body: sse(textDelta("ok"), messageStop) } });
+    const doc = await s.attach("a.txt", "alpha");
+    const { providerId } = (await s.t.run((ctx) => ctx.db.get("threads", s.threadId)))!;
+    const threadId = await s.owner.mutation(api.chat.startThread, { providerId, modelId: "claude-sonnet-5-5", content: "Read it", documents: [doc.documentId] });
+    await s.settle();
+    expect(s.firstUserText()).toBe('<document name="a.txt">\nalpha\n</document>\n\nRead it');
+    expect((await s.t.run((ctx) => ctx.db.get("documents", doc.documentId)))!.threadId).toBe(threadId);
+  });
+});
+
 describe("mentioning a thread", () => {
   // A finished thread with the given turns on its active branch, inserted directly.
   async function threadWith(s: Awaited<ReturnType<typeof setup>>, title: string, contents: string[]) {
