@@ -13,6 +13,7 @@ import { MAX_IMAGES_PER_MESSAGE, imageTokens, type MessageImage } from "@/convex
 import { tokens } from "@/lib/format";
 import { ACCEPT_ATTRIBUTE, prepareAndUpload } from "@/lib/imageUpload";
 import { SHORTCUTS } from "@/lib/shortcuts";
+import { uploadFile } from "@/lib/uploadFile";
 import { useShortcut, useShortcutLabel } from "@/lib/useShortcut";
 import { cn } from "@/lib/utils";
 
@@ -145,9 +146,7 @@ export default function Composer({
     const key = ++lastKey.current;
     setAttached((list) => [...list, { kind: "document", key, name: file.name }]);
     try {
-      const res = await fetch(await uploadUrl(), { method: "POST", body: file });
-      if (!res.ok) throw new Error(`Could not upload ${file.name}`);
-      const { storageId } = (await res.json()) as { storageId: Id<"_storage"> };
+      const storageId = await uploadFile(await uploadUrl(), file, `Could not upload ${file.name}`);
       const doc = await extract({ storageId, name: file.name });
       setAttached((list) =>
         list.map((a) => (a.key === key ? { ...a, doc: { id: doc.documentId, tokens: doc.tokens } } : a)),
@@ -217,15 +216,16 @@ export default function Composer({
     setError(null);
     try {
       await onSend(text, ready, readyDocs.map((d) => d.id));
-      setText("");
-      onDraftChange?.("");
-      attached.forEach((a) => a.kind === "image" && URL.revokeObjectURL(a.preview));
-      setAttached([]);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Could not send";
       // The budget banner above already says this, with the override.
       setError(message === "Daily budget reached" ? null : message);
+      return;
     }
+    setText("");
+    onDraftChange?.("");
+    attached.forEach((a) => a.kind === "image" && URL.revokeObjectURL(a.preview));
+    setAttached([]);
   }
 
   const canSend = !!text.trim() && !off && !uploading;

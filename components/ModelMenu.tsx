@@ -54,6 +54,10 @@ export type PickerModel = ModelChoice & {
 
 type View = "favorites" | "all" | Id<"providers">;
 
+// A row index kept within 0..last. Outside ModelPicker because calling Math.max in two places
+// there trips an internal React Compiler error.
+const clampIndex = (i: number, last: number) => Math.min(Math.max(i, 0), last);
+
 /**
  * The model picker: search, then Favorites, All or one provider, then the models.
  * The star on a row favorites it everywhere; Favorites is where the picker opens once any model has
@@ -96,7 +100,7 @@ export function ModelPicker({
       : view === "all" || (view === "favorites" ? m.favorite : m.providerId === view),
   );
   const isSelected = (m: PickerModel) => !!selected && sameModel(m, selected);
-  const current = Math.min(active ?? Math.max(0, shown.findIndex(isSelected)), shown.length - 1);
+  const current = clampIndex(active ?? shown.findIndex(isSelected), shown.length - 1);
   // The provider is clear from the tab; elsewhere each row names it.
   const showProvider = providers.length > 1 && (words.length > 0 || view === "favorites" || view === "all");
 
@@ -155,7 +159,7 @@ export function ModelPicker({
               if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                 e.preventDefault();
                 const step = e.key === "ArrowDown" ? 1 : -1;
-                setActive(Math.min(Math.max(current + step, 0), shown.length - 1));
+                setActive(clampIndex(current + step, shown.length - 1));
               } else if (e.key === "Enter" && shown[current]) {
                 e.preventDefault();
                 pick(shown[current]);

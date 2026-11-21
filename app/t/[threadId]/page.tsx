@@ -15,7 +15,6 @@ import {
   IconMessages,
 } from "@tabler/icons-react";
 import { useMutation, useQuery } from "convex/react";
-import { ConvexError } from "convex/values";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -45,6 +44,7 @@ import {
 } from "@/components/Messages";
 import { Dialog, Menu, MenuItem, Tooltip } from "@/components/ui/overlay";
 import { exportFileName, toJson, toMarkdown } from "@/lib/exportThread";
+import { rethrowSendError } from "@/lib/sendError";
 import { SHORTCUTS } from "@/lib/shortcuts";
 import { useShortcut, useShortcutLabel } from "@/lib/useShortcut";
 import { COMPACT, useMedia } from "@/lib/useMedia";
@@ -899,27 +899,19 @@ export default function ThreadPage() {
             }
             onSend={async (text, images, documents) => {
               setAtBottom(true);
-              try {
-                await send({
-                  threadId,
-                  content: text,
-                  mode,
-                  // A per-message effort change waits for the thread's own model.
-                  effort: oneOff ? undefined : (pendingEffort ?? undefined),
-                  images: images.length ? images : undefined,
-                  model: oneOff ?? undefined,
-                  search: webSearch.on || undefined,
-                  documents: documents.length ? documents : undefined,
-                });
-                if (oneOff) setReplyWith(null);
-                else setPendingEffort(null);
-              } catch (err) {
-                throw new Error(
-                  err instanceof ConvexError
-                    ? String(err.data)
-                    : "Could not send",
-                );
-              }
+              await send({
+                threadId,
+                content: text,
+                mode,
+                // A per-message effort change waits for the thread's own model.
+                effort: oneOff ? undefined : (pendingEffort ?? undefined),
+                images: images.length ? images : undefined,
+                model: oneOff ?? undefined,
+                search: webSearch.on || undefined,
+                documents: documents.length ? documents : undefined,
+              }).catch(rethrowSendError);
+              if (oneOff) setReplyWith(null);
+              else setPendingEffort(null);
             }}
           />
         </div>
