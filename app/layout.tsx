@@ -46,7 +46,8 @@ export default function RootLayout({
             {colorScheme}
           </Script>
         </head>
-        <body className="font-sans antialiased">
+        {/* Extensions like Grammarly add attributes to <body> before hydration. */}
+        <body className="font-sans antialiased" suppressHydrationWarning>
           <ConvexClientProvider>
             <AppProviders>{children}</AppProviders>
           </ConvexClientProvider>

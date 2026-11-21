@@ -20,6 +20,10 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   holo?: boolean;
 }
 
+// Firefox restores a button's `disabled` across reloads unless autocomplete is off, which breaks
+// hydration. React's button types omit the (valid) attribute, hence the spread.
+const noRestore = { autoComplete: "off" } as React.HTMLAttributes<HTMLButtonElement>;
+
 const iconSize = { sm: 14, md: 16, lg: 18 } as const;
 
 function sized(icon: React.ReactNode, px: number) {
@@ -62,6 +66,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
       data-loading={loading ? "true" : undefined}
       aria-busy={loading || undefined}
       disabled={disabled || loading}
+      {...noRestore}
       {...rest}
     >
       {loading ? <Spinner size={px - 2} /> : sized(icon, px)}
