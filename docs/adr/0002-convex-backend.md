@@ -1,5 +1,7 @@
 # Convex as the backend, without the Agent component
 
+> Streaming through `persistent-text-streaming` is superseded by [ADR 0004](0004-stream-text-in-its-own-row.md): a streaming reply's text now lives in its own row. The rest of this decision stands.
+
 Convex is the backend because branching threads, resumable streams and cross-device sync are its native shape, and it self-hosts with Docker Compose (SQLite by default). Its weak spot for this product, metering rollups with no `GROUP BY`, is covered by daily rollup documents upserted in the same mutation that records usage (one row per owner, day and dimension holding every usage field), and streaming uses `persistent-text-streaming`. We deliberately skip the Convex Agent component: it brings its own thread and message model, which would fight the append-only message tree (ADR 0001).
 
 ## Considered Options

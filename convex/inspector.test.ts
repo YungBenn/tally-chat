@@ -1,5 +1,4 @@
 /// <reference types="vite/client" />
-import persistentTextStreaming from "@convex-dev/persistent-text-streaming/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
@@ -36,7 +35,6 @@ const SYSTEM = Math.ceil(SYSTEM_PROMPTS[CURRENT_SYSTEM_PROMPT_VERSION].length / 
 
 async function setup(replyUsages: object[], model = "claude-sonnet-5-5") {
   const t = convexTest(schema, modules);
-  persistentTextStreaming.register(t);
   const ownerId = await t.run((ctx) =>
     ctx.db.insert("users", { email: "owner" }),
   );

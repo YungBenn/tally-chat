@@ -16,7 +16,6 @@
     "@ai-sdk/openai-compatible": "3.0.82",
     "@base-ui/react": "^1.9.0",
     "@convex-dev/auth": "^0.0.95",
-    "@convex-dev/persistent-text-streaming": "0.3.5",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@tabler/icons-react": "^3.50.0",
     "ai": "7.0.159",
