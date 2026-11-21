@@ -1,5 +1,4 @@
 /// <reference types="vite/client" />
-import persistentTextStreaming from "@convex-dev/persistent-text-streaming/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
@@ -18,7 +17,6 @@ afterEach(() => fake?.restore());
 
 test("a reply is one step: its usage and cost are that step's", async () => {
   const t = convexTest(schema, modules);
-  persistentTextStreaming.register(t);
   const ownerId = await t.run((ctx) => ctx.db.insert("users", { email: "owner" }));
   const providerId = await t.run(async (ctx) =>
     ctx.db.insert("providers", {

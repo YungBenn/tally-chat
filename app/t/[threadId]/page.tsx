@@ -18,7 +18,7 @@ import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import CacheStatus from "@/components/CacheStatus";
 import BudgetBanner, { useSendingPaused } from "@/components/BudgetBanner";
 import ChatShell from "@/components/ChatShell";
@@ -336,7 +336,19 @@ function download(name: string, text: string, type: string) {
 
 export default function ThreadPage() {
   const { threadId } = useParams<{ threadId: Id<"threads"> }>();
-  const thread = useQuery(api.chat.getThread, { threadId });
+  const stored = useQuery(api.chat.getThread, { threadId });
+  // A streaming step's text lives in its own row (ADR 0004): only this subscription updates per
+  // flush, and it is null once the step ends, when the message itself holds the text.
+  const leaf = stored?.messages.at(-1);
+  const streamingId = leaf?.status === "streaming" ? leaf._id : undefined;
+  const live = useQuery(api.chat.streamingText, streamingId ? { messageId: streamingId } : "skip");
+  const thread = useMemo(
+    () =>
+      stored && live != null
+        ? { ...stored, messages: stored.messages.map((m) => (m._id === streamingId ? { ...m, text: live } : m)) }
+        : stored,
+    [stored, live, streamingId],
+  );
   // A search hit to open (spec phase 7): /t/<thread>?m=<message>.
   const target = useSearchParams().get("m") as Id<"messages"> | null;
   const [highlighted, setHighlighted] = useState<Id<"messages"> | null>(null);

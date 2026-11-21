@@ -1,11 +1,10 @@
 /// <reference types="vite/client" />
-import persistentTextStreaming from "@convex-dev/persistent-text-streaming/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
 import { gate, gatedStream, messageDelta, messageStart, messageStop, sse, textDelta } from "../test/sse";
-import { api, components } from "./_generated/api";
+import { api } from "./_generated/api";
 import { encryptSecret } from "./lib/vault";
 import schema from "./schema";
 
@@ -23,7 +22,6 @@ afterEach(() => {
 
 async function setup() {
   const t = convexTest(schema, modules);
-  persistentTextStreaming.register(t);
   const ownerId = await t.run((ctx) => ctx.db.insert("users", { email: "owner" }));
   const apiKeyEncrypted = await t.run(() => encryptSecret("sk-ant"));
   const providerId = await t.run((ctx) =>
@@ -34,10 +32,8 @@ async function setup() {
   );
   const owner = t.withIdentity({ subject: `${ownerId}|session` });
   const threadId = await owner.mutation(api.chat.createThread, { providerId, modelId: "claude-sonnet-5-5" });
-  const rows = <T extends "messages" | "checkpoints" | "dailyUsage">(table: T) => t.run((ctx) => ctx.db.query(table).collect());
-  const streamGone = (streamId: string) =>
-    t.run((ctx) => ctx.runQuery(components.persistentTextStreaming.lib.getStreamText, { streamId }));
-  return { t, owner, ownerId, threadId, rows, streamGone };
+  const rows = <T extends "messages" | "checkpoints" | "dailyUsage" | "streams">(table: T) => t.run((ctx) => ctx.db.query(table).collect());
+  return { t, owner, ownerId, threadId, rows };
 }
 
 describe("deleting a thread", () => {
@@ -50,7 +46,8 @@ describe("deleting a thread", () => {
     }
     const [, reply] = await s.rows("messages");
     await s.t.run((ctx) => ctx.db.insert("checkpoints", { ownerId: s.ownerId, threadId: s.threadId, coversUpToId: reply._id, summary: "S", tokens: 1 }));
-    const streamIds = (await s.rows("messages")).flatMap((m) => (m.streamId ? [m.streamId] : []));
+    expect(await s.rows("streams")).toEqual([]); // finished replies leave no stream row
+    await s.t.run((ctx) => ctx.db.insert("streams", { messageId: reply._id, text: "left over" }));
     const rollups = await s.rows("dailyUsage");
     expect(rollups.length).toBe(3);
 
@@ -61,7 +58,7 @@ describe("deleting a thread", () => {
 
     expect(await s.rows("messages")).toEqual([]);
     expect(await s.rows("checkpoints")).toEqual([]);
-    for (const id of streamIds) await expect(s.streamGone(id)).rejects.toThrow("Stream not found");
+    expect(await s.rows("streams")).toEqual([]);
     expect(await s.rows("dailyUsage")).toEqual(rollups);
   });
 
@@ -90,6 +87,7 @@ describe("deleting a thread", () => {
 
     await vi.waitFor(async () => expect(await s.rows("messages")).toEqual([]), { timeout: 5000 });
     expect(aborted).toBe(true);
+    expect(await s.rows("streams")).toEqual([]);
     const rollups = await s.rows("dailyUsage");
     expect(rollups).toHaveLength(3);
     for (const row of rollups) expect(row).toMatchObject({ calls: 1, inputTokens: 100 });
@@ -105,6 +103,7 @@ describe("deleting a thread", () => {
       expect(await s.rows("messages")).toEqual([]);
     }, { timeout: 5000 });
     expect(fake.requests).toEqual([]);
+    expect(await s.rows("streams")).toEqual([]);
   });
 
   test("requires the owner", async () => {

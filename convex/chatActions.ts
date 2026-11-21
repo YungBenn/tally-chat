@@ -18,7 +18,6 @@ import {
 import { callMcpTool } from "./lib/mcp";
 import { streamOpenAICompatible } from "./lib/openaiCompatible";
 import { RESULT_NOTE, type ToolStatus } from "./lib/toolParts";
-import { appendChunk } from "./lib/textStream";
 import type { NormalizedUsage } from "./lib/usage";
 import { decryptSecret } from "./lib/vault";
 import { searchSearxng } from "./lib/webSearch";
@@ -82,12 +81,11 @@ export const generate = internalAction({
         messageId,
         status: "stopped",
         content: "",
-        pending: "",
       });
       return null;
     }
     let full = "";
-    let pending = "";
+    let pending = ""; // text not yet flushed to the stream row
     // ponytail: a stopped reply only has usage up to the last message_delta, so output
     // tokens generated after it are billed by the provider but not recorded here.
     let usage: NormalizedUsage | undefined;
@@ -105,7 +103,6 @@ export const generate = internalAction({
         messageId,
         status,
         content: full,
-        pending,
         error,
         cacheRequest,
         truncated: truncated || undefined,
@@ -124,7 +121,7 @@ export const generate = internalAction({
         : streamOpenAICompatible;
       const ttl = input.cacheTtl;
       if (anthropic) cacheRequest = { startedAt: Date.now(), ttl };
-      if (await ctx.runQuery(internal.chat.stopRequested, { messageId })) {
+      if (input.stopRequested) {
         await finish("stopped");
         return null;
       }
@@ -173,10 +170,10 @@ export const generate = internalAction({
         full += text;
         pending += text;
         if (Date.now() - lastFlush < FLUSH_MS) continue;
-        await appendChunk(ctx, input.streamId, pending, false);
+        const stop = await ctx.runMutation(internal.chat.flush, { messageId, text: pending });
         pending = "";
         lastFlush = Date.now();
-        if (await ctx.runQuery(internal.chat.stopRequested, { messageId })) {
+        if (stop) {
           abort.abort();
           await finish("stopped");
           return null;
