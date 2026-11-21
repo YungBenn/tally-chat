@@ -8,6 +8,7 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { CURRENT_SYSTEM_PROMPT_VERSION, SYSTEM_PROMPTS } from "./lib/systemPrompts";
 import { encryptSecret } from "./lib/vault";
+import { ancestorIds } from "./lib/ancestors";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -87,7 +88,7 @@ describe("sending a message", () => {
     });
   });
 
-  test("later turns send the whole branch and store ancestorIds", async () => {
+  test("later turns send the whole branch and store each message's ancestors", async () => {
     const { t, owner, threadId } = await setup();
     fake = fakeFetch({ [MESSAGES_URL]: reply("One") });
     await owner.mutation(api.chat.send, { threadId, content: "First" });
@@ -103,8 +104,8 @@ describe("sending a message", () => {
       ],
     });
     const ids = (await owner.query(api.chat.getThread, { threadId }))!.messages.map((m) => m._id);
-    const leaf = await t.run((ctx) => ctx.db.get("messages", ids[3]));
-    expect(leaf!.ancestorIds).toEqual(ids.slice(0, 3));
+    const ancestors = await t.run(async (ctx) => ancestorIds(ctx, (await ctx.db.get("messages", ids[3]))!));
+    expect(ancestors).toEqual(ids.slice(0, 3));
   });
 
   test("a trailing OpenAI-style [DONE] line (some proxies add one) still finishes the reply", async () => {

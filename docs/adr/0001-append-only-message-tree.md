@@ -15,3 +15,7 @@ Each thread stores its messages as a tree (every message points at its parent) r
 ## Amendment (phase 6): pins
 
 A message's `pinned` flag is the one change a message can get after it's written, besides the move out of "streaming". Pinning is safe for the cache because the flag changes no request bytes while the message is still sent verbatim; it matters only once a checkpoint covers the message, when pinned messages are sent verbatim after the summary instead of being folded into it. So a pin can change only until a checkpoint covers the message, and is fixed from then on: changing it later would change the checkpoint layer of every request without a new summary to match. See the [phase 6 spec](../specs/phase-6-background-condenser.md).
+
+## Amendment (phase 12): ancestors in their own table
+
+Storing `ancestorIds` on each message made a branch one read, but every read of the branch then carried each message's whole path: bytes read grew with the square of the branch length, and a thread of about 650 messages hit Convex's 16 MiB per-function read limit. Each message's ancestors now live in its own `messageAncestors` row, written with the message and never changed. Building a branch reads the leaf's row once and then the messages, so reads grow linearly. `migrations:moveMessageAncestors` moves the field off older messages.

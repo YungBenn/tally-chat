@@ -20,6 +20,7 @@ import type * as importActions from "../importActions.js";
 import type * as imports from "../imports.js";
 import type * as inspector from "../inspector.js";
 import type * as keepalive from "../keepalive.js";
+import type * as lib_ancestors from "../lib/ancestors.js";
 import type * as lib_anthropic from "../lib/anthropic.js";
 import type * as lib_budget from "../lib/budget.js";
 import type * as lib_cacheStatus from "../lib/cacheStatus.js";
@@ -75,6 +76,7 @@ declare const fullApi: ApiFromModules<{
   imports: typeof imports;
   inspector: typeof inspector;
   keepalive: typeof keepalive;
+  "lib/ancestors": typeof lib_ancestors;
   "lib/anthropic": typeof lib_anthropic;
   "lib/budget": typeof lib_budget;
   "lib/cacheStatus": typeof lib_cacheStatus;

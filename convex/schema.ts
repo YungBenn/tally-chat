@@ -129,7 +129,9 @@ export default defineSchema({
     ownerId: v.id("users"),
     threadId: v.id("threads"),
     parentId: v.optional(v.id("messages")),
-    ancestorIds: v.array(v.id("messages")), // root..parent, so a branch is one read
+    // Moved to messageAncestors (spec phase 12); kept only until migrations:moveMessageAncestors
+    // empties it.
+    ancestorIds: v.optional(v.array(v.id("messages"))),
     role: v.union(v.literal("user"), v.literal("assistant")),
     pinned: v.boolean(),
     content: v.string(), // final text; while a step streams its text lives in its streams row
@@ -178,6 +180,13 @@ export default defineSchema({
       searchField: "content",
       filterFields: ["ownerId"],
     }),
+  // A message's ancestors, root..parent, so a branch is one read (ADR 0001). One row per message,
+  // written with it and never changed; apart from the message so reading a branch reads each path
+  // once, not once per message (lib/ancestors).
+  messageAncestors: defineTable({
+    messageId: v.id("messages"),
+    ancestorIds: v.array(v.id("messages")),
+  }).index("by_messageId", ["messageId"]),
   // The text so far of a reply's streaming step (lib/textStream, ADR 0004): one row while the step
   // streams, deleted when it ends.
   streams: defineTable({

@@ -141,3 +141,29 @@ export const moveThreadState = internalMutation({
     return null;
   },
 });
+
+const ANCESTORS_BATCH = 100;
+
+// Phase 12: moves each message's ancestorIds to its messageAncestors row, in batches, and clears
+// it from the message. Runs on every self-host deploy (selfhost/setup.ts); moved messages have
+// nothing left to move, so it's safe to run again. Locally:
+// `npx convex run migrations:moveMessageAncestors`.
+export const moveMessageAncestors = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.null(),
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db.query("messages").paginate({ numItems: ANCESTORS_BATCH, cursor: cursor ?? null });
+    for (const m of page.page) {
+      if (m.ancestorIds === undefined) continue;
+      const row = await ctx.db
+        .query("messageAncestors")
+        .withIndex("by_messageId", (q) => q.eq("messageId", m._id))
+        .unique();
+      if (!row) await ctx.db.insert("messageAncestors", { messageId: m._id, ancestorIds: m.ancestorIds });
+      await ctx.db.patch("messages", m._id, { ancestorIds: undefined });
+    }
+    if (!page.isDone)
+      await ctx.scheduler.runAfter(0, internal.migrations.moveMessageAncestors, { cursor: page.continueCursor });
+    return null;
+  },
+});
