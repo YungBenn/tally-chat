@@ -82,6 +82,7 @@ function useMermaid(source: string | null) {
           secondaryColor: token("--surface-sunken"),
           tertiaryColor: token("--surface-raised"),
           lineColor: token("--foreground-muted"),
+          edgeLabelBackground: token("--surface-raised"), // the diagram's own surface (.tc-mermaid)
           textColor: token("--foreground"),
           fontFamily: getComputedStyle(document.body).fontFamily,
           fontSize: "14px",
