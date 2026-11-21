@@ -83,12 +83,11 @@ export default defineSchema({
     titleRequested: v.optional(v.boolean()), // the side-job title runs once per thread
     renamed: v.optional(v.boolean()), // the owner named it; a side-job title never replaces that
     pinnedAt: v.optional(v.number()), // pinned threads list first, most recently pinned on top
-    lastActiveAt: v.optional(v.number()), // owner focused on or typing in the thread (keepalive presence)
-    // Start time of the last request that read or wrote this thread's prompt cache, and the
-    // lifetime it asked for: the cache is warm until cacheTouchedAt + cacheTtl.
+    // Moved to threadStates (spec phase 12); kept only until migrations:moveThreadState empties them.
+    lastActiveAt: v.optional(v.number()),
     cacheTouchedAt: v.optional(v.number()),
     cacheTtl: v.optional(cacheTtlValidator),
-    keepaliveJobId: v.optional(v.id("_scheduled_functions")), // the thread's one pending keepalive, if any
+    keepaliveJobId: v.optional(v.id("_scheduled_functions")),
     effort: v.optional(effortValidator), // Anthropic-style threads: sent on every request; absent = low
     condenseJobId: v.optional(v.id("_scheduled_functions")), // the thread's one pending or running condense
     condenseFailure: v.optional(v.string()), // why the last condense wrote no checkpoint; cleared by the next one
@@ -111,6 +110,18 @@ export default defineSchema({
       searchField: "title",
       filterFields: ["ownerId"],
     }),
+  // A thread's presence and cache bookkeeping (spec phase 12). It changes every minute while the
+  // owner is in the thread, so it lives apart from the thread row: writes here don't re-run the
+  // thread page, the inspector or the thread list. At most one row per thread, made on first write.
+  threadStates: defineTable({
+    threadId: v.id("threads"),
+    lastActiveAt: v.optional(v.number()), // owner focused on or typing in the thread (keepalive presence)
+    // Start time of the last request that read or wrote this thread's prompt cache, and the
+    // lifetime it asked for: the cache is warm until cacheTouchedAt + cacheTtl.
+    cacheTouchedAt: v.optional(v.number()),
+    cacheTtl: v.optional(cacheTtlValidator),
+    keepaliveJobId: v.optional(v.id("_scheduled_functions")), // the thread's one pending keepalive, if any
+  }).index("by_threadId", ["threadId"]),
   // Append-only tree (ADR 0001). The only updates a message ever gets are
   // streaming -> final status (plus the stop flag before that) and its pin,
   // which can change only until a checkpoint covers it.

@@ -5,7 +5,6 @@ import {
   internalMutation,
   internalQuery,
   type MutationCtx,
-  type QueryCtx,
 } from "./_generated/server";
 import {
   ACTIVE_WINDOW_MS,
@@ -14,6 +13,7 @@ import {
   cacheTtlValidator,
 } from "./lib/cacheStatus";
 import { activeBranch, effortFor, isCheaperReply } from "./chat";
+import { keepalivePending, patchThreadState, threadState } from "./threadState";
 import { budgetReached } from "./lib/budget";
 import { effortValidator } from "./lib/effort";
 import { imageValidator } from "./lib/images";
@@ -38,27 +38,18 @@ export async function warmAfterCondense(
   ctx: MutationCtx,
   thread: Doc<"threads">,
 ) {
-  if (await keepalivePending(ctx, thread))
-    await ctx.scheduler.cancel(thread.keepaliveJobId!);
+  const state = await threadState(ctx, thread._id);
+  if (await keepalivePending(ctx, state))
+    await ctx.scheduler.cancel(state!.keepaliveJobId!);
   const keepaliveJobId = await ctx.scheduler.runAfter(
     0,
     internal.chatActions.keepalive,
     { threadId: thread._id, warm: true },
   );
-  await ctx.db.patch("threads", thread._id, {
+  await patchThreadState(ctx, thread._id, {
     cacheTouchedAt: undefined,
     keepaliveJobId,
   });
-}
-
-// Whether this thread has a keepalive job still waiting to run.
-export async function keepalivePending(ctx: QueryCtx, thread: Doc<"threads">) {
-  if (!thread.keepaliveJobId) return false;
-  const job = await ctx.db.system.get(
-    "_scheduled_functions",
-    thread.keepaliveJobId,
-  );
-  return job?.state.kind === "pending";
 }
 
 // After a reply: cancel any pending keepalive, then schedule one from this reply's cache
@@ -69,8 +60,9 @@ export async function restartKeepalive(
   thread: Doc<"threads">,
   touchedAt: number | null,
 ) {
-  if (await keepalivePending(ctx, thread))
-    await ctx.scheduler.cancel(thread.keepaliveJobId!);
+  const state = await threadState(ctx, thread._id);
+  if (await keepalivePending(ctx, state))
+    await ctx.scheduler.cancel(state!.keepaliveJobId!);
   const settings = await ctx.db
     .query("settings")
     .withIndex("by_ownerId", (q) => q.eq("ownerId", thread.ownerId))
@@ -83,7 +75,7 @@ export async function restartKeepalive(
           internal.chatActions.keepalive,
           { threadId: thread._id },
         );
-  await ctx.db.patch("threads", thread._id, { keepaliveJobId });
+  await patchThreadState(ctx, thread._id, { keepaliveJobId });
 }
 
 const providerFields = v.object({
@@ -148,13 +140,14 @@ export const input = internalQuery({
     const awaitingApproval =
       leaf.status === "waiting" &&
       now - (leaf.pendingApproval?.requestedAt ?? 0) <= APPROVAL_TIMEOUT_MS;
+    const state = await threadState(ctx, threadId);
     if (
       !awaitingApproval &&
-      (thread.lastActiveAt === undefined ||
-        now - thread.lastActiveAt > ACTIVE_WINDOW_MS)
+      (state?.lastActiveAt === undefined ||
+        now - state.lastActiveAt > ACTIVE_WINDOW_MS)
     )
       return null;
-    if (!warm && cacheState(cacheExpiresAt(thread), now).state !== "warm")
+    if (!warm && cacheState(cacheExpiresAt(state ?? {}), now).state !== "warm")
       return null;
 
     const settings = await ctx.db
@@ -182,7 +175,7 @@ export const input = internalQuery({
         thread.toolSet?.length && supportsTools(provider, thread.modelId)
           ? thread.toolSet.map(toDefinition)
           : undefined,
-      ttl: thread.cacheTtl ?? "5m",
+      ttl: state?.cacheTtl ?? "5m",
       allowlist: settings?.allowlistedHosts ?? [],
     };
   },
@@ -247,7 +240,7 @@ export const record = internalMutation({
       internal.chatActions.keepalive,
       { threadId },
     );
-    await ctx.db.patch("threads", threadId, {
+    await patchThreadState(ctx, threadId, {
       cacheTouchedAt: startedAt,
       cacheTtl: ttl,
       keepaliveJobId,

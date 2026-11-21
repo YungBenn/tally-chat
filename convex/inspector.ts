@@ -13,7 +13,9 @@ import {
   cacheExpiresAt,
   cacheState,
   cacheTtlValidator,
+  requestCacheTtl,
 } from "./lib/cacheStatus";
+import { threadState } from "./threadState";
 import { assembleHistory, type History } from "./lib/context";
 import { condensePending, condensePlan } from "./condense";
 import { imageTokens } from "./lib/images";
@@ -143,8 +145,8 @@ export const newThread = query({
 });
 
 // Everything the inspector, the cost strip and the cache-break hints show for a thread, priced,
-// so the client only formats. Queries can't read the clock, so cache state comes back as times
-// for the client to judge with lib/cacheStatus.
+// so the client only formats. The cache's expiry and keepalive come from threadState.cache, so
+// presence doesn't re-run this.
 export const get = query({
   args: { threadId: v.id("threads") },
   returns: v.union(
@@ -152,10 +154,7 @@ export const get = query({
     v.object({
       cache: v.object({
         managed: v.boolean(), // Anthropic style: tally.chat places the breakpoints
-        expiresAt: v.union(v.null(), v.number()),
-        keepaliveScheduled: v.boolean(),
-        lastActiveAt: v.union(v.null(), v.number()),
-        ttl: cacheTtlValidator,
+        ttl: cacheTtlValidator, // the lifetime the next send asks for
         lastReadTokens: v.union(v.null(), v.number()), // the latest reply's reported cache read
       }),
       effort: v.union(v.null(), effortValidator), // what the next send uses; null outside Anthropic style
@@ -219,23 +218,17 @@ export const get = query({
       branch.map((m) => m._id),
     );
     const layers = await contextLayers(ctx, thread, branch, history);
-    const ttl = thread.cacheTtl ?? "5m";
+    const settings = await ctx.db
+      .query("settings")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+      .unique();
+    const ttl = requestCacheTtl(settings?.keepaliveEnabled, branch.length + 1);
     const prices = nextPrices(provider, thread.modelId, ttl);
     const recent = replies.slice(-RECENT_REPLIES);
 
     return {
       cache: {
         managed: provider?.apiStyle === "anthropic",
-        expiresAt: cacheExpiresAt(thread),
-        keepaliveScheduled: thread.keepaliveJobId
-          ? (
-              await ctx.db.system.get(
-                "_scheduled_functions",
-                thread.keepaliveJobId,
-              )
-            )?.state.kind === "pending"
-          : false,
-        lastActiveAt: thread.lastActiveAt ?? null,
         ttl,
         lastReadTokens:
           (() => {
@@ -628,13 +621,14 @@ export const toolChange = query({
     const oldToolTokens = layers.find((l) => l.kind === "tools")?.tokens ?? 0;
     const current = layers.reduce((sum, l) => sum + l.tokens, 0);
     const prefixTokens = current - oldToolTokens + newToolTokens;
-    const p = nextPrices(provider, thread.modelId, thread.cacheTtl ?? "5m");
+    const state = await threadState(ctx, threadId);
+    const p = nextPrices(provider, thread.modelId, state?.cacheTtl ?? "5m");
     if (!p) return { newToolTokens, prefixTokens, extraMicroUsd: null };
     // Anthropic-style: the rewrite is a cache write, and continuing reads while the cache is warm.
     // Elsewhere the provider caches on its own: a rewrite pays input prices.
     const managed = provider?.apiStyle === "anthropic";
     const warm = managed
-      ? cacheState(cacheExpiresAt(thread), now).state !== "cold"
+      ? cacheState(cacheExpiresAt(state ?? {}), now).state !== "cold"
       : true;
     const rewrite = prefixTokens * (managed ? p.cacheWrite : p.input);
     const continuing = current * (warm ? p.cacheRead : managed ? p.cacheWrite : p.input);
@@ -706,7 +700,8 @@ export const modelEstimates = query({
           ),
         )
       : 0;
-    const warm = cacheState(cacheExpiresAt(thread), now).state !== "cold";
+    const state = await threadState(ctx, threadId);
+    const warm = cacheState(cacheExpiresAt(state ?? {}), now).state !== "cold";
 
     const providers = await ctx.db
       .query("providers")
@@ -722,7 +717,7 @@ export const modelEstimates = query({
           const p = nextPrices(
             provider,
             m.id,
-            own ? (thread.cacheTtl ?? "5m") : "5m",
+            own ? (state?.cacheTtl ?? "5m") : "5m",
           );
           const historyPrice = !p
             ? 0
