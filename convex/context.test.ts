@@ -1,5 +1,4 @@
 /// <reference types="vite/client" />
-import persistentTextStreaming from "@convex-dev/persistent-text-streaming/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
@@ -25,7 +24,6 @@ const text = (content: string | Block[]) => (typeof content === "string" ? conte
 
 async function setup() {
   const t = convexTest(schema, modules);
-  persistentTextStreaming.register(t);
   const ownerId = await t.run((ctx) => ctx.db.insert("users", { email: "owner" }));
   const apiKeyEncrypted = await t.run(() => encryptSecret("sk-ant"));
   const providerId = await t.run((ctx) =>

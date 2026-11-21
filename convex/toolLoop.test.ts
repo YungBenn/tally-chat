@@ -1,11 +1,10 @@
 /// <reference types="vite/client" />
-import persistentTextStreaming from "@convex-dev/persistent-text-streaming/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
 import { fakeMcp, type FakeMcpOptions } from "../test/fakeMcp";
-import { gate } from "../test/sse";
+import { gate, gatedStream, type Gate } from "../test/sse";
 import {
   messageDelta,
   messageStart,
@@ -36,7 +35,7 @@ type Block = { type: string; [k: string]: unknown };
 type Msg = { role: string; content: string | Block[] };
 type Body = { max_tokens: number; stream: boolean; messages: Msg[]; tools?: unknown[]; cache_control?: object };
 // What the fake model does for the nth reply request: tool calls, or text to finish with.
-type Step = { text?: string; calls?: { id: string; name: string; args: object }[]; thinking?: { thinking: string; signature: string } };
+type Step = { text?: string; calls?: { id: string; name: string; args: object }[]; thinking?: { thinking: string; signature: string }; gate?: Gate };
 
 const search = { name: "search", description: "Search", inputSchema: JSON.stringify({ type: "object" }) };
 const dangerous = { name: "delete", inputSchema: JSON.stringify({ type: "object" }) };
@@ -44,7 +43,6 @@ const asFake = (t: { name: string; description?: string; inputSchema: string }) 
 
 async function setup(opts: { steps: Step[] | ((body: Body, n: number) => Step); mcp?: Partial<FakeMcpOptions>; allowed?: string[]; budget?: number }) {
   const t = convexTest(schema, modules);
-  persistentTextStreaming.register(t);
   const ownerId = await t.run((ctx) => ctx.db.insert("users", { email: "owner" }));
   const apiKeyEncrypted = await t.run(() => encryptSecret("sk"));
   const providerId = await t.run((ctx) =>
@@ -82,7 +80,8 @@ async function setup(opts: { steps: Step[] | ((body: Body, n: number) => Step); 
         if (body.max_tokens === 30) return new Response(sse(messageStart({ input_tokens: 1 }), textDelta("Title"), messageDelta({ output_tokens: 1 }), messageStop)); // title job
         n += 1;
         const step = typeof opts.steps === "function" ? opts.steps(body, n) : (opts.steps[n - 1] ?? { text: "done" });
-        const events = [messageStart({ input_tokens: 100 * n, cache_read_input_tokens: 0 })];
+        const events: (string | Gate)[] = [messageStart({ input_tokens: 100 * n, cache_read_input_tokens: 0 })];
+        if (step.gate) events.push(step.gate); // holds the step before its text
         let index = 0;
         if (step.thinking) {
           const i = index++;
@@ -96,7 +95,7 @@ async function setup(opts: { steps: Step[] | ((body: Body, n: number) => Step); 
         if (step.text) events.push(textDelta(step.text));
         for (const c of step.calls ?? []) events.push(toolUse(index++, c.id, c.name, JSON.stringify(c.args)));
         events.push(step.calls ? toolUseStop({ output_tokens: 10 }) : messageDelta({ output_tokens: 10 }), messageStop);
-        return new Response(sse(...events));
+        return new Response(gatedStream(events, init?.signal));
       },
     },
   });
@@ -149,6 +148,35 @@ describe("the tool loop on Anthropic", () => {
       { kind: "tool", id: "toolu_1", tool: "search", server: "Docs", alwaysAllowed: true, status: "ok", input: '{\n  "q": "cache"\n}', result: "result of search" },
       { kind: "text", text: "Found it." },
     ]);
+  });
+
+  test("each step's text moves into its parts as it ends, and the next step streams into a fresh row", async () => {
+    const [held, step2] = [gate(), gate()];
+    const s = await setup({
+      steps: [{ text: "Let me look.", calls: [call("toolu_1", "search")] }, { gate: step2, text: "Found it." }],
+      mcp: { call: async () => (await held.released, { content: [{ type: "text", text: "r" }] }) },
+    });
+    const streams = () => s.t.run((ctx) => ctx.db.query("streams").collect());
+    await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Find it" });
+    const settled = s.settle();
+
+    await vi.waitFor(async () => expect((await s.replies())[0]?.parts?.length).toBe(2)); // step 1 ended, tools running
+    const id = (await s.replies())[0]._id;
+    expect(await s.owner.query(api.chat.streamingText, { messageId: id })).toBeNull();
+    expect(await streams()).toEqual([]);
+    expect((await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!.messages[1]).toMatchObject({
+      status: "streaming",
+      text: "",
+      items: [{ kind: "text", text: "Let me look." }, { kind: "tool", status: "running" }],
+    });
+
+    held.release();
+    await vi.waitFor(() => expect(step2.reached).toBe(true));
+    expect(await s.owner.query(api.chat.streamingText, { messageId: id })).toBe(""); // a fresh row, not step 1's text
+    step2.release();
+    await settled;
+    expect(await streams()).toEqual([]);
+    expect((await s.replies())[0]).toMatchObject({ status: "done", content: "Let me look.\n\nFound it." });
   });
 
   test("each step is metered as it finishes; the reply's total is the sum and the breakdown lists each", async () => {

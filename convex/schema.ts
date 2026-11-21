@@ -121,7 +121,7 @@ export default defineSchema({
     ancestorIds: v.array(v.id("messages")), // root..parent, so a branch is one read
     role: v.union(v.literal("user"), v.literal("assistant")),
     pinned: v.boolean(),
-    content: v.string(), // final text; while streaming the text lives in streamId
+    content: v.string(), // final text; while a step streams its text lives in its streams row
     status: v.union(
       v.literal("streaming"),
       v.literal("waiting"), // a tool step waits for the owner's approval; no action runs (spec phase 10)
@@ -129,7 +129,7 @@ export default defineSchema({
       v.literal("stopped"),
       v.literal("error"),
     ),
-    streamId: v.optional(v.string()),
+    streamId: v.optional(v.string()), // legacy (persistent-text-streaming, ADR 0004): never written
     stopRequested: v.optional(v.boolean()),
     error: v.optional(v.string()),
     model: v.optional(v.string()),
@@ -167,6 +167,12 @@ export default defineSchema({
       searchField: "content",
       filterFields: ["ownerId"],
     }),
+  // The text so far of a reply's streaming step (lib/textStream, ADR 0004): one row while the step
+  // streams, deleted when it ends.
+  streams: defineTable({
+    messageId: v.id("messages"),
+    text: v.string(),
+  }).index("by_messageId", ["messageId"]),
   // A document's extracted text (lib/documents). threadId is set when a message first sends it;
   // until then it is a composer attachment, swept after a day.
   documents: defineTable({

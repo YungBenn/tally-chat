@@ -1,5 +1,4 @@
 /// <reference types="vite/client" />
-import persistentTextStreaming from "@convex-dev/persistent-text-streaming/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
@@ -26,7 +25,6 @@ afterEach(() => {
 
 async function setup(baseUrl = "https://api.anthropic.com") {
   const t = convexTest(schema, modules);
-  persistentTextStreaming.register(t);
   const ownerId = await t.run((ctx) => ctx.db.insert("users", { email: "owner" }));
   const apiKeyEncrypted = await t.run(() => encryptSecret(KEY));
   const providerId = await t.run((ctx) =>
@@ -186,9 +184,10 @@ describe("streaming, reload and stop", () => {
     vi.setSystemTime(Date.now() + 200); // past the 100 ms flush interval
     g1.release();
     await vi.waitFor(() => expect(g2.reached).toBe(true));
-    expect(await lastAssistant(owner, threadId)).toMatchObject({ status: "streaming", text: "Hello world" });
-
     const { _id } = await lastAssistant(owner, threadId);
+    expect(await lastAssistant(owner, threadId)).toMatchObject({ status: "streaming", text: "" });
+    expect(await owner.query(api.chat.streamingText, { messageId: _id })).toBe("Hello world");
+
     await owner.mutation(api.chat.stop, { messageId: _id });
     vi.setSystemTime(Date.now() + 200);
     g2.release();
@@ -196,6 +195,41 @@ describe("streaming, reload and stop", () => {
 
     expect(aborted).toBe(true);
     expect(await lastAssistant(owner, threadId)).toMatchObject({ status: "stopped", text: "Hello world!" });
+  });
+
+  test("a flush leaves the thread query's result unchanged; the streaming text is null once the step ends", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { t, owner, threadId } = await setup();
+    const [g1, g2] = [gate(), gate()];
+    fake = fakeFetch({ [MESSAGES_URL]: { respond: (init) => new Response(gatedStream([textDelta("One "), g1, textDelta("two "), g2, textDelta("three")], init?.signal)) } });
+    await owner.mutation(api.chat.send, { threadId, content: "Hi" });
+    await vi.waitFor(() => expect(g1.reached).toBe(true));
+    const before = await owner.query(api.chat.getThread, { threadId });
+    const { _id } = before!.messages.at(-1)!;
+    expect(await owner.query(api.chat.streamingText, { messageId: _id })).toBe("");
+
+    vi.setSystemTime(Date.now() + 200);
+    g1.release();
+    await vi.waitFor(() => expect(g2.reached).toBe(true));
+    expect(await owner.query(api.chat.streamingText, { messageId: _id })).toBe("One two ");
+    expect(await owner.query(api.chat.getThread, { threadId })).toEqual(before);
+
+    g2.release();
+    await t.finishInProgressScheduledFunctions();
+    expect(await owner.query(api.chat.streamingText, { messageId: _id })).toBeNull();
+    expect(await lastAssistant(owner, threadId)).toMatchObject({ status: "done", text: "One two three" });
+    expect(await t.run((ctx) => ctx.db.query("streams").collect())).toEqual([]);
+  });
+
+  test("the streaming text is the owner's only", async () => {
+    const { t, owner, threadId } = await setup();
+    fake = fakeFetch({ [MESSAGES_URL]: reply("Hi") });
+    await owner.mutation(api.chat.send, { threadId, content: "Hello" });
+    const { _id } = await lastAssistant(owner, threadId);
+    const stranger = t.withIdentity({ subject: `${await t.run((ctx) => ctx.db.insert("users", { email: "x" }))}|s` });
+    await expect(stranger.query(api.chat.streamingText, { messageId: _id })).rejects.toThrow();
+    await expect(t.query(api.chat.streamingText, { messageId: _id })).rejects.toThrow("Not logged in");
+    await t.finishAllScheduledFunctions(() => {});
   });
 
   test("a provider error marks the reply error and keeps what streamed", async () => {
@@ -221,7 +255,7 @@ describe("streaming, reload and stop", () => {
     await t.finishAllScheduledFunctions(() => {});
     const { _id } = await lastAssistant(owner, threadId);
 
-    await t.mutation(internal.chat.finalize, { messageId: _id, status: "error", content: "Rewritten", pending: "" });
+    await t.mutation(internal.chat.finalize, { messageId: _id, status: "error", content: "Rewritten" });
     await owner.mutation(api.chat.stop, { messageId: _id });
     const row = await t.run((ctx) => ctx.db.get("messages", _id));
     expect(row).toMatchObject({ status: "done", content: "Final" });

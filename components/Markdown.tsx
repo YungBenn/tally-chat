@@ -1,10 +1,10 @@
 "use client";
 
 import { IconCheck, IconCopy, IconFileText } from "@tabler/icons-react";
-import { Fragment, memo, useEffect, useId, useReducer, useState } from "react";
+import { Fragment, memo, useEffect, useId, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Button, IconButton } from "@/components/ui/button";
-import { loadLanguage, tokensNow } from "@/lib/highlight";
+import { languageReady, loadLanguage, tokensNow } from "@/lib/highlight";
 import { katexReady, loadKatex, mathHtml } from "@/lib/katex";
 import { remarkPlugins, splitBlocks } from "@/lib/markdownBlocks";
 import { normalizeMath } from "@/lib/mathDelimiters";
@@ -104,18 +104,19 @@ function useMermaid(source: string | null) {
 
 /** Shiki tokens for a code block: null (plain text) until the highlighter and language load. */
 function useTokens(source: string, lang: string) {
-  const [, loaded] = useReducer((n: number) => n + 1, 0);
+  // The loaded language lives in state, so the compiler's memoized render highlights once it loads.
+  const [loaded, setLoaded] = useState(() => (languageReady(lang) ? lang : null));
   useEffect(() => {
     let live = true;
     loadLanguage(lang).then(
-      (ok) => live && ok && loaded(),
+      (ok) => live && ok && setLoaded(lang),
       () => {}, // offline or a failed chunk: the code stays plain
     );
     return () => {
       live = false;
     };
   }, [lang]);
-  return tokensNow(source, lang);
+  return loaded === lang ? tokensNow(source, lang) : null;
 }
 
 /** A formula: monospace source until KaTeX loads (only once a reply has math), then typeset. */

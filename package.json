@@ -16,7 +16,6 @@
     "@ai-sdk/openai-compatible": "3.0.82",
     "@base-ui/react": "^1.9.0",
     "@convex-dev/auth": "^0.0.95",
-    "@convex-dev/persistent-text-streaming": "0.3.5",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@tabler/icons-react": "^3.50.0",
     "ai": "7.0.159",
@@ -39,6 +38,7 @@
     "unpdf": "2.1.0"
   },
   "devDependencies": {
+    "@babel/core": "^7.29.0",
     "@convex-dev/eslint-plugin": "^5.0.0",
     "@edge-runtime/vm": "^5.0.0",
     "@tailwindcss/postcss": "^4.3.3",
@@ -51,6 +51,7 @@
     "dotenv": "^18.0.6",
     "eslint": "^9.39.5",
     "eslint-config-next": "16.3.0",
+    "happy-dom": "^21.0.4",
     "prettier": "^3.9.6",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
