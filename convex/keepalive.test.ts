@@ -1,5 +1,4 @@
 /// <reference types="vite/client" />
-import persistentTextStreaming from "@convex-dev/persistent-text-streaming/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
@@ -32,7 +31,6 @@ async function setup(opts: { usage?: object; keepaliveStatus?: number } = {}) {
   vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
 
   const t = convexTest(schema, modules);
-  persistentTextStreaming.register(t);
   const ownerId = await t.run((ctx) => ctx.db.insert("users", { email: "owner" }));
   const apiKeyEncrypted = await t.run(() => encryptSecret("sk"));
   const base = { ownerId, apiKeyEncrypted, detected: "", keyCheckedAt: 0 };
@@ -195,7 +193,7 @@ describe("keepalive", () => {
 
     await s.tab1.mutation(api.chat.markActive, { threadId: s.threadId });
     await s.t.mutation(internal.chat.finalize, {
-      messageId: streaming, status: "done", content: "R2", pending: "",
+      messageId: streaming, status: "done", content: "R2",
       usage: { inputTokens: 5, cacheReadTokens: 2000, cacheWriteTokens5m: 0, cacheWriteTokens1h: 0, outputTokens: 1, reasoningTokens: 0 },
       cacheRequest: { startedAt: Date.now(), ttl: "5m" },
     });

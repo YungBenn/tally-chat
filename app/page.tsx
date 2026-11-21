@@ -2,7 +2,6 @@
 
 import { IconPlus, IconX } from "@tabler/icons-react";
 import { useMutation, useQuery } from "convex/react";
-import { ConvexError } from "convex/values";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FunctionReturnType } from "convex/server";
@@ -22,6 +21,7 @@ import { NewThreadCostStrip } from "@/components/CostStrip";
 import EffortControl from "@/components/EffortControl";
 import { ModelPicker, ModelPickerButton } from "@/components/ModelMenu";
 import { Button as UiButton, IconButton } from "@/components/ui/button";
+import { rethrowSendError } from "@/lib/sendError";
 import { SHORTCUTS } from "@/lib/shortcuts";
 import { useShortcut } from "@/lib/useShortcut";
 import { estimateTokens, usd } from "@/lib/format";
@@ -259,29 +259,21 @@ export default function NewThread() {
             onSend={async (text, images, documents) => {
               if (!selected) return;
               const [providerId, modelId] = selected.split("|");
-              try {
-                const threadId = await createThread({
-                  providerId: providerId as Id<"providers">,
-                  modelId,
-                  effort: anthropic ? effort : undefined,
-                });
-                await send({
-                  threadId,
-                  content: text,
-                  mode,
-                  images: images.length ? images : undefined,
-                  search: webSearch.on || undefined,
-                  documents: documents.length ? documents : undefined,
-                  tools: toolPicker.picks,
-                });
-                router.push(`/t/${threadId}`);
-              } catch (err) {
-                throw new Error(
-                  err instanceof ConvexError
-                    ? String(err.data)
-                    : "Could not send",
-                );
-              }
+              const threadId = await createThread({
+                providerId: providerId as Id<"providers">,
+                modelId,
+                effort: anthropic ? effort : undefined,
+              }).catch(rethrowSendError);
+              await send({
+                threadId,
+                content: text,
+                mode,
+                images: images.length ? images : undefined,
+                search: webSearch.on || undefined,
+                documents: documents.length ? documents : undefined,
+                tools: toolPicker.picks,
+              }).catch(rethrowSendError);
+              router.push(`/t/${threadId}`);
             }}
           />
         )}

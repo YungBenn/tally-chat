@@ -1,5 +1,4 @@
 /// <reference types="vite/client" />
-import persistentTextStreaming from "@convex-dev/persistent-text-streaming/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
@@ -21,7 +20,6 @@ afterEach(() => fake?.restore());
 // Each provider call replies with the last user message echoed, so the request history is visible.
 async function setup() {
   const t = convexTest(schema, modules);
-  persistentTextStreaming.register(t);
   const ownerId = await t.run((ctx) => ctx.db.insert("users", { email: "owner" }));
   const apiKeyEncrypted = await t.run(() => encryptSecret("sk-ant"));
   const providerId = await t.run((ctx) =>

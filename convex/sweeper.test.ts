@@ -1,11 +1,10 @@
 /// <reference types="vite/client" />
-import persistentTextStreaming from "@convex-dev/persistent-text-streaming/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
 import { messageStop, sse, textDelta } from "../test/sse";
-import { api, components, internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { STUCK_REPLY_MS } from "./chat";
 import { encryptSecret } from "./lib/vault";
 import schema from "./schema";
@@ -24,7 +23,6 @@ afterEach(() => {
 async function setupStuckReply() {
   vi.useFakeTimers({ toFake: ["Date"] });
   const t = convexTest(schema, modules);
-  persistentTextStreaming.register(t);
   const ownerId = await t.run((ctx) => ctx.db.insert("users", { email: "owner" }));
   const apiKeyEncrypted = await t.run(() => encryptSecret("sk"));
   const providerId = await t.run((ctx) =>
@@ -39,17 +37,17 @@ async function setupStuckReply() {
     const userId = await ctx.db.insert("messages", {
       ownerId, threadId, ancestorIds: [], role: "user", pinned: false, content: "Hi", status: "done",
     });
-    const streamId = await ctx.runMutation(components.persistentTextStreaming.lib.createStream, {});
-    await ctx.runMutation(components.persistentTextStreaming.lib.addChunk, { streamId, text: "Partial answ", final: false });
     const id = await ctx.db.insert("messages", {
       ownerId, threadId, parentId: userId, ancestorIds: [userId], role: "assistant", pinned: false, content: "",
-      status: "streaming", streamId, model: "claude-sonnet-5-5", providerId,
+      status: "streaming", model: "claude-sonnet-5-5", providerId,
     });
+    await ctx.db.insert("streams", { messageId: id, text: "Partial answ" });
     await ctx.db.patch("threads", threadId, { activeLeafId: id, titleRequested: true });
     return id;
   });
   const reply = () => t.run((ctx) => ctx.db.get("messages", replyId));
-  return { t, owner, threadId, reply };
+  const streams = () => t.run((ctx) => ctx.db.query("streams").collect());
+  return { t, owner, threadId, reply, streams };
 }
 
 describe("stuck reply sweeper", () => {
@@ -67,6 +65,7 @@ describe("stuck reply sweeper", () => {
     vi.setSystemTime(Date.now() + STUCK_REPLY_MS + 60_000);
     expect(await s.t.mutation(internal.chat.sweepStuckReplies, {})).toBe(1);
     expect(await s.reply()).toMatchObject({ status: "error", content: "Partial answ", error: "The reply was interrupted" });
+    expect(await s.streams()).toEqual([]);
 
     fake = fakeFetch({ "POST https://api.anthropic.com/v1/messages": { body: sse(textDelta("ok"), messageStop) } });
     await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Again" });
