@@ -45,7 +45,7 @@ import Markdown from "@/components/Markdown";
 import { api } from "@/convex/_generated/api";
 import { estimateTokens } from "@/lib/format";
 import { useStoredChoice, useStoredFlag } from "@/lib/storedFlag";
-import { useCacheState } from "@/lib/useCacheState";
+import { useCacheState, useThreadCache } from "@/lib/useCacheState";
 import { usePresence } from "@/lib/usePresence";
 import { useStableMessages } from "@/lib/stableMessages";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -129,13 +129,8 @@ export default function ThreadPage() {
   const markActive = usePresence(threadId);
   const inspector = useQuery(api.inspector.get, { threadId });
   const settings = useQuery(api.settings.get);
-  const cache = useCacheState(
-    inspector?.cache ?? {
-      expiresAt: null,
-      keepaliveScheduled: false,
-      lastActiveAt: null,
-    },
-  );
+  const threadCache = useThreadCache(threadId);
+  const cache = useCacheState(threadCache);
   // Edit hints only while the cache is warm: cold, editing costs no more than continuing.
   const breakCosts = new Map(
     inspector?.cache.managed && cache.state !== "cold"
@@ -385,9 +380,7 @@ export default function ThreadPage() {
           )}
           {thread?.cacheManaged && (
             <CacheStatus
-              expiresAt={thread.cacheExpiresAt}
-              keepaliveScheduled={thread.keepaliveScheduled}
-              lastActiveAt={thread.lastActiveAt}
+              {...threadCache}
               onOpen={() => openInspector("cache")}
             />
           )}

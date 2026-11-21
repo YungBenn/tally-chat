@@ -7,6 +7,7 @@ import { messageDelta, messageStart, messageStop, oaiDelta, oaiDone, oaiFinish, 
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { encryptSecret } from "./lib/vault";
+import { threadState } from "./threadState";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -108,9 +109,9 @@ describe("changing a thread's tool set", () => {
   test("the cache reads cold after a change, and a keepalive is queued to write the new prefix", async () => {
     const s = await setup();
     const threadId = await s.thread(s.anthropicId, "claude-sonnet-5-5");
-    expect((await s.t.run((ctx) => ctx.db.get("threads", threadId)))!.cacheTouchedAt).toBeDefined();
+    expect((await s.t.run((ctx) => threadState(ctx, threadId)))?.cacheTouchedAt).toBeDefined();
     await s.owner.mutation(api.chat.setThreadTools, { threadId, tools: [{ serverId: s.serverId, tool: "read" }] });
-    expect((await s.t.run((ctx) => ctx.db.get("threads", threadId)))!.cacheTouchedAt).toBeUndefined();
+    expect((await s.t.run((ctx) => threadState(ctx, threadId)))?.cacheTouchedAt).toBeUndefined();
     const jobs = await s.t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
     expect(jobs.some((j) => j.name.includes("keepalive") && j.state.kind === "pending")).toBe(true);
   });

@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { api } from "./_generated/api";
+import { threadState } from "./threadState";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -22,7 +23,7 @@ async function setup() {
   const owner = t.withIdentity({ subject: `${ownerId}|session` });
   const other = t.withIdentity({ subject: `${otherId}|session` });
   const threadId = await owner.mutation(api.chat.createThread, { providerId, modelId: "claude-sonnet-5-5" });
-  const lastActiveAt = async () => (await t.run((ctx) => ctx.db.get("threads", threadId)))?.lastActiveAt;
+  const lastActiveAt = async () => (await t.run((ctx) => threadState(ctx, threadId)))?.lastActiveAt;
   return { t, owner, other, threadId, lastActiveAt };
 }
 

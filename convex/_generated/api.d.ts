@@ -50,6 +50,7 @@ import type * as providerActions from "../providerActions.js";
 import type * as providers from "../providers.js";
 import type * as search from "../search.js";
 import type * as settings from "../settings.js";
+import type * as threadState from "../threadState.js";
 import type * as toolServerActions from "../toolServerActions.js";
 import type * as toolServers from "../toolServers.js";
 import type * as usage from "../usage.js";
@@ -104,6 +105,7 @@ declare const fullApi: ApiFromModules<{
   providers: typeof providers;
   search: typeof search;
   settings: typeof settings;
+  threadState: typeof threadState;
   toolServerActions: typeof toolServerActions;
   toolServers: typeof toolServers;
   usage: typeof usage;

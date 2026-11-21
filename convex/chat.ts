@@ -10,16 +10,12 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { CURRENT_SYSTEM_PROMPT_VERSION, systemPrompt } from "./lib/systemPrompts";
-import { cacheExpiresAt, cacheTtlValidator } from "./lib/cacheStatus";
-import {
-  keepalivePending,
-  restartKeepalive,
-  touchedCache,
-  warmAfterCondense,
-} from "./keepalive";
+import { cacheTtlValidator, requestCacheTtl } from "./lib/cacheStatus";
+import { restartKeepalive, touchedCache, warmAfterCondense } from "./keepalive";
+import { patchThreadState, threadState } from "./threadState";
 import { coveredIds, scheduleCondense } from "./condense";
 import { assertWithinBudget, BUDGET_REACHED, budgetReached } from "./lib/budget";
-import { assembleHistory } from "./lib/context";
+import { assembleHistory, latestCheckpoint } from "./lib/context";
 import {
   MODE_MAX_TOKENS,
   outputModeValidator,
@@ -359,9 +355,6 @@ export const getThread = query({
       ),
       cacheManaged: v.boolean(), // Anthropic-style provider: tally.chat places its cache breakpoints
       vision: v.boolean(), // the thread's model accepts images
-      cacheExpiresAt: v.union(v.null(), v.number()), // judge warm/cold/keepalive with lib/cacheStatus
-      keepaliveScheduled: v.boolean(),
-      lastActiveAt: v.union(v.null(), v.number()),
     }),
   ),
   handler: async (ctx, { threadId }) => {
@@ -437,7 +430,7 @@ export const getThread = query({
         })),
       })),
     );
-    const { checkpoint } = await assembleHistory(
+    const checkpoint = await latestCheckpoint(
       ctx,
       thread._id,
       branch.map((m) => m._id),
@@ -464,9 +457,6 @@ export const getThread = query({
         (await ctx.db.get("providers", thread.providerId))?.models.find(
           (m) => m.id === thread.modelId,
         )?.vision === true,
-      cacheExpiresAt: cacheExpiresAt(thread),
-      keepaliveScheduled: await keepalivePending(ctx, thread),
-      lastActiveAt: thread.lastActiveAt ?? null,
     };
   },
 });
@@ -1022,7 +1012,7 @@ export const markActive = mutation({
     const ownerId = await requireOwner(ctx);
     const thread = await ctx.db.get("threads", threadId);
     if (thread?.ownerId === ownerId)
-      await ctx.db.patch("threads", threadId, { lastActiveAt: Date.now() });
+      await patchThreadState(ctx, threadId, { lastActiveAt: Date.now() });
     return null;
   },
 });
@@ -1079,6 +1069,8 @@ export const purgeThread = internalMutation({
       .withIndex("by_threadId", (q) => q.eq("threadId", threadId))
       .take(PURGE_BATCH);
     for (const c of checkpoints) await ctx.db.delete("checkpoints", c._id);
+    const state = await threadState(ctx, threadId);
+    if (state) await ctx.db.delete("threadStates", state._id);
     const sideJobs = await ctx.db
       .query("sideJobs")
       .withIndex("by_threadId", (q) => q.eq("threadId", threadId))
@@ -1251,14 +1243,9 @@ export const generationInput = internalQuery({
         thread.toolSet?.length && supportsTools(provider, model)
           ? thread.toolSet.map(toDefinition)
           : undefined,
-      // With keepalive off, pauses up to an hour stay cheap from the second turn on (the first
-      // turn's prefix is too short to be worth a 2x write). On, keepalive covers the pauses.
       maxTokens: MODE_MAX_TOKENS[message.outputMode ?? "normal"],
       effort: oneOff ? message.effort : effortFor(thread, provider),
-      cacheTtl:
-        settings?.keepaliveEnabled === false && message.ancestorIds.length > 1
-          ? ("1h" as const)
-          : ("5m" as const),
+      cacheTtl: requestCacheTtl(settings?.keepaliveEnabled, message.ancestorIds.length),
     };
   },
 });
@@ -1458,7 +1445,7 @@ export const finalize = internalMutation({
       const touchedAt =
         cacheRequest && touchedCache(usage) ? cacheRequest.startedAt : null;
       if (touchedAt !== null)
-        await ctx.db.patch("threads", thread._id, {
+        await patchThreadState(ctx, thread._id, {
           cacheTouchedAt: touchedAt,
           cacheTtl: cacheRequest!.ttl,
         });

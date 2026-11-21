@@ -7,4 +7,14 @@ export default defineConfig([
   ...nextCoreWebVitals,
   ...nextTypescript,
   ...convexPlugin.configs.recommended,
+  {
+    rules: {
+      // AppProviders loads motion's features lazily (LazyMotion strict); the full `motion` component
+      // would pull them all into the first load.
+      "no-restricted-imports": [
+        "error",
+        { paths: [{ name: "motion/react", importNames: ["motion"], message: "Use `m` from motion/react-m." }] },
+      ],
+    },
+  },
 ]);

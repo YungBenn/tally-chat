@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { internalMutation, mutation } from "./_generated/server";
 import { activeBranch } from "./chat";
 import { estimateTokens } from "./inspector";
-import { assembleHistory } from "./lib/context";
+import { latestCheckpoint } from "./lib/context";
 import { MAX_DOCUMENT_TOKENS, threadTranscript } from "./lib/documents";
 import { requireOwner } from "./owner";
 
@@ -58,7 +58,7 @@ export const fromThread = mutation({
     let text = threadTranscript(thread.title, startedAt, turns(branch));
     let tokens = estimateTokens(text);
     if (tokens > MAX_DOCUMENT_TOKENS) {
-      const { checkpoint } = await assembleHistory(ctx, thread._id, branch.map((m) => m._id));
+      const checkpoint = await latestCheckpoint(ctx,thread._id, branch.map((m) => m._id));
       const cut = checkpoint ? branch.findIndex((m) => m._id === checkpoint.coversUpToId) + 1 : 0;
       if (checkpoint && cut > 0) {
         text = threadTranscript(thread.title, startedAt, turns(branch.slice(cut)), checkpoint.summary);
