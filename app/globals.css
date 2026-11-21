@@ -374,16 +374,3 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
 }
-
-/* highlight.js tokens, mapped to the code-* roles */
-@layer components {
-  .hljs { color: var(--code-fg); }
-  .hljs-comment, .hljs-quote { color: var(--code-comment); font-style: italic; }
-  .hljs-keyword, .hljs-selector-tag, .hljs-doctag, .hljs-meta { color: var(--code-keyword); }
-  .hljs-string, .hljs-regexp, .hljs-addition, .hljs-meta .hljs-string { color: var(--code-string); }
-  .hljs-number, .hljs-literal, .hljs-variable, .hljs-template-variable, .hljs-attr, .hljs-attribute { color: var(--code-number); }
-  .hljs-title, .hljs-section, .hljs-built_in, .hljs-name, .hljs-title.function_ { color: var(--code-function); }
-  .hljs-type, .hljs-selector-id, .hljs-selector-class, .hljs-title.class_ { color: var(--code-type); }
-  .hljs-punctuation, .hljs-operator { color: var(--code-punct); }
-  .hljs-deletion { color: var(--danger); }
-}
