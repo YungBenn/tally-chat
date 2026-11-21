@@ -337,6 +337,7 @@ export default function Composer({
           className="tc-composer-input"
           value={text}
           disabled={off}
+          autoComplete="off" // Firefox restores `disabled` on reload otherwise, breaking hydration
           placeholder={paused ? "Paused by daily budget" : placeholder}
           role="combobox"
           aria-expanded={matches.length > 0}
