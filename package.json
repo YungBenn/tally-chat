@@ -30,11 +30,11 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
-    "rehype-highlight": "^7.0.2",
     "rehype-katex": "7.0.1",
     "remark-gfm": "^4.0.1",
     "remark-math": "6.0.0",
     "remark-parse": "^11.0.0",
+    "shiki": "^4.6.0",
     "tailwind-merge": "^3.7.0",
     "unified": "^11.0.5",
     "unpdf": "2.1.0"

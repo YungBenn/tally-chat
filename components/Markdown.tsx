@@ -2,11 +2,11 @@
 
 import { IconCheck, IconCopy, IconFileText } from "@tabler/icons-react";
 import "katex/dist/katex.min.css";
-import { memo, useEffect, useId, useState } from "react";
+import { Fragment, memo, useEffect, useId, useReducer, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import { Button, IconButton } from "@/components/ui/button";
+import { loadLanguage, tokensNow } from "@/lib/highlight";
 import { remarkPlugins, splitBlocks } from "@/lib/markdownBlocks";
 import { normalizeMath } from "@/lib/mathDelimiters";
 import { useMedia } from "@/lib/useMedia";
@@ -34,7 +34,7 @@ export function CopyButton({ text, label = "Copy" }: { text: string; label?: str
   );
 }
 
-// Text of a rendered code element (highlighting wraps it in spans).
+// Text of a rendered code element.
 function textOf(node: React.ReactNode): string {
   if (typeof node === "string" || typeof node === "number") return String(node);
   if (Array.isArray(node)) return node.map(textOf).join("");
@@ -99,6 +99,22 @@ function useMermaid(source: string | null) {
   return svg;
 }
 
+/** Shiki tokens for a code block: null (plain text) until the highlighter and language load. */
+function useTokens(source: string, lang: string) {
+  const [, loaded] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
+    let live = true;
+    loadLanguage(lang).then(
+      (ok) => live && ok && loaded(),
+      () => {}, // offline or a failed chunk: the code stays plain
+    );
+    return () => {
+      live = false;
+    };
+  }, [lang]);
+  return tokensNow(source, lang);
+}
+
 /** Fenced code (design system: CodeBlock): language header, copy, never wraps. */
 function CodeBlock({ children }: { children?: React.ReactNode }) {
   const code = Array.isArray(children) ? children[0] : children;
@@ -107,6 +123,7 @@ function CodeBlock({ children }: { children?: React.ReactNode }) {
   const source = textOf(children).replace(/\n$/, "");
   const [copied, copy] = useCopy(source);
   const diagram = useMermaid(lang === "mermaid" ? source : null);
+  const tokens = useTokens(source, lang);
   return (
     <div className="tc-code">
       <div className="tc-code-head">
@@ -122,7 +139,24 @@ function CodeBlock({ children }: { children?: React.ReactNode }) {
         // securityLevel "strict": mermaid sanitizes the SVG it returns.
         <div className="tc-mermaid" dangerouslySetInnerHTML={{ __html: diagram }} />
       ) : (
-        <pre>{children}</pre>
+        <pre>
+          {tokens ? (
+            <code>
+              {tokens.map((line, i) => (
+                <Fragment key={i}>
+                  {i > 0 && "\n"}
+                  {line.map((t, j) => (
+                    <span key={j} style={{ color: t.color, fontStyle: (t.fontStyle ?? 0) & 1 ? "italic" : undefined }}>
+                      {t.content}
+                    </span>
+                  ))}
+                </Fragment>
+              ))}
+            </code>
+          ) : (
+            children
+          )}
+        </pre>
       )}
     </div>
   );
@@ -143,7 +177,7 @@ const Block = memo(function Block({ text }: { text: string }) {
   return (
     <ReactMarkdown
       remarkPlugins={remarkPlugins}
-      rehypePlugins={[[rehypeHighlight, { detect: false }], rehypeKatex]}
+      rehypePlugins={[rehypeKatex]}
       components={components}
     >
       {text}
