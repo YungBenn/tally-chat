@@ -1,7 +1,6 @@
 "use client";
 
 import { useQuery } from "convex/react";
-import { useEffect, useState } from "react";
 import { CacheGlyph, useCacheTemp } from "@/components/CacheStatus";
 import { Kbd } from "@/components/ui/feedback";
 import { api } from "@/convex/_generated/api";
@@ -16,16 +15,6 @@ import { useWebSearch } from "@/components/WebSearch";
 import { SEARCH_TOKENS_ESTIMATE } from "@/convex/lib/webSearch";
 
 const NO_CACHE = { expiresAt: null, keepaliveScheduled: false, lastActiveAt: null };
-
-// The draft, settled for a moment, so the estimate doesn't recompute on every keystroke.
-function useDebounced<T>(value: T, ms = 200) {
-  const [settled, setSettled] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setSettled(value), ms);
-    return () => clearTimeout(timer);
-  }, [value, ms]);
-  return settled;
-}
 
 const imagesTokens = (images?: { width: number; height: number }[]) =>
   (images ?? []).reduce((sum, i) => sum + imageTokens(i), 0);
@@ -139,7 +128,6 @@ export default function CostStrip({
   const data = useQuery(api.inspector.get, { threadId });
   const timing = useThreadCache(threadId);
   const { temp } = useCacheTemp(timing);
-  const settled = useDebounced(draft);
   const search = useWebSearch().on;
   if (!data) return <div className="tc-cost" aria-hidden />;
   const { cache, next, thread } = data;
@@ -147,7 +135,7 @@ export default function CostStrip({
     prices: next.prices,
     history: !cache.managed ? "provider" : temp === "cold" ? "cold" : "warm",
     prefixTokens: next.prefixTokens,
-    draftTokens: estimateTokens(settled) + imagesTokens(draftImages) + draftDocTokens + (search ? SEARCH_TOKENS_ESTIMATE : 0),
+    draftTokens: estimateTokens(draft) + imagesTokens(draftImages) + draftDocTokens + (search ? SEARCH_TOKENS_ESTIMATE : 0),
     // A reply can't run past the chosen mode's limit.
     expectedOutputTokens:
       next.expectedOutputTokens === null ? null : Math.min(next.expectedOutputTokens, MODE_MAX_TOKENS[mode]),
@@ -172,7 +160,6 @@ export function NewThreadCostStrip({
   draftToolTokens?: number; // the tool definitions the first send freezes
 }) {
   const data = useQuery(api.inspector.newThread, { providerId, modelId });
-  const settled = useDebounced(draft);
   const search = useWebSearch().on;
   if (!data) return <div className="tc-cost" aria-hidden />;
   const cost = nextSendMicroUsd({
@@ -180,7 +167,7 @@ export function NewThreadCostStrip({
     history: "cold",
     prefixTokens: 0,
     draftTokens:
-      data.systemTokens + estimateTokens(settled) + imagesTokens(draftImages) + draftDocTokens + draftToolTokens + (search ? SEARCH_TOKENS_ESTIMATE : 0),
+      data.systemTokens + estimateTokens(draft) + imagesTokens(draftImages) + draftDocTokens + draftToolTokens + (search ? SEARCH_TOKENS_ESTIMATE : 0),
     expectedOutputTokens: null,
   });
   return <Strip cost={cost} cache={<span>new thread</span>} />;

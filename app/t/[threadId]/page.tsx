@@ -132,11 +132,12 @@ export default function ThreadPage() {
   const threadCache = useThreadCache(threadId);
   const cache = useCacheState(threadCache);
   // Edit hints only while the cache is warm: cold, editing costs no more than continuing.
-  const breakCosts = new Map(
-    inspector?.cache.managed && cache.state !== "cold"
-      ? inspector.editHints.map((h) => [h.messageId, h.extraMicroUsd] as const)
-      : [],
+  const warmHints = inspector?.cache.managed && cache.state !== "cold" ? inspector.editHints : null;
+  const breakCosts = useMemo(
+    () => new Map(warmHints?.map((h) => [h.messageId, h.extraMicroUsd] as const)),
+    [warmHints],
   );
+  // The settled draft (the composer owns what's being typed): the cost strip and inspector price it.
   const [draft, setDraft] = useState("");
   const [draftImages, setDraftImages] = useState<MessageImage[]>([]);
   const [draftDocTokens, setDraftDocTokens] = useState(0);

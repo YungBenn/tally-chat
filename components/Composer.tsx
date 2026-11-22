@@ -58,7 +58,7 @@ export default function Composer({
   threadId?: Id<"threads">; // the open thread, which can't mention itself
   onStop?: () => void;
   onType?: () => void;
-  onDraftChange?: (text: string) => void; // the inspector and cost strip price the draft
+  onDraftChange?: (text: string) => void; // the settled draft, which the inspector and cost strip price
   onEditLast?: () => void; // ↑ in an empty composer
   footer?: React.ReactNode; // a line under the box (the cost strip)
   banner?: React.ReactNode; // notices above the box (the soft budget, a suggestion)
@@ -116,6 +116,13 @@ export default function Composer({
       attached.reduce((sum, a) => sum + (a.kind === "document" && a.doc ? a.doc.tokens : 0), 0),
     );
   }, [attached, onImagesChange, onDocumentsChange]);
+
+  // The draft lives here; the page hears it only once typing settles, so a keystroke re-renders
+  // the composer alone (the cost strip and inspector price the settled draft).
+  useEffect(() => {
+    const timer = setTimeout(() => onDraftChange?.(text), 200);
+    return () => clearTimeout(timer);
+  }, [text, onDraftChange]);
 
   // Grow with the text up to the CSS max-height, then scroll.
   useLayoutEffect(() => {
@@ -184,7 +191,6 @@ export default function Composer({
     const end = mention.start + 1 + mention.query.length;
     const next = text.slice(0, mention.start) + text.slice(end);
     setText(next);
-    onDraftChange?.(next);
     setMention(null);
     requestAnimationFrame(() => box.current?.setSelectionRange(mention.start, mention.start));
     void mentionThread(t._id, t.title);
@@ -223,7 +229,6 @@ export default function Composer({
       return;
     }
     setText("");
-    onDraftChange?.("");
     attached.forEach((a) => a.kind === "image" && URL.revokeObjectURL(a.preview));
     setAttached([]);
   }
@@ -350,7 +355,6 @@ export default function Composer({
             if (next?.query !== mention?.query) setPick(0);
             setMention(next);
             setText(e.target.value);
-            onDraftChange?.(e.target.value);
             onType?.();
           }}
           onKeyDown={(e) => {
