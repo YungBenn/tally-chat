@@ -10,9 +10,10 @@ vi.mock("convex/react", () => ({
   useQuery: () => undefined,
 }));
 vi.mock("@convex-dev/auth/react", () => ({ useAuthActions: () => ({ signOut: vi.fn() }) }));
+const nav = vi.hoisted(() => ({ pathname: "/" }));
 vi.mock("next/navigation", () => ({
   useParams: () => ({}),
-  usePathname: () => "/",
+  usePathname: () => nav.pathname,
   useRouter: () => ({ push: vi.fn() }),
 }));
 
@@ -43,4 +44,27 @@ test("the sidebar keeps its state when the page under the shell changes", async 
   expect(el.querySelector("h1")?.textContent).toBe("Tools");
   expect(el.querySelector<HTMLInputElement>('input[type="search"]')).toBe(search);
   expect(search.value).toBe("cache");
+});
+
+// Settings follow the URL hash, which a client navigation changes without a hashchange event:
+// leaving the dialog through a link (Import history) must close it (Phase 12 ticket 10).
+test("settings close when a link inside them navigates to another page", async () => {
+  history.replaceState(null, "", "/#settings");
+  const el = document.createElement("div");
+  document.body.append(el);
+  const root = createRoot(el);
+  const page = (name: string) => (
+    <AppShell>
+      <ChatShell>
+        <p>{name}</p>
+      </ChatShell>
+    </AppShell>
+  );
+  await act(() => root.render(page("Home")));
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+
+  history.pushState(null, "", "/import");
+  nav.pathname = "/import";
+  await act(() => root.render(page("Import")));
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
 });

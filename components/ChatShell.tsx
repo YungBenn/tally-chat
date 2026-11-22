@@ -440,6 +440,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const narrow = useMedia(NARROW);
   const searchRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
+  const path = usePathname();
   const settings = useQuery(api.settings.get);
   const setTimeZone = useMutation(api.settings.setTimeZone);
   const sidebarKbd = useShortcutLabel(SHORTCUTS.toggleSidebar);
@@ -513,7 +514,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <main className="flex min-w-0 flex-1 flex-col">
         <ShellContext value={shell}>{children}</ShellContext>
       </main>
-      <SettingsDialog />
+      {/* It follows the hash, which client navigation changes without a hashchange: re-read it per page. */}
+      <SettingsDialog key={path} />
     </div>
   );
 }
