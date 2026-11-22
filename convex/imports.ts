@@ -1,12 +1,13 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel";
 import {
   internalMutation,
   internalQuery,
   mutation,
   query,
 } from "./_generated/server";
+import { ancestorIds, insertMessage } from "./lib/ancestors";
 import { DEFAULT_EFFORT } from "./lib/effort";
 import { CURRENT_SYSTEM_PROMPT_VERSION } from "./lib/systemPrompts";
 import { requireOwner } from "./owner";
@@ -235,32 +236,36 @@ export const writeChunk = internalMutation({
       });
     }
 
-    const written = new Map<string, Doc<"messages">>();
-    const parentOf = async (key: string | undefined) => {
-      if (key === undefined) return null;
+    // Each written message's path: its ancestors, root first, then itself.
+    const written = new Map<string, Id<"messages">[]>();
+    const pathOf = async (key: string | undefined) => {
+      if (key === undefined) return [];
       const here = written.get(key);
       if (here) return here;
       const id = args.parents[key] as Id<"messages"> | undefined;
-      return id ? await ctx.db.get("messages", id) : null;
+      const message = id && (await ctx.db.get("messages", id));
+      return message ? [...(await ancestorIds(ctx, message)), message._id] : [];
     };
     for (const m of args.messages) {
-      const parent = await parentOf(m.parentKey);
-      const id = await ctx.db.insert("messages", {
-        ownerId: job.ownerId,
-        threadId,
-        parentId: parent?._id,
-        ancestorIds: parent ? [...parent.ancestorIds, parent._id] : [],
-        role: m.role,
-        pinned: false,
-        content: m.content,
-        status: "done",
-        model: m.model,
-      });
-      written.set(m.key, (await ctx.db.get("messages", id))!);
+      const ancestors = await pathOf(m.parentKey);
+      const id = await insertMessage(
+        ctx,
+        {
+          ownerId: job.ownerId,
+          threadId,
+          role: m.role,
+          pinned: false,
+          content: m.content,
+          status: "done",
+          model: m.model,
+        },
+        ancestors,
+      );
+      written.set(m.key, [...ancestors, id]);
     }
     if (args.last) {
-      const leaf = args.activeKey ? await parentOf(args.activeKey) : null;
-      await ctx.db.patch("threads", threadId, { activeLeafId: leaf?._id });
+      const leaf = args.activeKey ? (await pathOf(args.activeKey)).at(-1) : undefined;
+      await ctx.db.patch("threads", threadId, { activeLeafId: leaf });
       await ctx.db.patch("imports", args.importId, {
         imported: job.imported + 1,
       });
@@ -268,7 +273,7 @@ export const writeChunk = internalMutation({
     return {
       skipped: false as const,
       threadId,
-      ids: Object.fromEntries([...written].map(([k, m]) => [k, m._id])),
+      ids: Object.fromEntries([...written].map(([k, path]) => [k, path.at(-1)!])),
     };
   },
 });

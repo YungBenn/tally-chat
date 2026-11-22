@@ -16,6 +16,7 @@ import {
   requestCacheTtl,
 } from "./lib/cacheStatus";
 import { threadState } from "./threadState";
+import { ancestorIds } from "./lib/ancestors";
 import { assembleHistory, type History } from "./lib/context";
 import { condensePending, condensePlan } from "./condense";
 import { imageTokens } from "./lib/images";
@@ -677,7 +678,7 @@ export const modelEstimates = query({
       // A retry repeats the branch before the reply's question, then the question itself.
       const reply = await ctx.db.get("messages", retryOf);
       if (!reply || reply.threadId !== threadId || !reply.parentId) return [];
-      const ids = reply.ancestorIds.slice(0, -1);
+      const ids = (await ancestorIds(ctx, reply)).slice(0, -1);
       branch = (
         await Promise.all(ids.map((id) => ctx.db.get("messages", id)))
       ).filter((m): m is Doc<"messages"> => m !== null);

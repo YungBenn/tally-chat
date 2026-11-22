@@ -15,6 +15,7 @@ import { restartKeepalive, touchedCache, warmAfterCondense } from "./keepalive";
 import { patchThreadState, threadState } from "./threadState";
 import { coveredIds, scheduleCondense } from "./condense";
 import { assertWithinBudget, BUDGET_REACHED, budgetReached } from "./lib/budget";
+import { ancestorIds, insertMessage } from "./lib/ancestors";
 import { assembleHistory, latestCheckpoint } from "./lib/context";
 import {
   MODE_MAX_TOKENS,
@@ -74,7 +75,7 @@ async function ownedThread(
   return thread;
 }
 
-// The active branch, root first: the leaf's ancestorIds plus the leaf, fetched in one batch.
+// The active branch, root first: the leaf's ancestors plus the leaf, fetched in one batch.
 export async function activeBranch(
   ctx: QueryCtx,
   thread: Doc<"threads">,
@@ -83,7 +84,7 @@ export async function activeBranch(
   const leaf = await ctx.db.get("messages", thread.activeLeafId);
   if (!leaf) return [];
   const ancestors = await Promise.all(
-    leaf.ancestorIds.map((id) => ctx.db.get("messages", id)),
+    (await ancestorIds(ctx, leaf)).map((id) => ctx.db.get("messages", id)),
   );
   return [...ancestors.filter((m) => m !== null), leaf];
 }
@@ -606,20 +607,22 @@ async function appendUserMessage(
   if (effort) await assertPerMessageEffort(ctx, thread);
   if (images?.length)
     await assertImagesAllowed(ctx, thread, images, replyModel);
-  const id = await ctx.db.insert("messages", {
-    ownerId: thread.ownerId,
-    threadId: thread._id,
-    parentId: parent?._id,
-    ancestorIds: parent ? [...parent.ancestorIds, parent._id] : [],
-    role: "user",
-    pinned: false,
-    content: text,
-    status: "done",
-    effort,
-    images: images?.length ? images : undefined,
-    search: search || undefined,
-    documents: documents?.length ? documents : undefined,
-  });
+  const id = await insertMessage(
+    ctx,
+    {
+      ownerId: thread.ownerId,
+      threadId: thread._id,
+      role: "user",
+      pinned: false,
+      content: text,
+      status: "done",
+      effort,
+      images: images?.length ? images : undefined,
+      search: search || undefined,
+      documents: documents?.length ? documents : undefined,
+    },
+    parent ? [...(await ancestorIds(ctx, parent)), parent._id] : [],
+  );
   return (await ctx.db.get("messages", id))!;
 }
 
@@ -646,7 +649,7 @@ async function effortInForce(
   if (!base) return undefined;
   if (user.effort) return user.effort;
   const ancestors = await Promise.all(
-    user.ancestorIds.map((id) => ctx.db.get("messages", id)),
+    (await ancestorIds(ctx, user)).map((id) => ctx.db.get("messages", id)),
   );
   return (
     ancestors.findLast((m) => m?.role === "user" && m.effort)?.effort ?? base
@@ -732,7 +735,7 @@ async function replyProvider(
     throw new ConvexError("This model can't call the tools this thread uses");
   if (!model.vision) {
     const branch = await Promise.all(
-      user.ancestorIds.map((id) => ctx.db.get("messages", id)),
+      (await ancestorIds(ctx, user)).map((id) => ctx.db.get("messages", id)),
     );
     if ([...branch, user].some((m) => m?.images?.length))
       throw new ConvexError(
@@ -758,20 +761,22 @@ async function startReply(
     user,
     replyModel,
   );
-  const assistantId = await ctx.db.insert("messages", {
-    ownerId: thread.ownerId,
-    threadId: thread._id,
-    parentId: user._id,
-    ancestorIds: [...user.ancestorIds, user._id],
-    role: "assistant",
-    pinned: false,
-    content: "",
-    status: "streaming",
-    model: modelId,
-    providerId: provider?._id ?? thread.providerId,
-    outputMode,
-    effort: await effortInForce(ctx, thread, user, provider),
-  });
+  const assistantId = await insertMessage(
+    ctx,
+    {
+      ownerId: thread.ownerId,
+      threadId: thread._id,
+      role: "assistant",
+      pinned: false,
+      content: "",
+      status: "streaming",
+      model: modelId,
+      providerId: provider?._id ?? thread.providerId,
+      outputMode,
+      effort: await effortInForce(ctx, thread, user, provider),
+    },
+    [...(await ancestorIds(ctx, user)), user._id],
+  );
   await createStream(ctx, assistantId);
   // ponytail: first message as title until side-job titles land (ticket 11).
   const title =
@@ -1105,6 +1110,11 @@ export const purgeThread = internalMutation({
           .unique();
         if (search) await ctx.db.delete("searches", search._id);
       }
+      const ancestors = await ctx.db
+        .query("messageAncestors")
+        .withIndex("by_messageId", (q) => q.eq("messageId", m._id))
+        .unique();
+      if (ancestors) await ctx.db.delete("messageAncestors", ancestors._id);
       await ctx.db.delete("messages", m._id);
     }
     const checkpoints = await ctx.db
@@ -1254,11 +1264,8 @@ export const generationInput = internalQuery({
       .query("settings")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", message.ownerId))
       .unique();
-    const history = await assembleHistory(
-      ctx,
-      message.threadId,
-      message.ancestorIds,
-    );
+    const ancestors = await ancestorIds(ctx, message);
+    const history = await assembleHistory(ctx, message.threadId, ancestors);
     return {
       stopRequested: message.stopRequested === true,
       // When this step was queued, for the reply timing log: later steps set stepStartedAt.
@@ -1288,7 +1295,7 @@ export const generationInput = internalQuery({
           : undefined,
       maxTokens: MODE_MAX_TOKENS[message.outputMode ?? "normal"],
       effort: oneOff ? message.effort : effortFor(thread, provider),
-      cacheTtl: requestCacheTtl(settings?.keepaliveEnabled, message.ancestorIds.length),
+      cacheTtl: requestCacheTtl(settings?.keepaliveEnabled, ancestors.length),
     };
   },
 });
@@ -1755,7 +1762,7 @@ export const titleJobInput = internalQuery({
   handler: async (ctx, { threadId, replyId, now }) => {
     const thread = await ctx.db.get("threads", threadId);
     const reply = await ctx.db.get("messages", replyId);
-    const firstId = reply?.ancestorIds[0];
+    const firstId = reply && (await ancestorIds(ctx, reply))[0];
     const question = firstId && (await ctx.db.get("messages", firstId));
     if (!thread || !reply || !question) return null;
     const sideJob = await sideJobModelFor(ctx, thread);

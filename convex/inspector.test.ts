@@ -17,6 +17,7 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { CURRENT_SYSTEM_PROMPT_VERSION, SYSTEM_PROMPTS } from "./lib/systemPrompts";
 import { encryptSecret } from "./lib/vault";
+import { ancestorIds } from "./lib/ancestors";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -227,7 +228,7 @@ describe("the inspector's context layers", () => {
         ownerId: s.ownerId,
         threadId: s.threadId,
         parentId: leaf._id,
-        ancestorIds: [...leaf.ancestorIds, leaf._id],
+        ancestorIds: [...(await ancestorIds(ctx, leaf)), leaf._id],
         role: "user",
         content: "x".repeat(400),
         status: "done",
@@ -528,7 +529,7 @@ describe("image cost", () => {
       const thread = (await ctx.db.get("threads", s.threadId))!;
       const leaf = (await ctx.db.get("messages", thread.activeLeafId!))!;
       const id = await ctx.db.insert("messages", {
-        ownerId: s.ownerId, threadId: s.threadId, parentId: leaf._id, ancestorIds: [...leaf.ancestorIds, leaf._id], role: "user",
+        ownerId: s.ownerId, threadId: s.threadId, parentId: leaf._id, ancestorIds: [...(await ancestorIds(ctx, leaf)), leaf._id], role: "user",
         content: "x".repeat(40), status: "done", pinned: false,
         images: [
           { storageId, mediaType: "image/png", width: 800, height: 600 }, // 640
