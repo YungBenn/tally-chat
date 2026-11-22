@@ -10,7 +10,8 @@ import {
   IconStarFilled,
   IconTool,
 } from "@tabler/icons-react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQueries, useQuery } from "convex/react";
+import { makeUseQueryWithStatus } from "convex-helpers/react";
 import { useRef, useState } from "react";
 import { Popover } from "@/components/ui/overlay";
 import { api } from "@/convex/_generated/api";
@@ -19,6 +20,9 @@ import { usd } from "@/lib/format";
 import { SHORTCUTS } from "@/lib/shortcuts";
 import { useShortcut } from "@/lib/useShortcut";
 import { cn } from "@/lib/utils";
+
+// useQuery that returns a failure instead of throwing it.
+const useQueryWithStatus = makeUseQueryWithStatus(useQueries);
 
 export type ModelChoice = { providerId: Id<"providers">; modelId: string };
 
@@ -291,10 +295,12 @@ export default function ModelMenu({
   // When the picker opened: the thread's cache state is judged at that moment.
   const [openedAt, setOpenedAt] = useState<number | null>(() => (defaultOpen ? Date.now() : null));
   const providers = useQuery(api.providers.list);
-  const allRows = useQuery(
+  // A failure stays inside the menu: useQuery would throw it to the thread page's error boundary.
+  const estimates = useQueryWithStatus(
     api.inspector.modelEstimates,
     openedAt === null ? "skip" : { threadId, now: openedAt, draftTokens, maxOutputTokens, retryOf },
   );
+  const allRows = estimates.data;
   // A thread that uses tools can only be answered by models that can call them.
   const tools = useQuery(api.chat.threadTools, openedAt === null ? "skip" : { threadId });
   const needTools = (tools?.picks.length ?? 0) > 0;
@@ -329,7 +335,7 @@ export default function ModelMenu({
       models={models}
       selected={selected}
       onPick={onPick}
-      loading="Pricing…"
+      loading={estimates.isError ? "Couldn't price the models. Try again later." : "Pricing…"}
       notice={
         hidden > 0 &&
         `${hidden} ${hidden === 1 ? "model is" : "models are"} hidden: this thread uses tools they can't call.`
