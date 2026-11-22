@@ -21,6 +21,11 @@ import { Input, Select, Switch, Textarea } from "@/components/ui/fields";
 import { toast } from "@/components/ui/toast";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import {
+  DEFAULT_EFFORT,
+  EFFORT_LEVELS,
+  type Effort,
+} from "@/convex/lib/effort";
 
 const errorText = (err: unknown) =>
   err instanceof ConvexError ? String(err.data) : "Could not save";
@@ -268,6 +273,80 @@ function SideJobModel() {
     >
       Runs work you didn&apos;t ask for directly, like thread titles and
       condensing. Pick something cheap: it is metered like any other call.
+    </SettingsRow>
+  );
+}
+
+function DefaultModel() {
+  const settings = useQuery(api.settings.get);
+  const providers = useQuery(api.providers.list);
+  const setDefaultModel = useMutation(api.settings.setDefaultModel);
+  const [error, run] = useSave();
+  if (!settings || !providers) return null;
+  const current = settings.defaultModel
+    ? `${settings.defaultModel.providerId}|${settings.defaultModel.modelId}`
+    : "first";
+  return (
+    <SettingsRow
+      title="Default model"
+      control={
+        <Select
+          aria-label="Default model"
+          value={current}
+          error={error ?? undefined}
+          onValueChange={(v) => {
+            const [providerId, modelId] = v.split("|");
+            run(
+              setDefaultModel({
+                defaultModel:
+                  v === "first"
+                    ? null
+                    : { providerId: providerId as Id<"providers">, modelId },
+              }),
+            );
+          }}
+          options={[
+            { value: "first", label: "First listed model" },
+            ...providers.flatMap((p) =>
+              p.models
+                .filter((m) => !m.hidden)
+                .map((m) => ({
+                  value: `${p._id}|${m.id}`,
+                  label: m.displayName,
+                  group: p.name,
+                })),
+            ),
+          ]}
+        />
+      }
+    >
+      The model a new thread starts on. You can still pick another one before
+      sending.
+    </SettingsRow>
+  );
+}
+
+function DefaultEffort() {
+  const settings = useQuery(api.settings.get);
+  const setDefaultEffort = useMutation(api.settings.setDefaultEffort);
+  const [error, run] = useSave();
+  if (!settings) return null;
+  return (
+    <SettingsRow
+      title="Default effort"
+      control={
+        <Select
+          aria-label="Default effort"
+          value={settings.defaultEffort ?? DEFAULT_EFFORT}
+          error={error ?? undefined}
+          onValueChange={(v) =>
+            run(setDefaultEffort({ effort: v as Effort }))
+          }
+          options={EFFORT_LEVELS.map((e) => ({ value: e, label: e }))}
+        />
+      }
+    >
+      How hard a new thread&apos;s model thinks, on models that support effort.
     </SettingsRow>
   );
 }
@@ -531,8 +610,14 @@ const SECTIONS = [
     label: "Models",
     icon: IconCpu,
     group: 0,
-    terms: "side-job model titles cheap",
-    Content: SideJobModel,
+    terms: "default model effort new thread side-job model titles cheap",
+    Content: () => (
+      <>
+        <DefaultModel />
+        <DefaultEffort />
+        <SideJobModel />
+      </>
+    ),
   },
   {
     id: "spending",

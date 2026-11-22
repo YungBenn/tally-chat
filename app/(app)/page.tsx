@@ -153,14 +153,23 @@ export default function NewThread() {
         label: `${p.name} · ${m.displayName}`,
       })),
   );
+  const settings = useQuery(api.settings.get);
   const [choice, setChoice] = useState<string | null>(null);
   const paused = useSendingPaused();
   const [draft, setDraft] = useState("");
   const [draftImages, setDraftImages] = useState<MessageImage[]>([]);
   const [draftDocTokens, setDraftDocTokens] = useState(0);
   const [mode, setMode] = useState<OutputMode>("normal");
-  const [effort, setEffort] = useState<Effort>(DEFAULT_EFFORT);
-  const selected = choice ?? options[0]?.value;
+  const [effortChoice, setEffort] = useState<Effort | null>(null);
+  const effort = effortChoice ?? settings?.defaultEffort ?? DEFAULT_EFFORT;
+  // The owner's default model while it's still listed, else the first one.
+  const defaultModel =
+    settings?.defaultModel &&
+    `${settings.defaultModel.providerId}|${settings.defaultModel.modelId}`;
+  const selected =
+    choice ??
+    options.find((o) => o.value === defaultModel)?.value ??
+    options[0]?.value;
   // Effort is an Anthropic-style setting (spec phase 4); other providers get no control.
   const anthropic =
     providers?.find((p) => p._id === selected?.split("|")[0])?.apiStyle ===
