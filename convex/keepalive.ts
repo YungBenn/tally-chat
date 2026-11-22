@@ -17,6 +17,7 @@ import { keepalivePending, patchThreadState, threadState } from "./threadState";
 import { budgetReached } from "./lib/budget";
 import { effortValidator } from "./lib/effort";
 import { imageValidator } from "./lib/images";
+import { ancestorIds } from "./lib/ancestors";
 import { assembleHistory } from "./lib/context";
 import { meterCall } from "./lib/metering";
 import { usageValidator, type Usage } from "./lib/usage";
@@ -157,7 +158,7 @@ export const input = internalQuery({
     if (settings?.keepaliveEnabled === false) return null;
     if (await budgetReached(ctx, settings, now)) return null; // upkeep pauses while over budget
     const history = await assembleHistory(ctx, thread._id, [
-      ...leaf.ancestorIds,
+      ...(await ancestorIds(ctx, leaf)),
       leaf._id,
     ]);
     return {

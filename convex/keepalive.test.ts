@@ -9,6 +9,7 @@ import { cacheState } from "./lib/cacheStatus";
 import { CURRENT_SYSTEM_PROMPT_VERSION, SYSTEM_PROMPTS } from "./lib/systemPrompts";
 import { encryptSecret } from "./lib/vault";
 import { patchThreadState } from "./threadState";
+import { ancestorIds } from "./lib/ancestors";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -204,11 +205,12 @@ describe("keepalive", () => {
       const thread = (await ctx.db.get("threads", s.threadId))!;
       const leaf = (await ctx.db.get("messages", thread.activeLeafId!))!;
       const base = { ownerId: s.ownerId, threadId: s.threadId, pinned: false };
+      const path = [...(await ancestorIds(ctx, leaf)), leaf._id];
       const user = await ctx.db.insert("messages", {
-        ...base, parentId: leaf._id, ancestorIds: [...leaf.ancestorIds, leaf._id], role: "user", content: "Two", status: "done",
+        ...base, parentId: leaf._id, ancestorIds: path, role: "user", content: "Two", status: "done",
       });
       const reply = await ctx.db.insert("messages", {
-        ...base, parentId: user, ancestorIds: [...leaf.ancestorIds, leaf._id, user], role: "assistant", content: "", status: "streaming",
+        ...base, parentId: user, ancestorIds: [...path, user], role: "assistant", content: "", status: "streaming",
         model: "claude-sonnet-5-5", providerId: thread.providerId,
       });
       await ctx.db.patch("threads", s.threadId, { activeLeafId: reply });

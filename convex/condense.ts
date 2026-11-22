@@ -22,6 +22,7 @@ import {
   planFold,
   summaryRequest,
 } from "./lib/condense";
+import { ancestorIds } from "./lib/ancestors";
 import { assembleHistory, type History } from "./lib/context";
 import { meterCall } from "./lib/metering";
 import { priceFor, usageValidator } from "./lib/usage";
@@ -48,7 +49,7 @@ export async function coveredIds(ctx: QueryCtx, threadId: Id<"threads">) {
     const last = await ctx.db.get("messages", c.coversUpToId);
     if (!last) continue;
     covered.add(last._id);
-    for (const id of last.ancestorIds) covered.add(id);
+    for (const id of await ancestorIds(ctx, last)) covered.add(id);
   }
   return covered;
 }

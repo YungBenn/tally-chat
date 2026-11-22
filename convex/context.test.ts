@@ -9,6 +9,7 @@ import type { Id } from "./_generated/dataModel";
 import { SUMMARY_PREFIX } from "./lib/context";
 import { CURRENT_SYSTEM_PROMPT_VERSION, SYSTEM_PROMPTS } from "./lib/systemPrompts";
 import { encryptSecret } from "./lib/vault";
+import { ancestorIds } from "./lib/ancestors";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -40,7 +41,7 @@ async function setup() {
   const seed = (parent: Id<"messages"> | null, turns: { user: string; reply: string; pinned?: boolean }[]) =>
     t.run(async (ctx) => {
       const ids: Id<"messages">[] = [];
-      let ancestors = parent ? [...(await ctx.db.get("messages", parent))!.ancestorIds, parent] : [];
+      let ancestors = parent ? [...(await ancestorIds(ctx, (await ctx.db.get("messages", parent))!)), parent] : [];
       for (const turn of turns) {
         for (const [role, content] of [["user", turn.user], ["assistant", turn.reply]] as const) {
           const id = await ctx.db.insert("messages", {
