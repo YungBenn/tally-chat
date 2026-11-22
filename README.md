@@ -13,7 +13,7 @@ Chat with any model and see what every turn costs, before and after you send.
 [![Built with Convex](https://img.shields.io/badge/backend-Convex-f3b01c.svg)](https://convex.dev)
 [![Next.js](https://img.shields.io/badge/frontend-Next.js-000.svg)](https://nextjs.org)
 [![Bun](https://img.shields.io/badge/runtime-Bun-fbf0df.svg)](https://bun.sh)
-[![Tests](https://img.shields.io/badge/tests-280%20passing-2f7d4f.svg)](#development)
+[![Tests](https://img.shields.io/badge/tests-394%20passing-2f7d4f.svg)](#development)
 
 [**Quick start**](#quick-start) · [**Features**](#features) · [**How it works**](#how-it-works) · [**Self-hosting guide**](docs/self-hosting.md) · [**Design doc**](docs/tallychat-design-doc.md)
 
@@ -85,7 +85,7 @@ What's in the context window, what's cached, and what every reply cost, down to 
 - **Cache-aware requests**: the system prompt and the summary layer get explicit cache breakpoints, and automatic caching slides over the rest, so the cached part grows every turn.
 - **Keepalive**: while you're in a thread, a no-output request refreshes the cache just before it expires. It stops 30 minutes after you leave, never runs twice across tabs, and is metered like everything else.
 - **Cache-break warnings**: editing an old message costs more than continuing; tally.chat says how much before you do it.
-- **Effort control**: pick how hard the model thinks per thread, and change it per message without losing the cache on models that support it.
+- **Effort control**: pick how hard the model thinks per thread, and change it per message without losing the cache on models that support it. Set a default model and effort for new threads in Settings.
 - **Output modes**: quick, normal or long replies, with Continue when a reply hits its limit.
 - **Cheaper replies**: send one message, or retry one reply, on another model, with what it would cost on each of your models side by side. The thread keeps its model and its warm cache; a new thread with a simple first question suggests a cheaper start.
 - **Background condenser**: long threads fold older turns into a summary on your cheap side-job model, but only when the cache math says it pays off (a condense rewrites the cached prefix). Pin anything that must stay word for word, or condense by hand from the inspector.
@@ -102,8 +102,16 @@ What's in the context window, what's cached, and what every reply cost, down to 
 - **Web search on your own SearXNG**: toggle Search and the message is searched before the reply, with its sources shown under it. Results are stored once, so a retry or a later turn sends the same bytes.
 - **Math and diagrams**: LaTeX renders with KaTeX and Mermaid blocks draw as diagrams.
 - **Documents**: attach PDFs and text files (Markdown, CSV, JSON, code), priced in tokens before you send. The text is read once and sent the same way every turn, so it stays cached.
+- **Tools over MCP**: connect MCP servers and let a reply call tools in a loop, with approvals, and a tool set frozen per thread so the cache keeps hitting.
 - **Pin, rename and delete** any thread from the sidebar, by its menu or a right-click.
 - **Full-text search** over titles and messages, **installable as an app**, light and dark themes.
+
+### ⚡ Stays fast
+
+- **Streaming that doesn't slow down**: a reply streams into its own small record, so each update costs the same in a 10-turn thread as in a 600-turn one.
+- **Instant feedback**: your message and the reply placeholder appear the moment you press Send, and a new thread is created and sent in one step.
+- **Quick navigation**: the sidebar stays put between pages, threads you opened recently show instantly, and hovering a thread starts loading it.
+- **Light pages**: only the message that changed re-renders, KaTeX loads only when a reply has math, and offscreen messages skip layout.
 
 ## How it works
 
@@ -145,7 +153,7 @@ The first run builds the app, starts a pinned Convex backend and generates every
 
 For web search, start the bundled SearXNG with `docker compose --profile search up -d` and set its URL in Settings to `http://searxng:8080`.
 
-The [self-hosting guide](docs/self-hosting.md) covers local models (Ollama, LM Studio), web search, HTTPS behind a reverse proxy, backups and restores, upgrades and the smoke check.
+The [self-hosting guide](docs/self-hosting.md) covers local models (Ollama, LM Studio), web search, HTTPS behind a reverse proxy or over Tailscale, backups (including nightly ones) and restores, upgrades and the smoke check.
 
 > [!NOTE]
 > **Subscriptions are not API keys.** A ChatGPT Plus or Claude Pro subscription doesn't grant API access; API usage is billed separately from the provider's developer console.
@@ -163,8 +171,9 @@ The [self-hosting guide](docs/self-hosting.md) covers local models (Ollama, LM S
 | 7 | Cheaper replies, model suggestions, full-text search, chat import | ✅ |
 | 8 | Redesign on the tally.chat design system: holo lines, motion, mobile | ✅ |
 | 9 | Custom instructions, export, web search on SearXNG, math and Mermaid, documents, thread pin and rename | ✅ |
-| 10 | Tool loop with MCP servers, approvals and cache-safe tool sets | next |
-| 11 | Gemini | |
+| 10 | Tool loop with MCP servers, approvals and cache-safe tool sets | ✅ |
+| 11 | Gemini | next |
+| 12 | Performance: stream split, faster rendering, instant send, thread cache, self-hosting over Tailscale | ✅ |
 
 ## Development
 
