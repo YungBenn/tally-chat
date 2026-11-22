@@ -234,6 +234,32 @@ describe("images in Anthropic threads", () => {
     ).rejects.toThrow("At most 8 images");
   });
 
+  test("a thread started in one step sends its first message's images; a text-only model refuses them and leaves no thread", async () => {
+    const s = await setup();
+    const storageId = await s.store(PNG);
+    const threadId = await s.owner.mutation(api.chat.startThread, {
+      providerId: s.providerId,
+      modelId: "claude-sonnet-5-5",
+      content: "What is this?",
+      images: [s.image(storageId)],
+    });
+    await s.t.finishAllScheduledFunctions(() => {});
+    expect(s.replies()[0].messages[0]).toEqual({
+      role: "user",
+      content: [imageBlock, { type: "text", text: "What is this?" }],
+    });
+    await expect(
+      s.owner.mutation(api.chat.startThread, {
+        providerId: s.providerId,
+        modelId: "claude-text-only",
+        content: "Hi",
+        images: [s.image(storageId)],
+      }),
+    ).rejects.toThrow("doesn't accept images");
+    const threads = await s.t.run((ctx) => ctx.db.query("threads").collect());
+    expect(threads.map((t) => t._id).sort()).toEqual([s.threadId, threadId].sort());
+  });
+
   test("deleting the thread deletes its images", async () => {
     const s = await setup();
     const storageId = await s.store(PNG);

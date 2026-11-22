@@ -1,4 +1,4 @@
-import { ConvexError, v } from "convex/values";
+import { ConvexError, v, type ObjectType } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -219,39 +219,48 @@ export const setThreadPinned = mutation({
   },
 });
 
+const newThreadArgs = {
+  providerId: v.id("providers"),
+  modelId: v.string(),
+  effort: v.optional(effortValidator),
+};
+
+async function insertThread(
+  ctx: MutationCtx,
+  ownerId: Id<"users">,
+  { providerId, modelId, effort }: ObjectType<typeof newThreadArgs>,
+) {
+  const provider = await ctx.db.get("providers", providerId);
+  if (!provider || provider.ownerId !== ownerId)
+    throw new ConvexError("Provider not found");
+  if (!provider.models.some((m) => m.id === modelId && !m.hidden))
+    throw new ConvexError("Model not available");
+  const settings = await ctx.db
+    .query("settings")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+    .unique();
+  const id = await ctx.db.insert("threads", {
+    ownerId,
+    title: "New thread",
+    providerId,
+    modelId,
+    systemPromptVersion: CURRENT_SYSTEM_PROMPT_VERSION,
+    instructions: settings?.customInstructions,
+    startedAt: Date.now(),
+    // Only Anthropic-style threads send effort (spec phase 4).
+    effort:
+      provider.apiStyle === "anthropic"
+        ? (effort ?? DEFAULT_EFFORT)
+        : undefined,
+  });
+  return (await ctx.db.get("threads", id))!;
+}
+
 export const createThread = mutation({
-  args: {
-    providerId: v.id("providers"),
-    modelId: v.string(),
-    effort: v.optional(effortValidator),
-  },
+  args: newThreadArgs,
   returns: v.id("threads"),
-  handler: async (ctx, { providerId, modelId, effort }) => {
-    const ownerId = await requireOwner(ctx);
-    const provider = await ctx.db.get("providers", providerId);
-    if (!provider || provider.ownerId !== ownerId)
-      throw new ConvexError("Provider not found");
-    if (!provider.models.some((m) => m.id === modelId && !m.hidden))
-      throw new ConvexError("Model not available");
-    const settings = await ctx.db
-      .query("settings")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-      .unique();
-    return ctx.db.insert("threads", {
-      ownerId,
-      title: "New thread",
-      providerId,
-      modelId,
-      systemPromptVersion: CURRENT_SYSTEM_PROMPT_VERSION,
-      instructions: settings?.customInstructions,
-      startedAt: Date.now(),
-      // Only Anthropic-style threads send effort (spec phase 4).
-      effort:
-        provider.apiStyle === "anthropic"
-          ? (effort ?? DEFAULT_EFFORT)
-          : undefined,
-    });
-  },
+  handler: async (ctx, args) =>
+    (await insertThread(ctx, await requireOwner(ctx), args))._id,
 });
 
 const messageView = v.object({
@@ -827,58 +836,92 @@ async function freezeToolSet(
     });
 }
 
-export const send = mutation({
-  args: {
-    threadId: v.id("threads"),
-    content: v.string(),
-    mode: v.optional(outputModeValidator),
-    effort: v.optional(effortValidator), // change effort from this message on (supported models)
-    images: v.optional(v.array(imageValidator)),
-    model: v.optional(replyModelValidator), // reply with this model once (spec phase 7)
-    search: v.optional(v.boolean()), // search the web for this message before the reply
-    documents: v.optional(v.array(v.id("documents"))), // from documents.extract, sent once
-    // A thread's first message only: the tools the thread freezes. Absent = every tool of the
-    // servers that are on for new threads.
-    tools: v.optional(v.array(toolPickValidator)),
-  },
-  returns: v.null(),
-  handler: async (
+const sendArgs = {
+  content: v.string(),
+  mode: v.optional(outputModeValidator),
+  effort: v.optional(effortValidator), // change effort from this message on (supported models)
+  images: v.optional(v.array(imageValidator)),
+  model: v.optional(replyModelValidator), // reply with this model once (spec phase 7)
+  search: v.optional(v.boolean()), // search the web for this message before the reply
+  documents: v.optional(v.array(v.id("documents"))), // from documents.extract, sent once
+  // A thread's first message only: the tools the thread freezes. Absent = every tool of the
+  // servers that are on for new threads.
+  tools: v.optional(v.array(toolPickValidator)),
+};
+
+// A user message and its streaming reply at the end of the thread's active branch.
+async function sendTo(
+  ctx: MutationCtx,
+  ownerId: Id<"users">,
+  thread: Doc<"threads">,
+  {
+    content,
+    mode,
+    effort,
+    images,
+    model,
+    search,
+    documents,
+    tools,
+  }: ObjectType<typeof sendArgs>,
+) {
+  const text = cleanText(content);
+  await assertNotStreaming(ctx, thread);
+  if (effort && model)
+    throw new ConvexError(
+      "Change effort on a reply from the thread's own model",
+    );
+  if (search && !(await searchUrlOf(ctx, ownerId)))
+    throw new ConvexError("Set a SearXNG URL in Settings to search the web");
+  const docs = await claimDocuments(ctx, ownerId, thread, documents ?? []);
+  if (!thread.activeLeafId) await freezeToolSet(ctx, thread, tools);
+  const parent = thread.activeLeafId
+    ? await ctx.db.get("messages", thread.activeLeafId)
+    : null;
+  await startReply(
     ctx,
-    { threadId, content, mode, effort, images, model, search, documents, tools },
-  ) => {
-    const ownerId = await requireOwner(ctx);
-    const thread = await ownedThread(ctx, ownerId, threadId);
-    const text = cleanText(content);
-    await assertNotStreaming(ctx, thread);
-    if (effort && model)
-      throw new ConvexError(
-        "Change effort on a reply from the thread's own model",
-      );
-    if (search && !(await searchUrlOf(ctx, ownerId)))
-      throw new ConvexError("Set a SearXNG URL in Settings to search the web");
-    const docs = await claimDocuments(ctx, ownerId, thread, documents ?? []);
-    if (!thread.activeLeafId) await freezeToolSet(ctx, thread, tools);
-    const parent = thread.activeLeafId
-      ? await ctx.db.get("messages", thread.activeLeafId)
-      : null;
-    await startReply(
+    thread,
+    await appendUserMessage(
       ctx,
       thread,
-      await appendUserMessage(
-        ctx,
-        thread,
-        parent,
-        text,
-        effort,
-        images,
-        model,
-        search,
-        docs,
-      ),
-      mode,
+      parent,
+      text,
+      effort,
+      images,
       model,
-    );
+      search,
+      docs,
+    ),
+    mode,
+    model,
+  );
+}
+
+export const send = mutation({
+  args: { threadId: v.id("threads"), ...sendArgs },
+  returns: v.null(),
+  handler: async (ctx, { threadId, ...args }) => {
+    const ownerId = await requireOwner(ctx);
+    await sendTo(ctx, ownerId, await ownedThread(ctx, ownerId, threadId), args);
     return null;
+  },
+});
+
+// A new thread and its first message in one transaction (spec phase 12): the page opens the
+// thread when this returns, and a refused send leaves no empty thread behind. Effort here is
+// the thread's level, not a per-message change.
+export const startThread = mutation({
+  args: { ...newThreadArgs, ...sendArgs },
+  returns: v.id("threads"),
+  handler: async (ctx, { providerId, modelId, effort, ...args }) => {
+    const ownerId = await requireOwner(ctx);
+    const thread = await insertThread(ctx, ownerId, {
+      providerId,
+      modelId,
+      effort,
+    });
+    await sendTo(ctx, ownerId, thread, args);
+    return thread._id;
   },
 });
 
