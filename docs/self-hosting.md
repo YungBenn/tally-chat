@@ -164,6 +164,24 @@ Keep `TALLY_BIND=127.0.0.1`: Caddy reaches the stack on localhost, and the stack
 
 **The backend must reach its own public URLs.** It checks sign-in tokens against `CONVEX_SITE_PUBLIC_URL`, and its actions call back through `CONVEX_PUBLIC_URL`. So the hostnames have to resolve from the server itself, and the certificates have to be publicly trusted. With public DNS and Let's Encrypt, as above, that's already the case. A private CA or split-horizon DNS needs extra setup.
 
+### Over Tailscale, tailnet only
+
+If your devices are on a tailnet, Tailscale Serve gives the backend HTTPS on your machine's tailnet name without opening anything to the internet. Serve the two backend ports on their own HTTPS ports:
+
+```bash
+tailscale serve --bg --https=8443 http://127.0.0.1:3210
+tailscale serve --bg --https=8444 http://127.0.0.1:3211
+```
+
+```bash
+# .env
+TALLY_PUBLIC_URL=https://your-machine.your-tailnet.ts.net
+CONVEX_PUBLIC_URL=https://your-machine.your-tailnet.ts.net:8443
+CONVEX_SITE_PUBLIC_URL=https://your-machine.your-tailnet.ts.net:8444
+```
+
+Serve the app itself the same way (or on 443), then rebuild. `tailscale serve status` should list both backend ports as "tailnet only". A device without Tailscale running can load the sign-in page but can't reach the backend, so nothing after sign-in works there.
+
 ## Backups
 
 ```bash
