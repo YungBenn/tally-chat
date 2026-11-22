@@ -18,17 +18,20 @@ export function gatedStream(steps: (string | Gate)[], signal: AbortSignal | null
       const step = queue.shift();
       if (step === undefined) return controller.close();
       if (typeof step === "string") return controller.enqueue(new TextEncoder().encode(step));
-      step.reached = true;
+      step.arrive();
       await step.released;
     },
   });
 }
 
-export type Gate = { reached: boolean; released: Promise<void>; release: () => void };
+// `reached` resolves when the stream gets to the gate: tests await it instead of polling a clock.
+export type Gate = { reached: Promise<void>; arrive: () => void; released: Promise<void>; release: () => void };
 export function gate(): Gate {
+  let arrive!: () => void;
   let release!: () => void;
+  const reached = new Promise<void>((r) => (arrive = r));
   const released = new Promise<void>((r) => (release = r));
-  return { reached: false, released, release };
+  return { reached, arrive, released, release };
 }
 
 // OpenAI-compatible chat completion chunks (stream_options.include_usage puts usage in a final chunk).

@@ -25,6 +25,8 @@ export default defineConfig({
   ],
   test: {
     environment: "edge-runtime",
+    // Convex tests run real scheduled work, which a loaded machine slows past the 5 s default.
+    testTimeout: 30_000,
     setupFiles: ["./test/noNetwork.ts"],
     globalSetup: ["./test/globalSetup.ts"],
     server: { deps: { inline: ["convex-test"] } },

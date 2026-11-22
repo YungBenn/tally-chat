@@ -17,6 +17,7 @@ let fake: ReturnType<typeof fakeFetch> | undefined;
 afterEach(() => {
   fake?.restore();
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 const sseResponse = (body: string): Recorded => ({ body, headers: { "content-type": "text/event-stream" } });
@@ -67,7 +68,9 @@ describe("OpenAI-compatible chat", () => {
   });
 
   test("stop aborts the request and keeps what streamed", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
+    // Past the 100 ms flush interval on every read: each chunk is flushed as the action reads it.
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => (now += 200));
     const s = await setup({ baseUrl: "https://api.openai.com/v1", model: "gpt-5" });
     const g = gate();
     let aborted = false;
@@ -82,10 +85,11 @@ describe("OpenAI-compatible chat", () => {
       },
     });
     await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Hi" });
-    await vi.waitFor(() => expect(g.reached).toBe(true));
+    await g.reached;
     const { _id } = (await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!.messages.at(-1)!;
+    // The stream is read ahead of the action: stop once the first chunk is really flushed.
+    await vi.waitFor(async () => expect(await s.owner.query(api.chat.streamingText, { messageId: _id })).toBe("Hello "), { timeout: 30_000 });
     await s.owner.mutation(api.chat.stop, { messageId: _id });
-    vi.setSystemTime(Date.now() + 200);
     g.release();
     await s.t.finishInProgressScheduledFunctions();
 
