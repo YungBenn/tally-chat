@@ -64,7 +64,7 @@ flowchart LR
 
 There is no automatic router on this path. Model is fixed per thread unless the user changes it, with the cost shown first (S6), and effort defaults per thread with a manual per-turn override where the model allows it without cache loss (S7). The only per-turn model switch is the user's manual cheaper-reply button, and the inspector shows its cache cost before they click.
 
-**Streaming in Convex.** The provider call runs in a Convex action, and an action cannot stream to the browser directly. Instead the action writes the growing answer to the message document in buffered chunks (flush every \~100 ms, never per token, or mutation count explodes), and the client subscribes to that document. This also gives resumable streams for free: close the tab, reopen, and the subscription picks up where the document is. Use the `persistent-text-streaming` component for this rather than writing our own.
+**Streaming in Convex.** The provider call runs in a Convex action, and an action cannot stream to the browser directly. Instead the action appends the growing answer to a `streams` row of its own in buffered chunks (flush every \~100 ms, never per token, or mutation count explodes), and the client subscribes to that row for the one message still streaming. The thread query never reads it, so a flush doesn't re-send the branch. The finalizing mutation writes the text onto the message and deletes the row in one transaction. This also gives resumable streams for free: close the tab, reopen, and the subscription picks up where the row is. See ADR 0004.
 
 ## 5. Group A: send fewer tokens
 
@@ -362,7 +362,7 @@ Deliberately not worried about yet: streaming UX polish. The provider layer is r
 | Layer     | Choice                                   | Reasoning                                                                                                                                                                    |
 | --------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Backend   | Convex                                   | Branching, resumable streams and cross-device sync are its sweet spot. T3 Chat landed here after Redis then PlanetScale. Open source with Docker self-hosting. See ADR 0002 |
-| Components| `persistent-text-streaming`               | Streaming. Not the Agent component: its own thread and message model would fight the message tree                                                       |
+| Streaming | A `streams` row per streaming step        | Flushes don't re-run the thread query. Not the Agent component: its own thread and message model would fight the message tree. See ADR 0004                |
 | Frontend  | Next.js, installable as a PWA            | Standard, matches the public reference implementations                                                                                                                       |
 | Auth      | Single-user login                        | One password set at install, so strangers cannot spend your keys if the instance is online. No accounts, no paid auth service                                                |
 | Providers | Direct provider APIs, bring your own key | User adds a provider with base URL, API key and API style. The inspector shows the user's real bill                                                                          |
@@ -513,7 +513,6 @@ No receipt or ledger skeuomorphism. Tailwind + shadcn/ui, light and dark themes 
 - [Groq: prompt caching](https://console.groq.com/docs/prompt-caching)
 - [OpenRouter: usage accounting](https://openrouter.ai/docs/guides/guides/usage-accounting)
 - [Vercel AI SDK: OpenAI-compatible usage mapping](https://github.com/vercel/ai/blob/main/packages/openai-compatible/src/chat/convert-openai-compatible-chat-usage.ts)
-- [Convex: persistent-text-streaming](https://github.com/get-convex/persistent-text-streaming)
 - [Convex: aggregate](https://github.com/get-convex/aggregate)
 - [Convex: self-hosting](https://github.com/get-convex/convex-backend/blob/main/self-hosted/README.md)
 - [Convex: how Convex took down T3 Chat, June 1, 2025 postmortem](https://news.convex.dev/how-convex-took-down-t3-chat-june-1-2025-postmortem/)
