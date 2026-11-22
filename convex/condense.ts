@@ -184,7 +184,11 @@ export async function condensePlan(
     summaryTokens,
     caching: provider?.capabilities?.caching === true,
     // The next request's lifetime, not the last touch's: thread state stays out of the inspector.
-    thread: nextPrices(provider, thread.modelId, requestCacheTtl(settings?.keepaliveEnabled, branch.length + 1)),
+    thread: nextPrices(
+      provider,
+      thread.modelId,
+      requestCacheTtl(settings?.keepaliveEnabled, branch.length + 1),
+    ),
     side: sidePrices(sideJob.provider, sideJob.model),
   });
   const payback = economics?.paybackTurns ?? null;

@@ -58,7 +58,7 @@ export const fromThread = mutation({
     let text = threadTranscript(thread.title, startedAt, turns(branch));
     let tokens = estimateTokens(text);
     if (tokens > MAX_DOCUMENT_TOKENS) {
-      const checkpoint = await latestCheckpoint(ctx,thread._id, branch.map((m) => m._id));
+      const checkpoint = await latestCheckpoint(ctx, thread._id, branch.map((m) => m._id));
       const cut = checkpoint ? branch.findIndex((m) => m._id === checkpoint.coversUpToId) + 1 : 0;
       if (checkpoint && cut > 0) {
         text = threadTranscript(thread.title, startedAt, turns(branch.slice(cut)), checkpoint.summary);
