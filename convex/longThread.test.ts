@@ -12,6 +12,7 @@ import {
 } from "../test/sse";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { ancestorIds, insertMessage } from "./lib/ancestors";
 import { encryptSecret } from "./lib/vault";
 import schema from "./schema";
 
@@ -115,7 +116,7 @@ test("a 600-message thread opens, inspects, sends and condenses well within Conv
   );
 }, 120_000);
 
-test("moving ancestors off messages keeps every branch, and running it again changes nothing", async () => {
+test("ancestors move off messages and back on mixed data without changing any branch, and reruns change nothing", async () => {
   const t = convexTest({ schema, modules, transactionLimits: true });
   const ownerId = await t.run((ctx) => ctx.db.insert("users", { email: "owner" }));
   const owner = t.withIdentity({ subject: `${ownerId}|session` });
@@ -149,15 +150,47 @@ test("moving ancestors off messages keeps every branch, and running it again cha
   expect(before?.messages).toHaveLength(MESSAGES);
   expect(before?.messages.at(-1)).toMatchObject({ text: "retried", siblingIds: [expect.anything(), expect.anything()] });
 
-  for (let run = 0; run < 2; run++) {
-    await t.mutation(internal.migrations.moveMessageAncestors, {});
-    await t.finishAllScheduledFunctions(() => {});
-  }
+  // Mixed data: a reply written by the new code after the deploy, before the migration ran.
+  await t.run(async (ctx) => {
+    const leaf = (await ctx.db.get("messages", before!.messages.at(-1)!._id))!;
+    const id = await insertMessage(
+      ctx,
+      { ownerId, threadId, role: "user", pinned: false, content: "after deploy", status: "done" },
+      [...(await ancestorIds(ctx, leaf)), leaf._id],
+    );
+    await ctx.db.patch("threads", threadId, { activeLeafId: id });
+  });
+  const mixed = await owner.query(api.chat.getThread, { threadId });
+  expect(mixed?.messages).toHaveLength(MESSAGES + 1);
+  const run = async (migration: typeof internal.migrations.moveMessageAncestors) => {
+    for (let i = 0; i < 2; i++) {
+      await t.mutation(migration, {});
+      await t.finishAllScheduledFunctions(() => {});
+    }
+  };
+  const inline = () =>
+    t.run(async (ctx) => (await ctx.db.query("messages").collect()).filter((m) => m.ancestorIds !== undefined).length);
 
-  expect(await owner.query(api.chat.getThread, { threadId })).toEqual(before);
-  const inline = await t.run(async (ctx) =>
-    (await ctx.db.query("messages").collect()).filter((m) => m.ancestorIds !== undefined).length,
+  await run(internal.migrations.moveMessageAncestors);
+  expect(await owner.query(api.chat.getThread, { threadId })).toEqual(mixed);
+  expect(await inline()).toBe(0);
+  expect(await t.run(async (ctx) => (await ctx.db.query("messageAncestors").collect()).length)).toBe(MESSAGES + 2);
+
+  // Rolling back to code from before phase 12 needs every message's ancestors inline again.
+  await run(internal.migrations.restoreMessageAncestors);
+  expect(await inline()).toBe(MESSAGES + 2);
+  const paths = await t.run(async (ctx) =>
+    Promise.all(
+      (await ctx.db.query("messageAncestors").collect()).map(async (row) => [
+        row.ancestorIds,
+        (await ctx.db.get("messages", row.messageId))!.ancestorIds,
+      ]),
+    ),
   );
-  expect(inline).toBe(0);
-  expect(await t.run(async (ctx) => (await ctx.db.query("messageAncestors").collect()).length)).toBe(MESSAGES + 1);
+  for (const [row, onMessage] of paths) expect(onMessage).toEqual(row);
+  expect(await owner.query(api.chat.getThread, { threadId })).toEqual(mixed);
+
+  await run(internal.migrations.moveMessageAncestors);
+  expect(await inline()).toBe(0);
+  expect(await owner.query(api.chat.getThread, { threadId })).toEqual(mixed);
 }, 120_000);

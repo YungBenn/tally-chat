@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
+import { ancestorIds } from "./lib/ancestors";
 import { savedFor } from "./lib/metering";
 import { patchThreadState, threadState } from "./threadState";
 import { dayIn } from "./lib/rollups";
@@ -164,6 +165,26 @@ export const moveMessageAncestors = internalMutation({
     }
     if (!page.isDone)
       await ctx.scheduler.runAfter(0, internal.migrations.moveMessageAncestors, { cursor: page.continueCursor });
+    return null;
+  },
+});
+
+// The rollback for moveMessageAncestors: copies each messageAncestors row back onto its message, so
+// code from before phase 12 (which requires messages.ancestorIds) validates and runs again. Run it
+// with this code still deployed, wait until it finishes, then deploy the older code. The rows stay,
+// and moving forward again later skips them. Safe to run again:
+// `npx convex run migrations:restoreMessageAncestors`.
+export const restoreMessageAncestors = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.null(),
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db.query("messages").paginate({ numItems: ANCESTORS_BATCH, cursor: cursor ?? null });
+    for (const m of page.page) {
+      if (m.ancestorIds !== undefined) continue;
+      await ctx.db.patch("messages", m._id, { ancestorIds: await ancestorIds(ctx, m) });
+    }
+    if (!page.isDone)
+      await ctx.scheduler.runAfter(0, internal.migrations.restoreMessageAncestors, { cursor: page.continueCursor });
     return null;
   },
 });
