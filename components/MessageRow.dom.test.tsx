@@ -8,6 +8,11 @@ import MessageRow, { ThreadRowContext, type ThreadMessage } from "./MessageRow";
 const useQuery = vi.fn((...args: unknown[]) => void args);
 vi.mock("convex/react", () => ({
   useQuery: (...args: unknown[]) => useQuery(...args),
+  // A query in useQueries is one more subscription; "skip" passes none.
+  useQueries: (queries: Record<string, { query: unknown; args: unknown }>) => {
+    for (const { query, args } of Object.values(queries)) useQuery(query, args);
+    return {};
+  },
   useMutation: () => vi.fn(),
 }));
 
