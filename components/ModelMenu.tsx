@@ -275,6 +275,7 @@ export default function ModelMenu({
   selected,
   onPick,
   hotkey,
+  defaultOpen = false,
 }: {
   trigger: React.ReactElement<Record<string, unknown>>;
   title: string;
@@ -285,9 +286,10 @@ export default function ModelMenu({
   selected?: ModelChoice;
   onPick: (choice: ModelChoice) => void;
   hotkey?: boolean;
+  defaultOpen?: boolean; // mounted by a press (MountOnOpen): open right away
 }) {
   // When the picker opened: the thread's cache state is judged at that moment.
-  const [openedAt, setOpenedAt] = useState<number | null>(null);
+  const [openedAt, setOpenedAt] = useState<number | null>(() => (defaultOpen ? Date.now() : null));
   const providers = useQuery(api.providers.list);
   const allRows = useQuery(
     api.inspector.modelEstimates,
