@@ -95,6 +95,7 @@ function deploy(secrets: Record<string, string>, deployment: Record<string, stri
   console.log("setup: running backfills");
   convex(["run", "migrations:backfillThreadStartedAt", "{}"], deployment);
   convex(["run", "migrations:moveThreadState", "{}"], deployment);
+  convex(["run", "migrations:moveMessageAncestors", "{}"], deployment);
 }
 
 // A backup is a directory holding data.zip (a Convex export, file storage included) and

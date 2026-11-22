@@ -69,10 +69,10 @@ test("message search finds the owner's finished messages, with their thread and 
 test("a hit on another branch becomes visible by switching to it; one inside a fold is covered", async () => {
   const s = await setup();
   const threadId = await s.thread(s.ownerId, "Branches");
-  const insert = (content: string, role: "user" | "assistant", parent?: { _id: Id<"messages">; ancestorIds: Id<"messages">[] }) =>
+  const insert = (content: string, role: "user" | "assistant", parent?: { _id: Id<"messages">; ancestorIds?: Id<"messages">[] }) =>
     s.t.run(async (ctx) => {
       const id = await ctx.db.insert("messages", {
-        ownerId: s.ownerId, threadId, parentId: parent?._id, ancestorIds: parent ? [...parent.ancestorIds, parent._id] : [],
+        ownerId: s.ownerId, threadId, parentId: parent?._id, ancestorIds: parent ? [...parent.ancestorIds!, parent._id] : [],
         role, pinned: false, content, status: "done",
       });
       return (await ctx.db.get("messages", id))!;
