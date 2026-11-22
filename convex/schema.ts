@@ -291,6 +291,11 @@ export default defineSchema({
     sideJobModel: v.optional(
       v.object({ providerId: v.id("providers"), modelId: v.string() }),
     ),
+    // What a new thread starts with; unset = the first listed model and DEFAULT_EFFORT.
+    defaultModel: v.optional(
+      v.object({ providerId: v.id("providers"), modelId: v.string() }),
+    ),
+    defaultEffort: v.optional(effortValidator),
     timeZone: v.optional(v.string()), // IANA name; daily rollups use the owner's day, UTC until set
     keepaliveEnabled: v.optional(v.boolean()), // absent = on; off = 1-hour cache lifetime instead
     cacheBreakConfirmMicroUsd: v.optional(v.number()), // edits costing more than this ask first; absent = $0.10
