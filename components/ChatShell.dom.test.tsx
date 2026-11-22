@@ -82,8 +82,9 @@ test("settings close when a link inside them navigates to another page", async (
 });
 
 // Hovering a thread in the sidebar starts its subscriptions through the query cache, so the
-// thread is loaded by the time it's clicked (Phase 12 ticket 11).
-test("hovering a thread link subscribes to that thread's queries through the cache", async () => {
+// thread is loaded by the time it's clicked (Phase 12 ticket 11). Only what the page needs to
+// paint: the inspector, the heaviest query, loads when the thread opens.
+test("hovering a thread link subscribes to the thread's paint queries through the cache", async () => {
   const el = document.createElement("div");
   document.body.append(el);
   const root = createRoot(el);
@@ -103,5 +104,5 @@ test("hovering a thread link subscribes to that thread's queries through the cac
   await act(() => {
     link.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body }));
   });
-  expect(new Set(forThread("t1"))).toEqual(new Set(["chat:getThread", "inspector:get", "threadState:cache"]));
+  expect(new Set(forThread("t1"))).toEqual(new Set(["chat:getThread", "threadState:cache"]));
 });

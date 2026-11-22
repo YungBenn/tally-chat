@@ -20,7 +20,6 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useConvex, useMutation, useQuery } from "convex/react";
-import { useQuery as useCachedQuery } from "convex-helpers/react/cache/hooks";
 import { ConvexError } from "convex/values";
 import type { FunctionReturnType } from "convex/server";
 import Link from "next/link";
@@ -41,7 +40,7 @@ import { SHORTCUTS } from "@/lib/shortcuts";
 import { useMedia, NARROW } from "@/lib/useMedia";
 import { useShortcut, useShortcutLabel } from "@/lib/useShortcut";
 import { useStoredFlag } from "@/lib/storedFlag";
-import { useThreadCache } from "@/lib/useCacheState";
+import { useThreadView } from "@/lib/useThreadView";
 import { groupThreads } from "@/lib/threadGroups";
 import { cn } from "@/lib/utils";
 
@@ -64,21 +63,18 @@ function Highlight({ text, query }: { text: string; query: string }) {
   );
 }
 
+// Subscribes to what the thread page needs to paint (useThreadView), so a hovered thread is
+// loaded by the time it's clicked. Subscriptions only: presence, and so keepalive, stays with the
+// open thread page (usePresence).
+function PrefetchThread({ threadId }: { threadId: Id<"threads"> }) {
+  useThreadView(threadId);
+  return null;
+}
+
 /**
  * One thread in the sidebar (design system: ThreadItem). The active one gets a subtle holo edge.
  * Its menu (the ⋯ button, or a right-click) pins, renames (in place) or deletes it.
  */
-// Subscribes to the thread page's queries through the query cache (kept 30 minutes, see the
-// (app) layout), so a hovered thread is loaded by the time it's clicked. Subscriptions only:
-// presence, and so keepalive, stays with the open thread page (usePresence).
-function PrefetchThread({ threadId }: { threadId: Id<"threads"> }) {
-  useCachedQuery(api.chat.getThread, { threadId });
-  useCachedQuery(api.inspector.get, { threadId });
-  useCachedQuery(api.providers.list);
-  useThreadCache(threadId);
-  return null;
-}
-
 function ThreadItem({
   id,
   title,
