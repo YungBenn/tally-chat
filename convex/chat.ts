@@ -1313,12 +1313,12 @@ export const streamingText = query({
 });
 
 // One flush of a streaming step: appends the text and says whether to stop, in one round trip.
-// A step whose row is gone was closed meanwhile (stuck-reply sweep), so it stops too.
 export const flush = internalMutation({
   args: { messageId: v.id("messages"), text: v.string() },
   returns: v.boolean(),
   handler: async (ctx, { messageId, text }) => {
     const message = await ctx.db.get("messages", messageId);
+    // No stream row: the step was closed meanwhile (stuck-reply sweep), so the action stops.
     if (!(await appendStream(ctx, messageId, text))) return true;
     return message?.stopRequested === true;
   },

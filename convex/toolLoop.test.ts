@@ -154,13 +154,14 @@ describe("the tool loop on Anthropic", () => {
     const [held, step2] = [gate(), gate()];
     const s = await setup({
       steps: [{ text: "Let me look.", calls: [call("toolu_1", "search")] }, { gate: step2, text: "Found it." }],
-      mcp: { call: async () => (await held.released, { content: [{ type: "text", text: "r" }] }) },
+      mcp: { call: async () => (held.arrive(), await held.released, { content: [{ type: "text", text: "r" }] }) },
     });
     const streams = () => s.t.run((ctx) => ctx.db.query("streams").collect());
     await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Find it" });
     const settled = s.settle();
 
-    await vi.waitFor(async () => expect((await s.replies())[0]?.parts?.length).toBe(2)); // step 1 ended, tools running
+    await held.reached; // step 1 ended, tools running
+    expect((await s.replies())[0]?.parts?.length).toBe(2);
     const id = (await s.replies())[0]._id;
     expect(await s.owner.query(api.chat.streamingText, { messageId: id })).toBeNull();
     expect(await streams()).toEqual([]);
@@ -171,7 +172,7 @@ describe("the tool loop on Anthropic", () => {
     });
 
     held.release();
-    await vi.waitFor(() => expect(step2.reached).toBe(true));
+    await step2.reached;
     expect(await s.owner.query(api.chat.streamingText, { messageId: id })).toBe(""); // a fresh row, not step 1's text
     step2.release();
     await settled;
@@ -311,11 +312,12 @@ describe("the tool loop on Anthropic", () => {
     const hang = gate();
     const s = await setup({
       steps: [{ text: "Working.", calls: [call("h", "search")] }],
-      mcp: { call: async () => (await hang.released, { content: [{ type: "text", text: "late" }] }) },
+      mcp: { call: async () => (hang.arrive(), await hang.released, { content: [{ type: "text", text: "late" }] }) },
     });
     await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Go" });
     const running = s.settle();
-    await vi.waitFor(async () => expect((await s.replies())[0].parts?.some((p) => p.type === "toolCall")).toBe(true));
+    await hang.reached;
+    expect((await s.replies())[0].parts?.some((p) => p.type === "toolCall")).toBe(true);
     const [reply] = await s.replies();
     await s.owner.mutation(api.chat.stop, { messageId: reply._id });
     await running;

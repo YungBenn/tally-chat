@@ -27,8 +27,8 @@ export const languageReady = (lang: string) => !!ready?.getLoadedLanguages().inc
 
 /** Tokens for code whose highlighter and language are already loaded, else null. */
 export function tokensNow(code: string, lang: string): ThemedToken[][] | null {
-  if (!ready || !languageReady(lang)) return null;
-  return ready.codeToTokensBase(code, { lang, theme: "tally" });
+  if (!languageReady(lang)) return null;
+  return ready?.codeToTokensBase(code, { lang, theme: "tally" }) ?? null;
 }
 
 /**

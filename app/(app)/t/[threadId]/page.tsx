@@ -14,7 +14,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import CacheStatus from "@/components/CacheStatus";
 import BudgetBanner, { useSendingPaused } from "@/components/BudgetBanner";
-import ChatShell from "@/components/ChatShell";
+import AppPage from "@/components/ChatShell";
 import CostStrip from "@/components/CostStrip";
 import Composer from "@/components/Composer";
 import Inspector from "@/components/Inspector";
@@ -46,7 +46,8 @@ import Markdown from "@/components/Markdown";
 import { api } from "@/convex/_generated/api";
 import { estimateTokens } from "@/lib/format";
 import { useStoredChoice, useStoredFlag } from "@/lib/storedFlag";
-import { useCacheState, useThreadCache } from "@/lib/useCacheState";
+import { useCacheState } from "@/lib/useCacheState";
+import { useThreadView } from "@/lib/useThreadView";
 import { usePresence } from "@/lib/usePresence";
 import { useStableMessages } from "@/lib/stableMessages";
 import { isOptimistic, sendOptimistically, useRowKeys } from "@/lib/optimisticSend";
@@ -114,7 +115,7 @@ function download(name: string, text: string, type: string) {
 
 export default function ThreadPage() {
   const { threadId } = useParams<{ threadId: Id<"threads"> }>();
-  const stored = useQuery(api.chat.getThread, { threadId });
+  const { stored, providers, threadCache } = useThreadView(threadId);
   // Messages that didn't change keep their objects, so their memoized rows skip the update. A
   // streaming reply's text isn't here: its row subscribes to it (ADR 0004).
   const messages = useStableMessages(stored?.messages);
@@ -133,7 +134,6 @@ export default function ThreadPage() {
   const markActive = usePresence(threadId);
   const inspector = useQuery(api.inspector.get, { threadId });
   const settings = useQuery(api.settings.get);
-  const threadCache = useThreadCache(threadId);
   const cache = useCacheState(threadCache);
   // Edit hints only while the cache is warm: cold, editing costs no more than continuing.
   const warmHints = inspector?.cache.managed && cache.state !== "cold" ? inspector.editHints : null;
@@ -164,7 +164,6 @@ export default function ThreadPage() {
     threadId: string;
     model: ModelChoice;
   } | null>(null);
-  const providers = useQuery(api.providers.list);
   // From primitives, so it keeps its identity across thread updates (rows read it).
   const providerId = thread?.providerId;
   const modelId = thread?.modelId;
@@ -341,7 +340,7 @@ export default function ThreadPage() {
 
   if (thread === null) {
     return (
-      <ChatShell>
+      <AppPage>
         <div className="flex flex-1 flex-col items-center justify-center px-4">
           <EmptyState
             className="w-full max-w-md"
@@ -355,7 +354,7 @@ export default function ThreadPage() {
             }
           />
         </div>
-      </ChatShell>
+      </AppPage>
     );
   }
 
@@ -372,7 +371,7 @@ export default function ThreadPage() {
   );
 
   return (
-    <ChatShell
+    <AppPage
       header={
         <>
           <h1 className="min-w-0 truncate text-subheading">{thread?.title}</h1>
@@ -596,6 +595,6 @@ export default function ThreadPage() {
           closeKbd={inspectorKbd}
         />
       </div>
-    </ChatShell>
+    </AppPage>
   );
 }

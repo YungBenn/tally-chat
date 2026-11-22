@@ -11,6 +11,8 @@ import schema from "./schema";
 const modules = import.meta.glob("./**/*.ts");
 vi.mock("node:dns/promises", () => ({ lookup: async () => [{ address: "160.79.104.10", family: 4 }] }));
 const MESSAGES_URL = "POST https://api.anthropic.com/v1/messages";
+// Waits on scheduled functions, which run on the real clock: a deadline only a broken test reaches.
+const SCHEDULED = { timeout: 30_000 };
 const usage = { input_tokens: 100, cache_read_input_tokens: 0, output_tokens: 1 };
 
 beforeAll(setAuthEnv);
@@ -32,12 +34,12 @@ async function setup() {
   );
   const owner = t.withIdentity({ subject: `${ownerId}|session` });
   const threadId = await owner.mutation(api.chat.createThread, { providerId, modelId: "claude-sonnet-5-5" });
-  const rows = <T extends "messages" | "checkpoints" | "dailyUsage" | "streams" | "threadStates">(table: T) => t.run((ctx) => ctx.db.query(table).collect());
+  const rows = <T extends "messages" | "messageAncestors" | "checkpoints" | "dailyUsage" | "streams" | "threadStates">(table: T) => t.run((ctx) => ctx.db.query(table).collect());
   return { t, owner, ownerId, threadId, rows };
 }
 
 describe("deleting a thread", () => {
-  test("removes the thread, its messages, checkpoints, stream data and state; rollups keep its spend", async () => {
+  test("removes the thread, its messages and their ancestors, checkpoints, stream data and state; rollups keep its spend", async () => {
     const s = await setup();
     await s.owner.mutation(api.chat.markActive, { threadId: s.threadId });
     fake = fakeFetch({ [MESSAGES_URL]: { body: sse(messageStart(usage), textDelta("Hi"), messageDelta({ output_tokens: 20 }), messageStop) } });
@@ -51,6 +53,7 @@ describe("deleting a thread", () => {
     await s.t.run((ctx) => ctx.db.insert("streams", { messageId: reply._id, text: "left over" }));
     const rollups = await s.rows("dailyUsage");
     expect(rollups.length).toBe(3);
+    expect((await s.rows("messageAncestors")).length).toBe(4);
 
     await s.owner.mutation(api.chat.deleteThread, { threadId: s.threadId });
     expect(await s.owner.query(api.chat.listThreads, {})).toEqual([]); // gone from every device at once
@@ -58,6 +61,7 @@ describe("deleting a thread", () => {
     await s.t.finishAllScheduledFunctions(() => {});
 
     expect(await s.rows("messages")).toEqual([]);
+    expect(await s.rows("messageAncestors")).toEqual([]);
     expect(await s.rows("checkpoints")).toEqual([]);
     expect(await s.rows("streams")).toEqual([]);
     expect(await s.rows("threadStates")).toEqual([]);
@@ -78,16 +82,16 @@ describe("deleting a thread", () => {
       },
     });
     await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Hi" });
-    await vi.waitFor(() => expect(g.reached).toBe(true));
+    await g.reached;
 
     await s.owner.mutation(api.chat.deleteThread, { threadId: s.threadId });
     expect(await s.owner.query(api.chat.listThreads, {})).toEqual([]);
     // The first purge pass flags the stop and keeps the reply until it finalizes.
-    await vi.waitFor(async () => expect((await s.rows("messages")).find((m) => m.role === "assistant")?.stopRequested).toBe(true));
+    await vi.waitFor(async () => expect((await s.rows("messages")).find((m) => m.role === "assistant")?.stopRequested).toBe(true), SCHEDULED);
     vi.setSystemTime(Date.now() + 200);
     g.release();
 
-    await vi.waitFor(async () => expect(await s.rows("messages")).toEqual([]), { timeout: 5000 });
+    await vi.waitFor(async () => expect(await s.rows("messages")).toEqual([]), SCHEDULED);
     expect(aborted).toBe(true);
     expect(await s.rows("streams")).toEqual([]);
     const rollups = await s.rows("dailyUsage");
@@ -103,7 +107,7 @@ describe("deleting a thread", () => {
     await vi.waitFor(async () => {
       await s.t.finishAllScheduledFunctions(() => {});
       expect(await s.rows("messages")).toEqual([]);
-    }, { timeout: 5000 });
+    }, SCHEDULED);
     expect(fake.requests).toEqual([]);
     expect(await s.rows("streams")).toEqual([]);
   });

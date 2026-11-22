@@ -12,6 +12,8 @@ import { ancestorIds } from "./lib/ancestors";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
+// A flush runs as the action's own mutation: a deadline only a broken test reaches.
+const FLUSHED = { timeout: 30_000 };
 vi.mock("node:dns/promises", () => ({ lookup: async () => [{ address: "160.79.104.10", family: 4 }] }));
 
 const MESSAGES_URL = "POST https://api.anthropic.com/v1/messages";
@@ -22,7 +24,15 @@ let fake: ReturnType<typeof fakeFetch> | undefined;
 afterEach(() => {
   fake?.restore();
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
+
+// A clock that moves past the 100 ms flush interval on every read, so each streamed chunk is
+// flushed as the action reads it, however fast or slow the machine is.
+const flushEveryChunk = () => {
+  let now = Date.now();
+  vi.spyOn(Date, "now").mockImplementation(() => (now += 200));
+};
 
 async function setup(baseUrl = "https://api.anthropic.com") {
   const t = convexTest(schema, modules);
@@ -167,7 +177,7 @@ describe("starting a thread in one step", () => {
 
 describe("streaming, reload and stop", () => {
   test("mid-stream reads show the text so far; stop aborts the request and keeps what streamed", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
+    flushEveryChunk();
     const { t, owner, threadId } = await setup();
     const [g1, g2] = [gate(), gate()];
     let aborted = false;
@@ -181,16 +191,15 @@ describe("streaming, reload and stop", () => {
     });
     await owner.mutation(api.chat.send, { threadId, content: "Hi" });
 
-    await vi.waitFor(() => expect(g1.reached).toBe(true));
-    vi.setSystemTime(Date.now() + 200); // past the 100 ms flush interval
+    await g1.reached;
     g1.release();
-    await vi.waitFor(() => expect(g2.reached).toBe(true));
+    await g2.reached;
     const { _id } = await lastAssistant(owner, threadId);
     expect(await lastAssistant(owner, threadId)).toMatchObject({ status: "streaming", text: "" });
-    expect(await owner.query(api.chat.streamingText, { messageId: _id })).toBe("Hello world");
+    // The provider stream is read ahead of the action, so the flush can land just after the gate.
+    await vi.waitFor(async () => expect(await owner.query(api.chat.streamingText, { messageId: _id })).toBe("Hello world"), FLUSHED);
 
     await owner.mutation(api.chat.stop, { messageId: _id });
-    vi.setSystemTime(Date.now() + 200);
     g2.release();
     await t.finishInProgressScheduledFunctions();
 
@@ -199,20 +208,20 @@ describe("streaming, reload and stop", () => {
   });
 
   test("a flush leaves the thread query's result unchanged; the streaming text is null once the step ends", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
+    flushEveryChunk();
     const { t, owner, threadId } = await setup();
     const [g1, g2] = [gate(), gate()];
     fake = fakeFetch({ [MESSAGES_URL]: { respond: (init) => new Response(gatedStream([textDelta("One "), g1, textDelta("two "), g2, textDelta("three")], init?.signal)) } });
     await owner.mutation(api.chat.send, { threadId, content: "Hi" });
-    await vi.waitFor(() => expect(g1.reached).toBe(true));
+    await g1.reached;
     const before = await owner.query(api.chat.getThread, { threadId });
     const { _id } = before!.messages.at(-1)!;
-    expect(await owner.query(api.chat.streamingText, { messageId: _id })).toBe("");
+    await vi.waitFor(async () => expect(await owner.query(api.chat.streamingText, { messageId: _id })).toBe("One "), FLUSHED);
+    expect(await owner.query(api.chat.getThread, { threadId })).toEqual(before);
 
-    vi.setSystemTime(Date.now() + 200);
     g1.release();
-    await vi.waitFor(() => expect(g2.reached).toBe(true));
-    expect(await owner.query(api.chat.streamingText, { messageId: _id })).toBe("One two ");
+    await g2.reached;
+    await vi.waitFor(async () => expect(await owner.query(api.chat.streamingText, { messageId: _id })).toBe("One two "), FLUSHED);
     expect(await owner.query(api.chat.getThread, { threadId })).toEqual(before);
 
     g2.release();
@@ -343,7 +352,7 @@ describe("metering", () => {
       [MESSAGES_URL]: { respond: (init) => new Response(gatedStream([messageStart(startUsage), textDelta("Hel"), g, textDelta("lo")], init?.signal)) },
     });
     await owner.mutation(api.chat.send, { threadId, content: "Hi" });
-    await vi.waitFor(() => expect(g.reached).toBe(true));
+    await g.reached;
     await owner.mutation(api.chat.stop, { messageId: (await lastAssistant(owner, threadId))._id });
     vi.setSystemTime(Date.now() + 200);
     g.release();

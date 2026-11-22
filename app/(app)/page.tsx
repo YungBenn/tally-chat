@@ -8,7 +8,7 @@ import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import BudgetBanner, { useSendingPaused } from "@/components/BudgetBanner";
 import BrandMark from "@/components/BrandMark";
-import ChatShell from "@/components/ChatShell";
+import AppPage from "@/components/ChatShell";
 import { EmptyState } from "@/components/ui/feedback";
 import Composer from "@/components/Composer";
 import ModeControl from "@/components/ModeControl";
@@ -172,7 +172,7 @@ export default function NewThread() {
   const toolPicker = useToolPicker(selectedModel?.tools === true);
 
   return (
-    <ChatShell>
+    <AppPage>
       <div className="tc-home tc-grid-bg">
         {providers && options.length === 0 ? (
           <EmptyState
@@ -274,6 +274,6 @@ export default function NewThread() {
           />
         )}
       </div>
-    </ChatShell>
+    </AppPage>
   );
 }

@@ -114,7 +114,9 @@ export const moveThreadState = internalMutation({
   args: { cursor: v.optional(v.union(v.string(), v.null())) },
   returns: v.null(),
   handler: async (ctx, { cursor }) => {
-    const page = await ctx.db.query("threads").paginate({ numItems: MOVE_BATCH, cursor: cursor ?? null });
+    const page = await ctx.db
+      .query("threads")
+      .paginate({ numItems: MOVE_BATCH, cursor: cursor ?? null });
     for (const t of page.page) {
       const moved = {
         lastActiveAt: t.lastActiveAt,
@@ -138,12 +140,16 @@ export const moveThreadState = internalMutation({
       });
     }
     if (!page.isDone)
-      await ctx.scheduler.runAfter(0, internal.migrations.moveThreadState, { cursor: page.continueCursor });
+      await ctx.scheduler.runAfter(0, internal.migrations.moveThreadState, {
+        cursor: page.continueCursor,
+      });
     return null;
   },
 });
 
-const ANCESTORS_BATCH = 100;
+// Up to 100 messages, cut short at 4 MiB of them: messages can be large, and each batch must stay
+// under Convex's 16 MiB read limit with the ancestor rows and writes on top.
+const ANCESTORS_BATCH = { numItems: 100, maximumBytesRead: 4 * 1024 * 1024 };
 
 // Phase 12: moves each message's ancestorIds to its messageAncestors row, in batches, and clears
 // it from the message. Runs on every self-host deploy (selfhost/setup.ts); moved messages have
@@ -153,18 +159,26 @@ export const moveMessageAncestors = internalMutation({
   args: { cursor: v.optional(v.union(v.string(), v.null())) },
   returns: v.null(),
   handler: async (ctx, { cursor }) => {
-    const page = await ctx.db.query("messages").paginate({ numItems: ANCESTORS_BATCH, cursor: cursor ?? null });
+    const page = await ctx.db
+      .query("messages")
+      .paginate({ ...ANCESTORS_BATCH, cursor: cursor ?? null });
     for (const m of page.page) {
       if (m.ancestorIds === undefined) continue;
       const row = await ctx.db
         .query("messageAncestors")
         .withIndex("by_messageId", (q) => q.eq("messageId", m._id))
         .unique();
-      if (!row) await ctx.db.insert("messageAncestors", { messageId: m._id, ancestorIds: m.ancestorIds });
+      if (!row)
+        await ctx.db.insert("messageAncestors", {
+          messageId: m._id,
+          ancestorIds: m.ancestorIds,
+        });
       await ctx.db.patch("messages", m._id, { ancestorIds: undefined });
     }
     if (!page.isDone)
-      await ctx.scheduler.runAfter(0, internal.migrations.moveMessageAncestors, { cursor: page.continueCursor });
+      await ctx.scheduler.runAfter(0, internal.migrations.moveMessageAncestors, {
+        cursor: page.continueCursor,
+      });
     return null;
   },
 });
@@ -178,13 +192,17 @@ export const restoreMessageAncestors = internalMutation({
   args: { cursor: v.optional(v.union(v.string(), v.null())) },
   returns: v.null(),
   handler: async (ctx, { cursor }) => {
-    const page = await ctx.db.query("messages").paginate({ numItems: ANCESTORS_BATCH, cursor: cursor ?? null });
+    const page = await ctx.db
+      .query("messages")
+      .paginate({ ...ANCESTORS_BATCH, cursor: cursor ?? null });
     for (const m of page.page) {
       if (m.ancestorIds !== undefined) continue;
       await ctx.db.patch("messages", m._id, { ancestorIds: await ancestorIds(ctx, m) });
     }
     if (!page.isDone)
-      await ctx.scheduler.runAfter(0, internal.migrations.restoreMessageAncestors, { cursor: page.continueCursor });
+      await ctx.scheduler.runAfter(0, internal.migrations.restoreMessageAncestors, {
+        cursor: page.continueCursor,
+      });
     return null;
   },
 });

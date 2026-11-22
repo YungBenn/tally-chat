@@ -3,7 +3,7 @@
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { useRef, useState } from "react";
-import ChatShell from "@/components/ChatShell";
+import AppPage from "@/components/ChatShell";
 import { IconFileUpload } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Badge, ProgressBar, type BadgeTone } from "@/components/ui/feedback";
@@ -85,7 +85,7 @@ export default function ImportPage() {
   }
 
   return (
-    <ChatShell>
+    <AppPage>
       <div className="tc-page">
         <div className="tc-page-col max-w-[800px]">
           <div>
@@ -219,6 +219,6 @@ export default function ImportPage() {
           )}
         </div>
       </div>
-    </ChatShell>
+    </AppPage>
   );
 }

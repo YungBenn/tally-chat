@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { getFunctionName, type FunctionReference } from "convex/server";
 import { expect, test, vi } from "vitest";
-import ChatShell, { AppShell } from "./ChatShell";
+import AppPage, { AppShell } from "./ChatShell";
 
 const THREAD = { _id: "t1", title: "Cached thread", pinned: false, startedAt: Date.now() };
 vi.mock("convex/react", () => ({
@@ -39,9 +39,9 @@ test("the sidebar keeps its state when the page under the shell changes", async 
   const root = createRoot(el);
   const page = (name: string) => (
     <AppShell>
-      <ChatShell header={<h1>{name}</h1>}>
+      <AppPage header={<h1>{name}</h1>}>
         <p>{name} body</p>
-      </ChatShell>
+      </AppPage>
     </AppShell>
   );
   await act(() => root.render(page("Usage")));
@@ -67,9 +67,9 @@ test("settings close when a link inside them navigates to another page", async (
   const root = createRoot(el);
   const page = (name: string) => (
     <AppShell>
-      <ChatShell>
+      <AppPage>
         <p>{name}</p>
-      </ChatShell>
+      </AppPage>
     </AppShell>
   );
   await act(() => root.render(page("Home")));
@@ -82,8 +82,9 @@ test("settings close when a link inside them navigates to another page", async (
 });
 
 // Hovering a thread in the sidebar starts its subscriptions through the query cache, so the
-// thread is loaded by the time it's clicked (Phase 12 ticket 11).
-test("hovering a thread link subscribes to that thread's queries through the cache", async () => {
+// thread is loaded by the time it's clicked (Phase 12 ticket 11). Only what the page needs to
+// paint: the inspector, the heaviest query, loads when the thread opens.
+test("hovering a thread link subscribes to the thread's paint queries through the cache", async () => {
   const el = document.createElement("div");
   document.body.append(el);
   const root = createRoot(el);
@@ -91,9 +92,9 @@ test("hovering a thread link subscribes to that thread's queries through the cac
   await act(() =>
     root.render(
       <AppShell>
-        <ChatShell>
+        <AppPage>
           <p>Home</p>
-        </ChatShell>
+        </AppPage>
       </AppShell>,
     ),
   );
@@ -103,5 +104,5 @@ test("hovering a thread link subscribes to that thread's queries through the cac
   await act(() => {
     link.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body }));
   });
-  expect(new Set(forThread("t1"))).toEqual(new Set(["chat:getThread", "inspector:get", "threadState:cache"]));
+  expect(new Set(forThread("t1"))).toEqual(new Set(["chat:getThread", "threadState:cache"]));
 });

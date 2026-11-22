@@ -10,6 +10,8 @@ import { encryptSecret } from "./lib/vault";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
+// Waits on scheduled functions, which run on the real clock: a deadline only a broken test reaches.
+const SCHEDULED = { timeout: 30_000 };
 vi.mock("node:dns/promises", () => ({ lookup: async () => [{ address: "160.79.104.10", family: 4 }] }));
 
 beforeAll(setAuthEnv);
@@ -77,11 +79,11 @@ describe("stuck reply sweeper", () => {
   test("a thread delete waiting on a stuck reply finishes once the sweeper closes it", async () => {
     const s = await setupStuckReply();
     await s.owner.mutation(api.chat.deleteThread, { threadId: s.threadId });
-    await vi.waitFor(async () => expect((await s.reply())?.stopRequested).toBe(true));
+    await vi.waitFor(async () => expect((await s.reply())?.stopRequested).toBe(true), SCHEDULED);
     expect(await s.reply()).not.toBeNull(); // still waiting on it
 
     vi.setSystemTime(Date.now() + STUCK_REPLY_MS + 60_000);
     await s.t.mutation(internal.chat.sweepStuckReplies, {});
-    await vi.waitFor(async () => expect(await s.reply()).toBeNull(), { timeout: 8000 });
+    await vi.waitFor(async () => expect(await s.reply()).toBeNull(), SCHEDULED);
   });
 });

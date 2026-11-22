@@ -5,9 +5,14 @@ import { afterEach, expect, test, vi } from "vitest";
 import type { Id } from "@/convex/_generated/dataModel";
 import MessageRow, { ThreadRowContext, type ThreadMessage } from "./MessageRow";
 
-const useQuery = vi.fn((...args: unknown[]) => void args);
+const queried = vi.fn((...args: unknown[]) => void args);
 vi.mock("convex/react", () => ({
-  useQuery: (...args: unknown[]) => useQuery(...args),
+  useQuery: (...args: unknown[]) => queried(...args),
+  // A query in useQueries is one more subscription; "skip" passes none.
+  useQueries: (queries: Record<string, { query: unknown; args: unknown }>) => {
+    for (const { query, args } of Object.values(queries)) queried(query, args);
+    return {};
+  },
   useMutation: () => vi.fn(),
 }));
 
@@ -51,12 +56,12 @@ function mount() {
   return el;
 }
 
-const subscribed = () => useQuery.mock.calls.filter((c) => c[1] !== "skip").length;
+const subscribed = () => queried.mock.calls.filter((c) => c[1] !== "skip").length;
 const button = (label: string) => document.querySelector<HTMLButtonElement>(`button[aria-label^="${label}"]`)!;
 
 afterEach(() => {
   unmount();
-  useQuery.mockClear();
+  queried.mockClear();
 });
 
 // A long thread renders hundreds of rows; their closed menus must not each subscribe and build a picker.

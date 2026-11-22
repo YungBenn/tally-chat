@@ -194,3 +194,55 @@ test("ancestors move off messages and back on mixed data without changing any br
   expect(await inline()).toBe(0);
   expect(await owner.query(api.chat.getThread, { threadId })).toEqual(mixed);
 }, 120_000);
+
+// Messages can be large (long replies, pasted documents): a batch of whole messages must stay
+// under Convex's 16 MiB read limit however big they are.
+test("the ancestor migrations stay within the read limit on large messages", async () => {
+  const t = convexTest({ schema, modules, transactionLimits: true });
+  const big = "x".repeat(400_000);
+  const ids = await t.run(async (ctx) => {
+    const ownerId = await ctx.db.insert("users", { email: "owner" });
+    const providerId = await ctx.db.insert("providers", {
+      ownerId, name: "A", apiStyle: "anthropic", baseUrl: "https://api.anthropic.com",
+      apiKeyEncrypted: "", detected: "", keyCheckedAt: 0, models: [],
+    });
+    const threadId = await ctx.db.insert("threads", {
+      ownerId, title: "Big", providerId, modelId: "m", systemPromptVersion: 1,
+    });
+    return { ownerId, threadId };
+  });
+  // Stored the pre-phase-12 way: ancestors inline. 60 x 400 KB is well over 16 MiB.
+  let parent: Id<"messages"> | undefined;
+  const path: Id<"messages">[] = [];
+  for (let i = 0; i < 60; i++) {
+    parent = await t.run((ctx) =>
+      ctx.db.insert("messages", {
+        ...ids, role: i % 2 ? "assistant" : "user", pinned: false, content: big, status: "done",
+        parentId: parent, ancestorIds: [...path],
+      }),
+    );
+    path.push(parent);
+  }
+  const run = async (migration: typeof internal.migrations.moveMessageAncestors) => {
+    await t.mutation(migration, {});
+    await t.finishAllScheduledFunctions(() => {});
+  };
+  // Counted 20 at a time, since all 60 at once would break the limit here too.
+  const inline = async () => {
+    let n = 0;
+    for (let i = 0; i < path.length; i += 20)
+      n += await t.run(async (ctx) => {
+        const ms = await Promise.all(path.slice(i, i + 20).map((id) => ctx.db.get("messages", id)));
+        return ms.filter((m) => m?.ancestorIds !== undefined).length;
+      });
+    return n;
+  };
+
+  expect(await inline()).toBe(60);
+  await run(internal.migrations.moveMessageAncestors);
+  expect(await inline()).toBe(0);
+  await run(internal.migrations.restoreMessageAncestors);
+  expect(await inline()).toBe(60);
+  const last = await t.run(async (ctx) => (await ctx.db.get("messages", path[59]))!.ancestorIds);
+  expect(last).toEqual(path.slice(0, 59));
+}, 120_000);

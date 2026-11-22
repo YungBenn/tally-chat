@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   internalMutation,
   internalQuery,
@@ -33,15 +33,20 @@ export const touchedCache = (usage: Usage) =>
   usage.cacheReadTokens + usage.cacheWriteTokens5m + usage.cacheWriteTokens1h >
   0;
 
+// Cancels the thread's keepalive job if it's still waiting to run.
+async function cancelKeepalive(ctx: MutationCtx, threadId: Id<"threads">) {
+  const state = await threadState(ctx, threadId);
+  if (state?.keepaliveJobId && (await keepalivePending(ctx, state)))
+    await ctx.scheduler.cancel(state.keepaliveJobId);
+}
+
 // After a condense (spec phase 6): the cached prefix no longer matches, so the thread reads cold,
 // and a keepalive writes the new prefix now if the owner is still in the thread.
 export async function warmAfterCondense(
   ctx: MutationCtx,
   thread: Doc<"threads">,
 ) {
-  const state = await threadState(ctx, thread._id);
-  if (await keepalivePending(ctx, state))
-    await ctx.scheduler.cancel(state!.keepaliveJobId!);
+  await cancelKeepalive(ctx, thread._id);
   const keepaliveJobId = await ctx.scheduler.runAfter(
     0,
     internal.chatActions.keepalive,
@@ -61,9 +66,7 @@ export async function restartKeepalive(
   thread: Doc<"threads">,
   touchedAt: number | null,
 ) {
-  const state = await threadState(ctx, thread._id);
-  if (await keepalivePending(ctx, state))
-    await ctx.scheduler.cancel(state!.keepaliveJobId!);
+  await cancelKeepalive(ctx, thread._id);
   const settings = await ctx.db
     .query("settings")
     .withIndex("by_ownerId", (q) => q.eq("ownerId", thread.ownerId))

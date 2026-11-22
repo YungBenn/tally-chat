@@ -8,7 +8,9 @@ import ConvexClientProvider from "@/components/ConvexClientProvider";
 import AppProviders from "@/components/AppProviders";
 
 // geist/font/mono's settings, minus the preload: mono is for figures and code, rarely in the first
-// paint, so only the sans face competes with the JS on a cold load.
+// paint, so only the sans face competes with the JS on a cold load. The package's export fixes
+// its options (no preload switch), and next/font/local only takes a relative path, so it points
+// into node_modules.
 const GeistMono = localFont({
   src: "../node_modules/geist/dist/fonts/geist-mono/GeistMono-Variable.woff2",
   variable: "--font-geist-mono",

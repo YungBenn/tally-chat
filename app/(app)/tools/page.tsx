@@ -15,7 +15,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import Link from "next/link";
 import { useState } from "react";
-import ChatShell from "@/components/ChatShell";
+import AppPage from "@/components/ChatShell";
 import { Button } from "@/components/ui/button";
 import { Badge, EmptyState } from "@/components/ui/feedback";
 import { Input, Switch } from "@/components/ui/fields";
@@ -38,7 +38,7 @@ export default function ToolsPage() {
   const open = servers?.find((s) => s._id === openId);
 
   return (
-    <ChatShell>
+    <AppPage>
       <div className="tc-page">
         <div className="tc-page-col max-w-[880px]">
           {open ? (
@@ -76,7 +76,7 @@ export default function ToolsPage() {
           )}
         </div>
       </div>
-    </ChatShell>
+    </AppPage>
   );
 }
 

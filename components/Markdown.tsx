@@ -136,7 +136,17 @@ function MathFormula({ tex, display }: { tex: string; display: boolean }) {
   }, [ready]);
   const html = ready ? mathHtml(tex, display) : null;
   if (display)
-    return html ? <div dangerouslySetInnerHTML={{ __html: html }} /> : <div className="katex-display"><code>{tex}</code></div>;
+    // The placeholder has KaTeX's own wrapping (a div around span.katex-display), so it lays out
+    // the same and the formula takes its place without moving what follows.
+    return html ? (
+      <div dangerouslySetInnerHTML={{ __html: html }} />
+    ) : (
+      <div>
+        <span className="katex-display">
+          <code>{tex}</code>
+        </span>
+      </div>
+    );
   return html ? <span dangerouslySetInnerHTML={{ __html: html }} /> : <code>{tex}</code>;
 }
 
