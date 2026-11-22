@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { getFunctionName, type FunctionReference } from "convex/server";
 import { expect, test, vi } from "vitest";
-import ChatShell, { AppShell } from "./ChatShell";
+import AppPage, { AppShell } from "./ChatShell";
 
 const THREAD = { _id: "t1", title: "Cached thread", pinned: false, startedAt: Date.now() };
 vi.mock("convex/react", () => ({
@@ -39,9 +39,9 @@ test("the sidebar keeps its state when the page under the shell changes", async 
   const root = createRoot(el);
   const page = (name: string) => (
     <AppShell>
-      <ChatShell header={<h1>{name}</h1>}>
+      <AppPage header={<h1>{name}</h1>}>
         <p>{name} body</p>
-      </ChatShell>
+      </AppPage>
     </AppShell>
   );
   await act(() => root.render(page("Usage")));
@@ -67,9 +67,9 @@ test("settings close when a link inside them navigates to another page", async (
   const root = createRoot(el);
   const page = (name: string) => (
     <AppShell>
-      <ChatShell>
+      <AppPage>
         <p>{name}</p>
-      </ChatShell>
+      </AppPage>
     </AppShell>
   );
   await act(() => root.render(page("Home")));
@@ -92,9 +92,9 @@ test("hovering a thread link subscribes to the thread's paint queries through th
   await act(() =>
     root.render(
       <AppShell>
-        <ChatShell>
+        <AppPage>
           <p>Home</p>
-        </ChatShell>
+        </AppPage>
       </AppShell>,
     ),
   );

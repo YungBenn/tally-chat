@@ -14,7 +14,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import CacheStatus from "@/components/CacheStatus";
 import BudgetBanner, { useSendingPaused } from "@/components/BudgetBanner";
-import ChatShell from "@/components/ChatShell";
+import AppPage from "@/components/ChatShell";
 import CostStrip from "@/components/CostStrip";
 import Composer from "@/components/Composer";
 import Inspector from "@/components/Inspector";
@@ -340,7 +340,7 @@ export default function ThreadPage() {
 
   if (thread === null) {
     return (
-      <ChatShell>
+      <AppPage>
         <div className="flex flex-1 flex-col items-center justify-center px-4">
           <EmptyState
             className="w-full max-w-md"
@@ -354,7 +354,7 @@ export default function ThreadPage() {
             }
           />
         </div>
-      </ChatShell>
+      </AppPage>
     );
   }
 
@@ -371,7 +371,7 @@ export default function ThreadPage() {
   );
 
   return (
-    <ChatShell
+    <AppPage
       header={
         <>
           <h1 className="min-w-0 truncate text-subheading">{thread?.title}</h1>
@@ -595,6 +595,6 @@ export default function ThreadPage() {
           closeKbd={inspectorKbd}
         />
       </div>
-    </ChatShell>
+    </AppPage>
   );
 }

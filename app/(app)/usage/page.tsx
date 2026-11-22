@@ -4,7 +4,7 @@ import { IconMessagePlus } from "@tabler/icons-react";
 import { useQuery } from "convex/react";
 import Link from "next/link";
 import { useState } from "react";
-import ChatShell from "@/components/ChatShell";
+import AppPage from "@/components/ChatShell";
 import { useTodayBudget } from "@/components/BudgetMeter";
 import { BarChart, Legend, LineChart, StatTile, type Series } from "@/components/UsageCharts";
 import { Badge, EmptyState, ProgressBar } from "@/components/ui/feedback";
@@ -41,7 +41,7 @@ export default function UsagePage() {
   const empty = data && data.days.every((d) => d.calls === 0);
 
   return (
-    <ChatShell>
+    <AppPage>
       <div className="tc-page tc-grid-bg">
         <div className="tc-page-col max-w-[1040px]">
           <div className="flex items-center gap-3">
@@ -78,7 +78,7 @@ export default function UsagePage() {
           )}
         </div>
       </div>
-    </ChatShell>
+    </AppPage>
   );
 }
 

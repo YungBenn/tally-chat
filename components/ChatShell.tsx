@@ -541,7 +541,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
  * A page inside the app frame: its 48px app bar holds `header`, plus the button that brings the
  * sidebar back while it is closed or a sheet.
  */
-export default function ChatShell({
+export default function AppPage({
   header,
   children,
 }: {
