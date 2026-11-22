@@ -12,7 +12,7 @@ import { useMutation, useQuery } from "convex/react";
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge, HoloGradient } from "@/components/ui/feedback";
-import { Dialog, Popover } from "@/components/ui/overlay";
+import { Dialog, MountOnOpen, Popover } from "@/components/ui/overlay";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { tokens, totalInput, usd } from "@/lib/format";
@@ -200,28 +200,32 @@ export function ReplyMeta({
   const input = totalInput(usage);
   const cached = input > 0 ? Math.round((usage.cacheReadTokens / input) * 100) : 0;
   const cost = costMicroUsd === undefined ? "cost unknown" : usd(costMicroUsd);
+  const trigger = (
+    <button type="button" className="tc-meta" aria-label={`Cost breakdown: ${cost}`}>
+      <span className="model">{model}</span>
+      {effort && <span>({effort})</span>}
+      <span className="sep">·</span>
+      <span>{cost}</span>
+      <span className="sep">·</span>
+      <span>
+        {tokens(input)} in{usage.cacheReadTokens > 0 && <span className="cached"> ({cached}% cached)</span>}
+      </span>
+      <span className="sep">·</span>
+      <span>{tokens(usage.outputTokens)} out</span>
+    </button>
+  );
   return (
-    <Popover
-      title={`This reply · ${cost}`}
-      side="top"
-      className="w-[340px] max-w-[calc(100vw-32px)]"
-      trigger={
-        <button type="button" className="tc-meta" aria-label={`Cost breakdown: ${cost}`}>
-          <span className="model">{model}</span>
-          {effort && <span>({effort})</span>}
-          <span className="sep">·</span>
-          <span>{cost}</span>
-          <span className="sep">·</span>
-          <span>
-            {tokens(input)} in{usage.cacheReadTokens > 0 && <span className="cached"> ({cached}% cached)</span>}
-          </span>
-          <span className="sep">·</span>
-          <span>{tokens(usage.outputTokens)} out</span>
-        </button>
-      }
-    >
-      <CostBreakdown messageId={messageId} />
-    </Popover>
+    <MountOnOpen trigger={trigger}>
+      <Popover
+        title={`This reply · ${cost}`}
+        side="top"
+        className="w-[340px] max-w-[calc(100vw-32px)]"
+        defaultOpen
+        trigger={trigger}
+      >
+        <CostBreakdown messageId={messageId} />
+      </Popover>
+    </MountOnOpen>
   );
 }
 

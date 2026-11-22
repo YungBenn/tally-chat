@@ -24,7 +24,7 @@ import { ConvexError } from "convex/values";
 import type { FunctionReturnType } from "convex/server";
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { createContext, use, useEffect, useMemo, useRef, useState } from "react";
 import BrandMark from "@/components/BrandMark";
 import BudgetMeter from "@/components/BudgetMeter";
 import SettingsDialog from "@/components/SettingsDialog";
@@ -417,17 +417,21 @@ function Sidebar({
   );
 }
 
+// What a page's app bar needs from the shell: how to bring the sidebar back.
+const ShellContext = createContext<{
+  narrow: boolean;
+  sidebarOpen: boolean;
+  openSidebar: () => void;
+  openSheet: () => void;
+  sidebarKbd: string;
+}>({ narrow: false, sidebarOpen: true, openSidebar: () => {}, openSheet: () => {}, sidebarKbd: "" });
+
 /**
  * The app frame (spec phase 8): sidebar (264, collapsible with ⌘B; a left sheet under 900px) and a
- * main column whose 48px header holds `header`.
+ * main column. It is the shared layout of every page that shows the sidebar (app/(app)/layout.tsx),
+ * so the sidebar stays mounted, with its state, while pages change under it (spec phase 12).
  */
-export default function ChatShell({
-  header,
-  children,
-}: {
-  header?: React.ReactNode;
-  children: React.ReactNode;
-}) {
+export function AppShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useStoredFlag(
     "tally.sidebarOpen",
     true,
@@ -436,6 +440,7 @@ export default function ChatShell({
   const narrow = useMedia(NARROW);
   const searchRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
+  const path = usePathname();
   const settings = useQuery(api.settings.get);
   const setTimeZone = useMutation(api.settings.setTimeZone);
   const sidebarKbd = useShortcutLabel(SHORTCUTS.toggleSidebar);
@@ -462,6 +467,18 @@ export default function ChatShell({
     // The input mounts with the sidebar; focus it on the next frame.
     requestAnimationFrame(() => searchRef.current?.focus());
   });
+
+  // Explicit: React Compiler may not keep this literal stable, and a new value re-renders the page's app bar.
+  const shell = useMemo(
+    () => ({
+      narrow,
+      sidebarOpen,
+      openSidebar: () => setSidebarOpen(true),
+      openSheet: () => setSheetOpen(true),
+      sidebarKbd,
+    }),
+    [narrow, sidebarOpen, setSidebarOpen, sidebarKbd],
+  );
 
   const showDocked = !narrow && sidebarOpen;
   return (
@@ -495,31 +512,51 @@ export default function ChatShell({
         </Sheet>
       )}
       <main className="flex min-w-0 flex-1 flex-col">
-        {(header || narrow || !sidebarOpen) && (
-          <header className="tc-appbar">
-            {narrow ? (
-              <IconButton
-                icon={<IconMenu2 />}
-                label="Open threads"
-                size="touch"
-                onClick={() => setSheetOpen(true)}
-              />
-            ) : (
-              !sidebarOpen && (
-                <IconButton
-                  icon={<IconLayoutSidebarLeftExpand />}
-                  label="Open sidebar"
-                  kbd={sidebarKbd}
-                  onClick={() => setSidebarOpen(true)}
-                />
-              )
-            )}
-            {header}
-          </header>
-        )}
-        {children}
+        <ShellContext value={shell}>{children}</ShellContext>
       </main>
-      <SettingsDialog />
+      {/* It follows the hash, which client navigation changes without a hashchange: re-read it per page. */}
+      <SettingsDialog key={path} />
     </div>
+  );
+}
+
+/**
+ * A page inside the app frame: its 48px app bar holds `header`, plus the button that brings the
+ * sidebar back while it is closed or a sheet.
+ */
+export default function ChatShell({
+  header,
+  children,
+}: {
+  header?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const { narrow, sidebarOpen, openSidebar, openSheet, sidebarKbd } = use(ShellContext);
+  return (
+    <>
+      {(header || narrow || !sidebarOpen) && (
+        <header className="tc-appbar">
+          {narrow ? (
+            <IconButton
+              icon={<IconMenu2 />}
+              label="Open threads"
+              size="touch"
+              onClick={openSheet}
+            />
+          ) : (
+            !sidebarOpen && (
+              <IconButton
+                icon={<IconLayoutSidebarLeftExpand />}
+                label="Open sidebar"
+                kbd={sidebarKbd}
+                onClick={openSidebar}
+              />
+            )
+          )}
+          {header}
+        </header>
+      )}
+      {children}
+    </>
   );
 }

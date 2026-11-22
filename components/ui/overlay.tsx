@@ -55,6 +55,7 @@ export function Popover({
   side = "bottom",
   align = "start",
   open,
+  defaultOpen,
   onOpenChange,
   initialFocus,
   className,
@@ -66,13 +67,14 @@ export function Popover({
   side?: Side;
   align?: "start" | "center" | "end";
   open?: boolean;
+  defaultOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
   initialFocus?: React.ComponentProps<typeof BasePopover.Popup>["initialFocus"];
   className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <BasePopover.Root open={open} onOpenChange={onOpenChange}>
+    <BasePopover.Root open={open} defaultOpen={defaultOpen} onOpenChange={onOpenChange}>
       <BasePopover.Trigger render={trigger} />
       <BasePopover.Portal>
         <BasePopover.Positioner side={side} align={align} sideOffset={6} className="tc-layer-popover">
@@ -87,6 +89,24 @@ export function Popover({
       </BasePopover.Portal>
     </BasePopover.Root>
   );
+}
+
+/**
+ * Shows `trigger` alone until it's first pressed, then `children`: a popover on the same trigger that
+ * opens on mount (`defaultOpen`) and stays mounted, so it closes and returns focus as usual. For
+ * per-message menus, so a long thread doesn't build a closed popover per message.
+ */
+export function MountOnOpen({
+  trigger,
+  children,
+}: {
+  trigger: React.ReactElement<React.ButtonHTMLAttributes<HTMLButtonElement>>;
+  children: React.ReactNode;
+}) {
+  const [opened, setOpened] = React.useState(false);
+  return opened
+    ? children
+    : React.cloneElement(trigger, { "aria-haspopup": "dialog", "aria-expanded": false, onClick: () => setOpened(true) });
 }
 
 /** Action list from a trigger. Compose with MenuItem, MenuLabel and MenuSeparator. */
