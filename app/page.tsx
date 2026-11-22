@@ -142,8 +142,7 @@ function NewThreadModelMenu({
 
 export default function NewThread() {
   const providers = useQuery(api.providers.list);
-  const createThread = useMutation(api.chat.createThread);
-  const send = useMutation(api.chat.send);
+  const startThread = useMutation(api.chat.startThread);
   const webSearch = useWebSearch();
   const router = useRouter();
   const options = (providers ?? []).flatMap((p) =>
@@ -259,13 +258,10 @@ export default function NewThread() {
             onSend={async (text, images, documents) => {
               if (!selected) return;
               const [providerId, modelId] = selected.split("|");
-              const threadId = await createThread({
+              const threadId = await startThread({
                 providerId: providerId as Id<"providers">,
                 modelId,
                 effort: anthropic ? effort : undefined,
-              }).catch(rethrowSendError);
-              await send({
-                threadId,
                 content: text,
                 mode,
                 images: images.length ? images : undefined,
