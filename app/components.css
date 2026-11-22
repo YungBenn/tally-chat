@@ -773,6 +773,8 @@ button.tc-provider:hover { border-color: var(--border-strong); }
   .tc-appbar > h1 { padding-left: 4px; }
   .tc-appbar .tc-btn-icon { min-width: 44px; min-height: 44px; }
   .tc-composer-bar { flex-wrap: nowrap; }
+  /* Only the controls scroll; attach and send keep their size at the edges. */
+  .tc-composer-bar > :not(.tc-composer-controls) { flex-shrink: 0; }
   .tc-composer-controls { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: -4px 0; padding: 4px 2px; }
   .tc-composer-controls::-webkit-scrollbar { display: none; }
   .tc-composer-controls > * { flex: none; }
