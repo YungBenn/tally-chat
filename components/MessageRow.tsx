@@ -30,7 +30,7 @@ import { SearchSources } from "@/components/WebSearch";
 import { Button as UiButton, IconButton } from "@/components/ui/button";
 import { Badge, ErrorState } from "@/components/ui/feedback";
 import { Textarea as UiTextarea } from "@/components/ui/fields";
-import { Tooltip } from "@/components/ui/overlay";
+import { MountOnOpen, Tooltip } from "@/components/ui/overlay";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { MODE_MAX_TOKENS, type OutputMode } from "@/convex/lib/outputModes";
@@ -100,6 +100,37 @@ const MessageRow = memo(function MessageRow({
   );
 });
 export default MessageRow;
+
+// "Retry with" another model. Mounts its picker on first press: a long thread has one per reply.
+function RetryWithMenu({ messageId }: { messageId: Id<"messages"> }) {
+  const { threadId, mode, threadModel } = useThreadRow();
+  const retry = useMutation(api.chat.retry);
+  const trigger = (
+    <IdleButton
+      variant="ghost"
+      size="sm"
+      iconOnly
+      icon={<IconArrowsExchange />}
+      aria-label="Retry with another model"
+      title="Retry with another model"
+    />
+  );
+  return (
+    <MountOnOpen trigger={trigger}>
+      <ModelMenu
+        title="Retry with"
+        threadId={threadId}
+        maxOutputTokens={MODE_MAX_TOKENS[mode]}
+        retryOf={messageId}
+        defaultOpen
+        onPick={(model) =>
+          void retry({ messageId, mode, model: threadModel && sameModel(model, threadModel) ? undefined : model })
+        }
+        trigger={trigger}
+      />
+    </MountOnOpen>
+  );
+}
 
 // Pin a message so it's never folded into a summary (spec phase 6). Once condensed, fixed.
 function PinButton({ id, pinned, locked }: { id: Id<"messages">; pinned: boolean; locked: boolean }) {
@@ -271,7 +302,7 @@ function UserMessage({
 }
 
 function AssistantMessage({ m, highlighted, isLast }: { m: ThreadMessage; highlighted: boolean; isLast: boolean }) {
-  const { threadId, mode, threadModel, onContinue } = useThreadRow();
+  const { mode, onContinue } = useThreadRow();
   const retry = useMutation(api.chat.retry);
   const approveTools = useMutation(api.chat.approveTools);
   const streaming = m.status === "streaming";
@@ -360,29 +391,7 @@ function AssistantMessage({ m, highlighted, isLast }: { m: ThreadMessage; highli
                 />
               )}
             </Busy>
-            <ModelMenu
-              title="Retry with"
-              threadId={threadId}
-              maxOutputTokens={MODE_MAX_TOKENS[mode]}
-              retryOf={m._id}
-              onPick={(model) =>
-                void retry({
-                  messageId: m._id,
-                  mode,
-                  model: threadModel && sameModel(model, threadModel) ? undefined : model,
-                })
-              }
-              trigger={
-                <IdleButton
-                  variant="ghost"
-                  size="sm"
-                  iconOnly
-                  icon={<IconArrowsExchange />}
-                  aria-label="Retry with another model"
-                  title="Retry with another model"
-                />
-              }
-            />
+            <RetryWithMenu messageId={m._id} />
             <PinButton id={m._id} pinned={m.pinned} locked={m.pinLocked} />
           </MessageActions>
         </div>
