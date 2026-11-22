@@ -13,6 +13,7 @@ import { MAX_IMAGES_PER_MESSAGE, imageTokens, type MessageImage } from "@/convex
 import { tokens } from "@/lib/format";
 import { ACCEPT_ATTRIBUTE, prepareAndUpload } from "@/lib/imageUpload";
 import { SHORTCUTS } from "@/lib/shortcuts";
+import type { SentAttachments } from "@/lib/optimisticSend";
 import { uploadFile } from "@/lib/uploadFile";
 import { useShortcut, useShortcutLabel } from "@/lib/useShortcut";
 import { cn } from "@/lib/utils";
@@ -50,7 +51,8 @@ export default function Composer({
   paused = false,
   placeholder = "Message tally...",
 }: {
-  onSend: (text: string, images: MessageImage[], documents: Id<"documents">[]) => Promise<unknown>;
+  // `shown`: the attachments as the composer showed them, for an optimistic message.
+  onSend: (text: string, images: MessageImage[], documents: Id<"documents">[], shown: SentAttachments) => Promise<unknown>;
   canAttach?: boolean; // the model accepts images (spec phase 4); documents work with any model
   onImagesChange?: (images: MessageImage[]) => void; // the cost strip prices attached images
   onDocumentsChange?: (tokens: number) => void; // ...and attached documents' text
@@ -220,17 +222,26 @@ export default function Composer({
   async function submit() {
     if (!text.trim() || streaming || off || uploading) return;
     setError(null);
+    // Clear at once (the page shows the message optimistically); a failed send puts it all back.
+    const sent = { text, attached };
+    const shown: SentAttachments = {
+      images: attached.flatMap((a) => (a.kind === "image" && a.image ? [a.preview] : [])),
+      documents: attached.flatMap((a) => (a.kind === "document" && a.doc ? [{ name: a.name, tokens: a.doc.tokens, fromThreadId: a.thread }] : [])),
+    };
+    setText("");
+    setAttached([]);
     try {
-      await onSend(text, ready, readyDocs.map((d) => d.id));
+      await onSend(text, ready, readyDocs.map((d) => d.id), shown);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Could not send";
+      // Anything typed meanwhile stays, after the restored text.
+      setText((now) => (now ? `${sent.text}\n\n${now}` : sent.text));
+      setAttached((now) => [...sent.attached, ...now]);
       // The budget banner above already says this, with the override.
       setError(message === "Daily budget reached" ? null : message);
       return;
     }
-    setText("");
-    attached.forEach((a) => a.kind === "image" && URL.revokeObjectURL(a.preview));
-    setAttached([]);
+    sent.attached.forEach((a) => a.kind === "image" && URL.revokeObjectURL(a.preview));
   }
 
   const canSend = !!text.trim() && !off && !uploading;

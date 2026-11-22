@@ -42,3 +42,38 @@ test("the composer reports its draft once typing settles, not on every keystroke
   await act(() => vi.advanceTimersByTime(200));
   expect(onDraftChange.mock.calls).toEqual([["hello"]]);
 });
+
+async function mount(onSend: () => Promise<unknown>) {
+  const el = document.createElement("div");
+  document.body.append(el);
+  await act(() => createRoot(el).render(<Composer onSend={onSend} />));
+  const box = el.querySelector("textarea")!;
+  await act(() => type(box, "my question"));
+  return { el, box };
+}
+
+const send = (el: HTMLElement) => act(() => el.querySelector<HTMLButtonElement>('[aria-label="Send"]')!.click());
+
+// Optimistic send (Phase 12 ticket 08): the composer clears the instant I press Send.
+test("the composer clears as soon as Send is pressed, before the send settles", async () => {
+  const { el, box } = await mount(() => new Promise(() => {}));
+  await send(el);
+  expect(box.value).toBe("");
+});
+
+test("a failed send puts my text back and shows the error", async () => {
+  let fail!: (e: Error) => void;
+  const { el, box } = await mount(() => new Promise((_, reject) => (fail = reject)));
+  await send(el);
+  expect(box.value).toBe("");
+  await act(async () => fail(new Error("Add an API key for this provider")));
+  expect(box.value).toBe("my question");
+  expect(el.querySelector('[role="alert"]')?.textContent).toBe("Add an API key for this provider");
+});
+
+test("a budget refusal restores the text and leaves the message to the budget banner", async () => {
+  const { el, box } = await mount(() => Promise.reject(new Error("Daily budget reached")));
+  await send(el);
+  expect(box.value).toBe("my question");
+  expect(el.querySelector('[role="alert"]')).toBeNull();
+});

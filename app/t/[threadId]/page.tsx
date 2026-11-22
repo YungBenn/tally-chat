@@ -48,6 +48,7 @@ import { useStoredChoice, useStoredFlag } from "@/lib/storedFlag";
 import { useCacheState, useThreadCache } from "@/lib/useCacheState";
 import { usePresence } from "@/lib/usePresence";
 import { useStableMessages } from "@/lib/stableMessages";
+import { isOptimistic, sendOptimistically, useRowKeys } from "@/lib/optimisticSend";
 import type { Id } from "@/convex/_generated/dataModel";
 
 // The turns a checkpoint covers, folded behind its summary (spec phase 6): the thread shows what
@@ -117,6 +118,8 @@ export default function ThreadPage() {
   // streaming reply's text isn't here: its row subscribes to it (ADR 0004).
   const messages = useStableMessages(stored?.messages);
   const thread = useMemo(() => stored && messages && { ...stored, messages }, [stored, messages]);
+  // A sent message's real row takes over its optimistic row in place (ticket 08).
+  const rowKey = useRowKeys(messages);
   // A search hit to open (spec phase 7): /t/<thread>?m=<message>.
   const target = useSearchParams().get("m") as Id<"messages"> | null;
   const [highlighted, setHighlighted] = useState<Id<"messages"> | null>(null);
@@ -266,7 +269,7 @@ export default function ThreadPage() {
       // Continue a cut-off reply: an ordinary next turn (5.5 models don't allow prefill).
       onContinue: () => {
         setAtBottom(true);
-        void send({ threadId, content: "Continue.", mode }).catch(() => {});
+        void sendOptimistically(send, { threadId, content: "Continue.", mode }).catch(() => {});
       },
     }),
     [threadId, mode, threadModel, confirmAbove, markActive, send],
@@ -358,7 +361,7 @@ export default function ThreadPage() {
   // One message on the branch, as the thread shows it (also inside the condensed fold).
   const renderMessage = (m: ThreadMessage) => (
     <MessageRow
-      key={m._id}
+      key={rowKey(m._id)}
       message={m}
       highlighted={highlighted === m._id}
       isLast={m._id === last?._id}
@@ -491,7 +494,8 @@ export default function ThreadPage() {
           <Composer
             threadId={threadId}
             streaming={streaming}
-            onStop={() => last && void stop({ messageId: last._id })}
+            // An optimistic placeholder has no reply to stop yet.
+            onStop={() => last && !isOptimistic(last._id) && void stop({ messageId: last._id })}
             onType={markActive}
             onDraftChange={setDraft}
             onEditLast={streaming ? undefined : editLast}
@@ -562,9 +566,9 @@ export default function ThreadPage() {
                 ? "First image in this thread: the provider may write the history to the cache again."
                 : undefined
             }
-            onSend={async (text, images, documents) => {
+            onSend={async (text, images, documents, shown) => {
               setAtBottom(true);
-              await send({
+              await sendOptimistically(send, {
                 threadId,
                 content: text,
                 mode,
@@ -574,7 +578,7 @@ export default function ThreadPage() {
                 model: oneOff ?? undefined,
                 search: webSearch.on || undefined,
                 documents: documents.length ? documents : undefined,
-              }).catch(rethrowSendError);
+              }, shown).catch(rethrowSendError);
               if (oneOff) setReplyWith(null);
               else setPendingEffort(null);
             }}
