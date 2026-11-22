@@ -14,5 +14,7 @@ Collected while building phase 1, for the phase 5 setup guide.
 - **Stale setup image.** `docker compose run setup` reuses an old `tally-setup` image and deploys whatever code it was built from. Run `docker compose build setup` first.
 - **Reached over the tailnet.** Serve publishes the backend on `:8443` (API) and `:8444` (site), tailnet only; the app stays on the existing Funnel. The backend reaches its own `.ts.net` URLs from inside Docker, so sign-in tokens verify.
 - **Query latency from the Mac.** Cloud (Sydney): HTTP query median 133 ms, new connection plus first query 809 ms. Self-hosted over the tailnet: 2 ms and 28 ms.
+- **Private host allowlist.** Inside Docker the machine's `.ts.net` name resolves to its tailnet address, which the URL guard treats as private, so providers, search and tools on that name failed ("is a private address") until the name was added to the allowlist in Settings. Convex cloud had resolved it to the public Funnel address.
+- **Reply timing, 9router, 4 replies each.** Cloud (ticket 01): queue 70-110 ms, input 37-233 ms, provider first event 0.9-3.9 s. Self-hosted: queue 45-78 ms, input 27-40 ms, first event 0.67-0.78 s, first saved text 31-38 ms after it.
 - **Cloud fallback.** The cloud deployment is left untouched until **2026-12-22**, then deleted. Don't run `npm run dev` with the old `.env.local` before then: it pushes code to that deployment.
 
