@@ -245,18 +245,21 @@ describe("the inspector's context layers", () => {
 });
 
 describe("the next send's prices", () => {
-  test("priced per token for the thread's model, with the cache write at the thread's lifetime", async () => {
-    const s = await setup([]);
+  test("priced per token for the thread's model, with the cache write at the next send's lifetime", async () => {
+    const s = await setup([usage({ cache_creation_input_tokens: 600 })]);
     expect((await s.inspect()).next.prices).toEqual({
       input: 2e-6,
       output: 1e-5,
       cacheRead: 1e-7,
       cacheWrite: 2.5e-6,
     });
-    await s.t.run((ctx) =>
-      ctx.db.patch("threads", s.threadId, { cacheTtl: "1h" }),
-    );
+    expect((await s.inspect()).cache.ttl).toBe("5m");
+    // Keepalive off: from the second turn the next send asks for the 1-hour lifetime.
+    await s.owner.mutation(api.settings.setKeepaliveEnabled, { enabled: false });
+    expect((await s.inspect()).next.prices?.cacheWrite).toBe(2.5e-6); // the first turn stays on 5 minutes
+    await s.send("Hi");
     expect((await s.inspect()).next.prices?.cacheWrite).toBe(4e-6);
+    expect((await s.inspect()).cache.ttl).toBe("1h");
   });
 
   test("free providers price at 0; an unknown model has no price", async () => {

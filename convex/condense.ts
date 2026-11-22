@@ -12,6 +12,7 @@ import { activeBranch, sideJobModelFor } from "./chat";
 import { contextLayers, nextPrices } from "./inspector";
 import { warmAfterCondense } from "./keepalive";
 import { budgetReached } from "./lib/budget";
+import { requestCacheTtl } from "./lib/cacheStatus";
 import {
   condenseSettings,
   CONTEXT_WINDOW_SHARE,
@@ -21,7 +22,7 @@ import {
   planFold,
   summaryRequest,
 } from "./lib/condense";
-import { assembleHistory } from "./lib/context";
+import { assembleHistory, type History } from "./lib/context";
 import { meterCall } from "./lib/metering";
 import { priceFor, usageValidator } from "./lib/usage";
 import { requireOwner } from "./owner";
@@ -134,10 +135,18 @@ export async function condensePlan(
   thread: Doc<"threads">,
   branch: Doc<"messages">[],
   force = false,
+  built?: History, // the branch's history, when the caller already has it
 ) {
   const settings = await settingsFor(ctx, thread.ownerId);
   const config = condenseSettings(settings);
-  const layers = await contextLayers(ctx, thread, branch);
+  const history =
+    built ??
+    (await assembleHistory(
+      ctx,
+      thread._id,
+      branch.map((m) => m._id),
+    ));
+  const layers = await contextLayers(ctx, thread, branch, history);
   const totalTokens = layers.reduce((sum, l) => sum + l.tokens, 0);
   const turnsTokens = layers.find((l) => l.kind === "turns")?.tokens ?? 0;
   const inTokens = Math.max(
@@ -148,11 +157,7 @@ export async function condensePlan(
   if (!config.enabled && !force) return { kind: "off" as const, inTokens };
   if (!force && inTokens > 0) return { kind: "wait" as const, inTokens };
 
-  const { checkpoint } = await assembleHistory(
-    ctx,
-    thread._id,
-    branch.map((m) => m._id),
-  );
+  const { checkpoint } = history;
   const cut = checkpoint
     ? branch.findIndex((m) => m._id === checkpoint.coversUpToId) + 1
     : 0;
@@ -177,7 +182,8 @@ export async function condensePlan(
     summaryInputTokens,
     summaryTokens,
     caching: provider?.capabilities?.caching === true,
-    thread: nextPrices(provider, thread.modelId, thread.cacheTtl ?? "5m"),
+    // The next request's lifetime, not the last touch's: thread state stays out of the inspector.
+    thread: nextPrices(provider, thread.modelId, requestCacheTtl(settings?.keepaliveEnabled, branch.length + 1)),
     side: sidePrices(sideJob.provider, sideJob.model),
   });
   const payback = economics?.paybackTurns ?? null;

@@ -32,13 +32,14 @@ async function setup() {
   );
   const owner = t.withIdentity({ subject: `${ownerId}|session` });
   const threadId = await owner.mutation(api.chat.createThread, { providerId, modelId: "claude-sonnet-5-5" });
-  const rows = <T extends "messages" | "checkpoints" | "dailyUsage" | "streams">(table: T) => t.run((ctx) => ctx.db.query(table).collect());
+  const rows = <T extends "messages" | "checkpoints" | "dailyUsage" | "streams" | "threadStates">(table: T) => t.run((ctx) => ctx.db.query(table).collect());
   return { t, owner, ownerId, threadId, rows };
 }
 
 describe("deleting a thread", () => {
-  test("removes the thread, its messages, checkpoints and stream data; rollups keep its spend", async () => {
+  test("removes the thread, its messages, checkpoints, stream data and state; rollups keep its spend", async () => {
     const s = await setup();
+    await s.owner.mutation(api.chat.markActive, { threadId: s.threadId });
     fake = fakeFetch({ [MESSAGES_URL]: { body: sse(messageStart(usage), textDelta("Hi"), messageDelta({ output_tokens: 20 }), messageStop) } });
     for (const content of ["one", "two"]) {
       await s.owner.mutation(api.chat.send, { threadId: s.threadId, content });
@@ -59,6 +60,7 @@ describe("deleting a thread", () => {
     expect(await s.rows("messages")).toEqual([]);
     expect(await s.rows("checkpoints")).toEqual([]);
     expect(await s.rows("streams")).toEqual([]);
+    expect(await s.rows("threadStates")).toEqual([]);
     expect(await s.rows("dailyUsage")).toEqual(rollups);
   });
 

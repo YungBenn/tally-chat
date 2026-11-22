@@ -7,6 +7,7 @@ import { messageDelta, messageStart, messageStop, oaiDelta, oaiDone, oaiFinish, 
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { encryptSecret } from "./lib/vault";
+import { threadState } from "./threadState";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -61,14 +62,15 @@ async function setup() {
   };
   const replies = () => fake!.requests.filter((r) => (r.body as Body).max_tokens !== 30).map((r) => r.body as Body);
   const thread = () => t.run((ctx) => ctx.db.get("threads", threadId));
-  return { t, owner, ownerId, anthropicId, openaiId, threadId, send, replies, thread };
+  const state = () => t.run((ctx) => threadState(ctx, threadId));
+  return { t, owner, ownerId, anthropicId, openaiId, threadId, send, replies, thread, state };
 }
 
 describe("reply with another model, once", () => {
   test("goes to that model with the thread's history, leaves the thread's model and cache alone", async () => {
     const s = await setup();
     await s.send("First");
-    const before = (await s.thread())!;
+    const before = (await s.state())!;
     expect(before.cacheTouchedAt).toBeDefined();
 
     await s.send("Quick one", { providerId: s.openaiId, modelId: "gpt-5" });
@@ -79,8 +81,9 @@ describe("reply with another model, once", () => {
 
     const after = (await s.thread())!;
     expect(after.modelId).toBe("claude-opus-5-5");
-    expect(after.cacheTouchedAt).toBe(before.cacheTouchedAt);
-    expect(after.keepaliveJobId).toBe(before.keepaliveJobId);
+    const afterState = (await s.state())!;
+    expect(afterState.cacheTouchedAt).toBe(before.cacheTouchedAt);
+    expect(afterState.keepaliveJobId).toBe(before.keepaliveJobId);
 
     const view = (await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!;
     const reply = view.messages.at(-1)!;
@@ -94,7 +97,7 @@ describe("reply with another model, once", () => {
 
     await s.send("Back to normal");
     expect(s.replies().at(-1)!.model).toBe("claude-opus-5-5");
-    expect((await s.thread())!.cacheTouchedAt).toBeGreaterThan(before.cacheTouchedAt!);
+    expect((await s.state())?.cacheTouchedAt).toBeGreaterThan(before.cacheTouchedAt!);
   });
 
   test("an Anthropic-style override gets the effort in force; per-message effort can't ride along", async () => {
@@ -102,7 +105,7 @@ describe("reply with another model, once", () => {
     await s.send("First", { providerId: s.anthropicId, modelId: "claude-haiku-5-5" });
     const body = s.replies().at(-1)!;
     expect([body.model, body.output_config]).toEqual(["claude-haiku-5-5", { effort: "high" }]);
-    expect((await s.thread())!.cacheTouchedAt).toBeUndefined(); // the cache it wrote is Haiku's
+    expect((await s.state())?.cacheTouchedAt).toBeUndefined(); // the cache it wrote is Haiku's
 
     await expect(
       s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "x", effort: "low", model: { providerId: s.openaiId, modelId: "gpt-5" } }),
@@ -131,7 +134,7 @@ describe("per-model cost estimates", () => {
     const info = (await s.owner.query(api.inspector.get, { threadId: s.threadId }))!;
     const prefix = info.next.prefixTokens;
     const out = info.next.expectedOutputTokens!;
-    const touched = (await s.thread())!.cacheTouchedAt!;
+    const touched = (await s.state())!.cacheTouchedAt!;
     const estimate = (now: number) =>
       s.owner.query(api.inspector.modelEstimates, { threadId: s.threadId, now, draftTokens: 10, maxOutputTokens: 4000 });
     const micro = (prefixPrice: number, input: number, output: number) =>

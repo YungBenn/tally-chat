@@ -94,6 +94,7 @@ function deploy(secrets: Record<string, string>, deployment: Record<string, stri
   // Data backfills for the deployed schema; each skips rows it already filled, so reruns are no-ops.
   console.log("setup: running backfills");
   convex(["run", "migrations:backfillThreadStartedAt", "{}"], deployment);
+  convex(["run", "migrations:moveThreadState", "{}"], deployment);
 }
 
 // A backup is a directory holding data.zip (a Convex export, file storage included) and
