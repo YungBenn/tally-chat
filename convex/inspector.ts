@@ -100,6 +100,16 @@ export function nextPrices(
   };
 }
 
+// The cache lifetime the next send after `branch` asks for (as sendTo picks it): every price in
+// this file uses it, not the lifetime the last request asked for.
+async function nextCacheTtl(ctx: QueryCtx, ownerId: Id<"users">, branch: unknown[]) {
+  const settings = await ctx.db
+    .query("settings")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+    .unique();
+  return requestCacheTtl(settings?.keepaliveEnabled, branch.length + 1);
+}
+
 // The cost strip on a new thread: the system prompt and the draft go out as fresh input. Also
 // the provider's cheapest priced model, for the starting-model suggestion (spec phase 7).
 export const newThread = query({
@@ -219,11 +229,7 @@ export const get = query({
       branch.map((m) => m._id),
     );
     const layers = await contextLayers(ctx, thread, branch, history);
-    const settings = await ctx.db
-      .query("settings")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-      .unique();
-    const ttl = requestCacheTtl(settings?.keepaliveEnabled, branch.length + 1);
+    const ttl = await nextCacheTtl(ctx, ownerId, branch);
     const prices = nextPrices(provider, thread.modelId, ttl);
     const recent = replies.slice(-RECENT_REPLIES);
 
@@ -623,7 +629,7 @@ export const toolChange = query({
     const current = layers.reduce((sum, l) => sum + l.tokens, 0);
     const prefixTokens = current - oldToolTokens + newToolTokens;
     const state = await threadState(ctx, threadId);
-    const p = nextPrices(provider, thread.modelId, state?.cacheTtl ?? "5m");
+    const p = nextPrices(provider, thread.modelId, await nextCacheTtl(ctx, ownerId, branch));
     if (!p) return { newToolTokens, prefixTokens, extraMicroUsd: null };
     // Anthropic-style: the rewrite is a cache write, and continuing reads while the cache is warm.
     // Elsewhere the provider caches on its own: a rewrite pays input prices.
@@ -703,6 +709,7 @@ export const modelEstimates = query({
       : 0;
     const state = await threadState(ctx, threadId);
     const warm = cacheState(cacheExpiresAt(state ?? {}), now).state !== "cold";
+    const ttl = await nextCacheTtl(ctx, ownerId, branch);
 
     const providers = await ctx.db
       .query("providers")
@@ -715,11 +722,7 @@ export const modelEstimates = query({
           const own =
             provider._id === thread.providerId && m.id === thread.modelId;
           const anthropic = provider.apiStyle === "anthropic";
-          const p = nextPrices(
-            provider,
-            m.id,
-            own ? (state?.cacheTtl ?? "5m") : "5m",
-          );
+          const p = nextPrices(provider, m.id, ttl);
           const historyPrice = !p
             ? 0
             : !anthropic

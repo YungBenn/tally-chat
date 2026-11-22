@@ -153,6 +153,22 @@ describe("pricing a change", () => {
     expect(cold.extraMicroUsd).toBe(0);
   });
 
+  // With keepalive off, the second turn asks for the 1-hour lifetime while the first turn's
+  // request (the stored state) asked for 5 minutes: the change is priced at the next send's.
+  test("the rewrite is priced at the lifetime the next send asks for", async () => {
+    const s = await setup();
+    await s.owner.mutation(api.settings.setKeepaliveEnabled, { enabled: false });
+    const threadId = await s.thread(s.anthropicId, "claude-sonnet-5-5");
+    expect((await s.t.run((ctx) => threadState(ctx, threadId)))?.cacheTtl).toBe("5m");
+    const view = (await s.owner.query(api.inspector.get, { threadId }))!;
+    expect(view.cache.ttl).toBe("1h");
+    const current = view.layers.reduce((sum, l) => sum + l.tokens, 0);
+    const oldTools = view.layers.find((l) => l.kind === "tools")!.tokens;
+    const none = await s.owner.query(api.inspector.toolChange, { threadId, now: Date.now(), tools: [] });
+    // Sonnet 5.5 (per token): 1-hour cache write $4/MTok, cache read $0.10/MTok.
+    expect(none.extraMicroUsd).toBe(Math.round(((current - oldTools) * 4e-6 - current * 0.1e-6) * 1e6));
+  });
+
   test("a model without a price has no estimate", async () => {
     const s = await setup();
     const threadId = await s.thread(s.plainId, "plain");

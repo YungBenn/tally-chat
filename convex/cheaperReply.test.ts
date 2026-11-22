@@ -155,6 +155,26 @@ describe("per-model cost estimates", () => {
     expect(cold.find((r) => r.thread)!.costMicroUsd).toBe(micro(5e-6, 4e-6, 2e-5));
   });
 
+  // With keepalive off, the second turn asks for the 1-hour lifetime while the first turn's
+  // request (the stored state) asked for 5 minutes: cache writes are priced at the next send's.
+  test("cache writes are priced at the lifetime the next send asks for", async () => {
+    const s = await setup();
+    await s.owner.mutation(api.settings.setKeepaliveEnabled, { enabled: false });
+    await s.send("First");
+    expect((await s.state())!.cacheTtl).toBe("5m");
+    const info = (await s.owner.query(api.inspector.get, { threadId: s.threadId }))!;
+    const prefix = info.next.prefixTokens;
+    const out = info.next.expectedOutputTokens!;
+    const micro = (prefixPrice: number, input: number, output: number) =>
+      Math.round((prefix * prefixPrice + 10 * input + out * output) * 1e6);
+    const rows = await s.owner.query(api.inspector.modelEstimates, {
+      threadId: s.threadId, now: (await s.state())!.cacheTouchedAt! + 60 * 60_000, draftTokens: 10, maxOutputTokens: 4000,
+    });
+    const cost = (id: string) => rows.find((r) => r.modelId === id)!.costMicroUsd;
+    expect(cost("claude-opus-5-5")).toBe(micro(8e-6, 4e-6, 2e-5)); // the thread's, cold: 1-hour write
+    expect(cost("claude-haiku-5-5")).toBe(micro(2e-7, 1e-7, 5e-7)); // another model: 1-hour write
+  });
+
   test("a retry prices the reply's question as the new message", async () => {
     const s = await setup();
     await s.send("First");
