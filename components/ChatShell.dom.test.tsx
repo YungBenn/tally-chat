@@ -1,14 +1,26 @@
 // @vitest-environment happy-dom
 import { act } from "react";
 import { createRoot } from "react-dom/client";
+import { getFunctionName, type FunctionReference } from "convex/server";
 import { expect, test, vi } from "vitest";
 import ChatShell, { AppShell } from "./ChatShell";
 
+const THREAD = { _id: "t1", title: "Cached thread", pinned: false, startedAt: Date.now() };
 vi.mock("convex/react", () => ({
   useMutation: () => vi.fn(),
   useConvex: () => ({ query: vi.fn(async () => ({ titles: [], messages: [] })) }),
-  useQuery: () => undefined,
+  useQuery: (q: FunctionReference<"query">) =>
+    getFunctionName(q) === "chat:listThreads" ? [THREAD] : undefined,
 }));
+const cached = vi.hoisted(() => ({ calls: [] as [string, unknown][] }));
+vi.mock("convex-helpers/react/cache/hooks", () => ({
+  useQuery: (q: FunctionReference<"query">, args: unknown) => {
+    cached.calls.push([getFunctionName(q), args]);
+    return undefined;
+  },
+}));
+const forThread = (id: string) =>
+  cached.calls.filter(([, a]) => (a as { threadId?: string } | undefined)?.threadId === id).map(([n]) => n);
 vi.mock("@convex-dev/auth/react", () => ({ useAuthActions: () => ({ signOut: vi.fn() }) }));
 const nav = vi.hoisted(() => ({ pathname: "/" }));
 vi.mock("next/navigation", () => ({
@@ -67,4 +79,29 @@ test("settings close when a link inside them navigates to another page", async (
   nav.pathname = "/import";
   await act(() => root.render(page("Import")));
   expect(document.querySelector('[role="dialog"]')).toBeNull();
+});
+
+// Hovering a thread in the sidebar starts its subscriptions through the query cache, so the
+// thread is loaded by the time it's clicked (Phase 12 ticket 11).
+test("hovering a thread link subscribes to that thread's queries through the cache", async () => {
+  const el = document.createElement("div");
+  document.body.append(el);
+  const root = createRoot(el);
+  cached.calls = [];
+  await act(() =>
+    root.render(
+      <AppShell>
+        <ChatShell>
+          <p>Home</p>
+        </ChatShell>
+      </AppShell>,
+    ),
+  );
+  const link = el.querySelector<HTMLAnchorElement>('a[href="/t/t1"]')!;
+  expect(forThread("t1")).toEqual([]);
+
+  await act(() => {
+    link.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body }));
+  });
+  expect(new Set(forThread("t1"))).toEqual(new Set(["chat:getThread", "inspector:get", "threadState:cache"]));
 });

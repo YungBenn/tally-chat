@@ -20,6 +20,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useConvex, useMutation, useQuery } from "convex/react";
+import { useQuery as useCachedQuery } from "convex-helpers/react/cache/hooks";
 import { ConvexError } from "convex/values";
 import type { FunctionReturnType } from "convex/server";
 import Link from "next/link";
@@ -40,6 +41,7 @@ import { SHORTCUTS } from "@/lib/shortcuts";
 import { useMedia, NARROW } from "@/lib/useMedia";
 import { useShortcut, useShortcutLabel } from "@/lib/useShortcut";
 import { useStoredFlag } from "@/lib/storedFlag";
+import { useThreadCache } from "@/lib/useCacheState";
 import { groupThreads } from "@/lib/threadGroups";
 import { cn } from "@/lib/utils";
 
@@ -66,6 +68,17 @@ function Highlight({ text, query }: { text: string; query: string }) {
  * One thread in the sidebar (design system: ThreadItem). The active one gets a subtle holo edge.
  * Its menu (the ⋯ button, or a right-click) pins, renames (in place) or deletes it.
  */
+// Subscribes to the thread page's queries through the query cache (kept 30 minutes, see the
+// (app) layout), so a hovered thread is loaded by the time it's clicked. Subscriptions only:
+// presence, and so keepalive, stays with the open thread page (usePresence).
+function PrefetchThread({ threadId }: { threadId: Id<"threads"> }) {
+  useCachedQuery(api.chat.getThread, { threadId });
+  useCachedQuery(api.inspector.get, { threadId });
+  useCachedQuery(api.providers.list);
+  useThreadCache(threadId);
+  return null;
+}
+
 function ThreadItem({
   id,
   title,
@@ -73,6 +86,7 @@ function ThreadItem({
   tools,
   active,
   onNavigate,
+  onHover,
 }: {
   id: Id<"threads">;
   title: string;
@@ -80,6 +94,7 @@ function ThreadItem({
   tools?: boolean; // the thread's model can call tools
   active: boolean;
   onNavigate?: () => void;
+  onHover: (id: Id<"threads">) => void;
 }) {
   const router = useRouter();
   const rename = useMutation(api.chat.renameThread);
@@ -132,6 +147,8 @@ function ThreadItem({
         <Link
           href={`/t/${id}`}
           onClick={onNavigate}
+          onMouseEnter={() => onHover(id)}
+          onFocus={() => onHover(id)}
           aria-current={active ? "page" : undefined}
           className="tc-thread-link"
           // Dropped on the composer, it mentions this thread.
@@ -229,6 +246,8 @@ function Sidebar({
 }) {
   const threads = useQuery(api.chat.listThreads);
   const { threadId } = useParams<{ threadId?: string }>();
+  // The last thread hovered or focused in the list; the cache keeps earlier ones after it moves on.
+  const [hovered, setHovered] = useState<Id<"threads"> | null>(null);
   // Search (spec phases 4 and 7): titles, then messages, replacing the grouped list while
   // there's a query. One request per pause in typing, never a subscription (design doc S10).
   const convex = useConvex();
@@ -348,10 +367,12 @@ function Sidebar({
                 tools={(t as { tools?: boolean }).tools}
                 active={t._id === threadId}
                 onNavigate={onNavigate}
+                onHover={setHovered}
               />
             ))}
           </section>
         ))}
+        {hovered && <PrefetchThread threadId={hovered} />}
         {query && results && results.messages.length > 0 && (
           <section>
             <h2 className="tc-sidebar-cap">Messages</h2>

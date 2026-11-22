@@ -165,6 +165,24 @@ describe("keepalive", () => {
     expect(await s.state()).toBe("cold"); // the last keepalive's 5 minutes ran out at 32
   });
 
+  // The client's query cache keeps a left (or hovered) thread's queries subscribed for 30
+  // minutes. Those reads aren't presence, so keepalive stops on the same schedule (Phase 12
+  // ticket 11, user story 37).
+  test("a thread whose queries stay subscribed after the owner left still stops at 30 minutes", async () => {
+    const s = await setup();
+    await s.tab1.mutation(api.chat.markActive, { threadId: s.threadId });
+    await s.send("Hi");
+    for (let i = 0; i < 8; i++) {
+      await s.later(4.5 * MIN);
+      await s.thread();
+      await s.tab1.query(api.inspector.get, { threadId: s.threadId });
+      await s.cache();
+    }
+    expect(s.keepalives()).toHaveLength(6);
+    expect((await s.cache())!.keepaliveScheduled).toBe(false);
+    expect(await s.state()).toBe("cold");
+  });
+
   test("never without presence, for a provider that reported no caching, or for OpenAI-compatible threads", async () => {
     const quiet = await setup();
     await quiet.send("Hi"); // owner never marked active
