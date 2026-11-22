@@ -1,4 +1,4 @@
-import { ConvexError, v } from "convex/values";
+import { ConvexError, v, type ObjectType } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -10,16 +10,13 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { CURRENT_SYSTEM_PROMPT_VERSION, systemPrompt } from "./lib/systemPrompts";
-import { cacheExpiresAt, cacheTtlValidator } from "./lib/cacheStatus";
-import {
-  keepalivePending,
-  restartKeepalive,
-  touchedCache,
-  warmAfterCondense,
-} from "./keepalive";
+import { cacheTtlValidator, requestCacheTtl } from "./lib/cacheStatus";
+import { restartKeepalive, touchedCache, warmAfterCondense } from "./keepalive";
+import { patchThreadState, threadState } from "./threadState";
 import { coveredIds, scheduleCondense } from "./condense";
 import { assertWithinBudget, BUDGET_REACHED, budgetReached } from "./lib/budget";
-import { assembleHistory } from "./lib/context";
+import { ancestorIds, insertMessage } from "./lib/ancestors";
+import { assembleHistory, latestCheckpoint } from "./lib/context";
 import {
   MODE_MAX_TOKENS,
   outputModeValidator,
@@ -34,7 +31,7 @@ import {
 import { DEFAULT_EFFORT, effortValidator, type Effort } from "./lib/effort";
 import { meterCall } from "./lib/metering";
 import {
-  appendChunk,
+  appendStream,
   createStream,
   deleteStream,
   streamText,
@@ -78,7 +75,7 @@ async function ownedThread(
   return thread;
 }
 
-// The active branch, root first: the leaf's ancestorIds plus the leaf, fetched in one batch.
+// The active branch, root first: the leaf's ancestors plus the leaf, fetched in one batch.
 export async function activeBranch(
   ctx: QueryCtx,
   thread: Doc<"threads">,
@@ -87,7 +84,7 @@ export async function activeBranch(
   const leaf = await ctx.db.get("messages", thread.activeLeafId);
   if (!leaf) return [];
   const ancestors = await Promise.all(
-    leaf.ancestorIds.map((id) => ctx.db.get("messages", id)),
+    (await ancestorIds(ctx, leaf)).map((id) => ctx.db.get("messages", id)),
   );
   return [...ancestors.filter((m) => m !== null), leaf];
 }
@@ -222,39 +219,48 @@ export const setThreadPinned = mutation({
   },
 });
 
+const newThreadArgs = {
+  providerId: v.id("providers"),
+  modelId: v.string(),
+  effort: v.optional(effortValidator),
+};
+
+async function insertThread(
+  ctx: MutationCtx,
+  ownerId: Id<"users">,
+  { providerId, modelId, effort }: ObjectType<typeof newThreadArgs>,
+) {
+  const provider = await ctx.db.get("providers", providerId);
+  if (!provider || provider.ownerId !== ownerId)
+    throw new ConvexError("Provider not found");
+  if (!provider.models.some((m) => m.id === modelId && !m.hidden))
+    throw new ConvexError("Model not available");
+  const settings = await ctx.db
+    .query("settings")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+    .unique();
+  const id = await ctx.db.insert("threads", {
+    ownerId,
+    title: "New thread",
+    providerId,
+    modelId,
+    systemPromptVersion: CURRENT_SYSTEM_PROMPT_VERSION,
+    instructions: settings?.customInstructions,
+    startedAt: Date.now(),
+    // Only Anthropic-style threads send effort (spec phase 4).
+    effort:
+      provider.apiStyle === "anthropic"
+        ? (effort ?? DEFAULT_EFFORT)
+        : undefined,
+  });
+  return (await ctx.db.get("threads", id))!;
+}
+
 export const createThread = mutation({
-  args: {
-    providerId: v.id("providers"),
-    modelId: v.string(),
-    effort: v.optional(effortValidator),
-  },
+  args: newThreadArgs,
   returns: v.id("threads"),
-  handler: async (ctx, { providerId, modelId, effort }) => {
-    const ownerId = await requireOwner(ctx);
-    const provider = await ctx.db.get("providers", providerId);
-    if (!provider || provider.ownerId !== ownerId)
-      throw new ConvexError("Provider not found");
-    if (!provider.models.some((m) => m.id === modelId && !m.hidden))
-      throw new ConvexError("Model not available");
-    const settings = await ctx.db
-      .query("settings")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-      .unique();
-    return ctx.db.insert("threads", {
-      ownerId,
-      title: "New thread",
-      providerId,
-      modelId,
-      systemPromptVersion: CURRENT_SYSTEM_PROMPT_VERSION,
-      instructions: settings?.customInstructions,
-      startedAt: Date.now(),
-      // Only Anthropic-style threads send effort (spec phase 4).
-      effort:
-        provider.apiStyle === "anthropic"
-          ? (effort ?? DEFAULT_EFFORT)
-          : undefined,
-    });
-  },
+  handler: async (ctx, args) =>
+    (await insertThread(ctx, await requireOwner(ctx), args))._id,
 });
 
 const messageView = v.object({
@@ -359,9 +365,6 @@ export const getThread = query({
       ),
       cacheManaged: v.boolean(), // Anthropic-style provider: tally.chat places its cache breakpoints
       vision: v.boolean(), // the thread's model accepts images
-      cacheExpiresAt: v.union(v.null(), v.number()), // judge warm/cold/keepalive with lib/cacheStatus
-      keepaliveScheduled: v.boolean(),
-      lastActiveAt: v.union(v.null(), v.number()),
     }),
   ),
   handler: async (ctx, { threadId }) => {
@@ -407,12 +410,9 @@ export const getThread = query({
         ).map((s) => s._id),
         role: m.role,
         status: m.status,
-        // A streaming reply reads its text from the stream, so a reload or a second
-        // device sees what has arrived so far and keeps updating.
-        text:
-          m.status === "streaming" && m.streamId
-            ? await streamText(ctx, m.streamId)
-            : m.content,
+        // Stored content only: a streaming step's text is in streamingText, so a flush
+        // doesn't re-run this query (ADR 0004).
+        text: m.content,
         items: usedTools(m.parts) ? toolItems(m, thread, servers) : undefined,
         hitStepLimit: m.hitStepLimit,
         approvalExpired: m.approvalExpired,
@@ -440,7 +440,7 @@ export const getThread = query({
         })),
       })),
     );
-    const { checkpoint } = await assembleHistory(
+    const checkpoint = await latestCheckpoint(
       ctx,
       thread._id,
       branch.map((m) => m._id),
@@ -467,9 +467,6 @@ export const getThread = query({
         (await ctx.db.get("providers", thread.providerId))?.models.find(
           (m) => m.id === thread.modelId,
         )?.vision === true,
-      cacheExpiresAt: cacheExpiresAt(thread),
-      keepaliveScheduled: await keepalivePending(ctx, thread),
-      lastActiveAt: thread.lastActiveAt ?? null,
     };
   },
 });
@@ -610,20 +607,22 @@ async function appendUserMessage(
   if (effort) await assertPerMessageEffort(ctx, thread);
   if (images?.length)
     await assertImagesAllowed(ctx, thread, images, replyModel);
-  const id = await ctx.db.insert("messages", {
-    ownerId: thread.ownerId,
-    threadId: thread._id,
-    parentId: parent?._id,
-    ancestorIds: parent ? [...parent.ancestorIds, parent._id] : [],
-    role: "user",
-    pinned: false,
-    content: text,
-    status: "done",
-    effort,
-    images: images?.length ? images : undefined,
-    search: search || undefined,
-    documents: documents?.length ? documents : undefined,
-  });
+  const id = await insertMessage(
+    ctx,
+    {
+      ownerId: thread.ownerId,
+      threadId: thread._id,
+      role: "user",
+      pinned: false,
+      content: text,
+      status: "done",
+      effort,
+      images: images?.length ? images : undefined,
+      search: search || undefined,
+      documents: documents?.length ? documents : undefined,
+    },
+    parent ? [...(await ancestorIds(ctx, parent)), parent._id] : [],
+  );
   return (await ctx.db.get("messages", id))!;
 }
 
@@ -650,7 +649,7 @@ async function effortInForce(
   if (!base) return undefined;
   if (user.effort) return user.effort;
   const ancestors = await Promise.all(
-    user.ancestorIds.map((id) => ctx.db.get("messages", id)),
+    (await ancestorIds(ctx, user)).map((id) => ctx.db.get("messages", id)),
   );
   return (
     ancestors.findLast((m) => m?.role === "user" && m.effort)?.effort ?? base
@@ -736,7 +735,7 @@ async function replyProvider(
     throw new ConvexError("This model can't call the tools this thread uses");
   if (!model.vision) {
     const branch = await Promise.all(
-      user.ancestorIds.map((id) => ctx.db.get("messages", id)),
+      (await ancestorIds(ctx, user)).map((id) => ctx.db.get("messages", id)),
     );
     if ([...branch, user].some((m) => m?.images?.length))
       throw new ConvexError(
@@ -762,21 +761,23 @@ async function startReply(
     user,
     replyModel,
   );
-  const assistantId = await ctx.db.insert("messages", {
-    ownerId: thread.ownerId,
-    threadId: thread._id,
-    parentId: user._id,
-    ancestorIds: [...user.ancestorIds, user._id],
-    role: "assistant",
-    pinned: false,
-    content: "",
-    status: "streaming",
-    streamId: await createStream(ctx),
-    model: modelId,
-    providerId: provider?._id ?? thread.providerId,
-    outputMode,
-    effort: await effortInForce(ctx, thread, user, provider),
-  });
+  const assistantId = await insertMessage(
+    ctx,
+    {
+      ownerId: thread.ownerId,
+      threadId: thread._id,
+      role: "assistant",
+      pinned: false,
+      content: "",
+      status: "streaming",
+      model: modelId,
+      providerId: provider?._id ?? thread.providerId,
+      outputMode,
+      effort: await effortInForce(ctx, thread, user, provider),
+    },
+    [...(await ancestorIds(ctx, user)), user._id],
+  );
+  await createStream(ctx, assistantId);
   // ponytail: first message as title until side-job titles land (ticket 11).
   const title =
     thread.activeLeafId || thread.renamed
@@ -835,58 +836,92 @@ async function freezeToolSet(
     });
 }
 
-export const send = mutation({
-  args: {
-    threadId: v.id("threads"),
-    content: v.string(),
-    mode: v.optional(outputModeValidator),
-    effort: v.optional(effortValidator), // change effort from this message on (supported models)
-    images: v.optional(v.array(imageValidator)),
-    model: v.optional(replyModelValidator), // reply with this model once (spec phase 7)
-    search: v.optional(v.boolean()), // search the web for this message before the reply
-    documents: v.optional(v.array(v.id("documents"))), // from documents.extract, sent once
-    // A thread's first message only: the tools the thread freezes. Absent = every tool of the
-    // servers that are on for new threads.
-    tools: v.optional(v.array(toolPickValidator)),
-  },
-  returns: v.null(),
-  handler: async (
+const sendArgs = {
+  content: v.string(),
+  mode: v.optional(outputModeValidator),
+  effort: v.optional(effortValidator), // change effort from this message on (supported models)
+  images: v.optional(v.array(imageValidator)),
+  model: v.optional(replyModelValidator), // reply with this model once (spec phase 7)
+  search: v.optional(v.boolean()), // search the web for this message before the reply
+  documents: v.optional(v.array(v.id("documents"))), // from documents.extract, sent once
+  // A thread's first message only: the tools the thread freezes. Absent = every tool of the
+  // servers that are on for new threads.
+  tools: v.optional(v.array(toolPickValidator)),
+};
+
+// A user message and its streaming reply at the end of the thread's active branch.
+async function sendTo(
+  ctx: MutationCtx,
+  ownerId: Id<"users">,
+  thread: Doc<"threads">,
+  {
+    content,
+    mode,
+    effort,
+    images,
+    model,
+    search,
+    documents,
+    tools,
+  }: ObjectType<typeof sendArgs>,
+) {
+  const text = cleanText(content);
+  await assertNotStreaming(ctx, thread);
+  if (effort && model)
+    throw new ConvexError(
+      "Change effort on a reply from the thread's own model",
+    );
+  if (search && !(await searchUrlOf(ctx, ownerId)))
+    throw new ConvexError("Set a SearXNG URL in Settings to search the web");
+  const docs = await claimDocuments(ctx, ownerId, thread, documents ?? []);
+  if (!thread.activeLeafId) await freezeToolSet(ctx, thread, tools);
+  const parent = thread.activeLeafId
+    ? await ctx.db.get("messages", thread.activeLeafId)
+    : null;
+  await startReply(
     ctx,
-    { threadId, content, mode, effort, images, model, search, documents, tools },
-  ) => {
-    const ownerId = await requireOwner(ctx);
-    const thread = await ownedThread(ctx, ownerId, threadId);
-    const text = cleanText(content);
-    await assertNotStreaming(ctx, thread);
-    if (effort && model)
-      throw new ConvexError(
-        "Change effort on a reply from the thread's own model",
-      );
-    if (search && !(await searchUrlOf(ctx, ownerId)))
-      throw new ConvexError("Set a SearXNG URL in Settings to search the web");
-    const docs = await claimDocuments(ctx, ownerId, thread, documents ?? []);
-    if (!thread.activeLeafId) await freezeToolSet(ctx, thread, tools);
-    const parent = thread.activeLeafId
-      ? await ctx.db.get("messages", thread.activeLeafId)
-      : null;
-    await startReply(
+    thread,
+    await appendUserMessage(
       ctx,
       thread,
-      await appendUserMessage(
-        ctx,
-        thread,
-        parent,
-        text,
-        effort,
-        images,
-        model,
-        search,
-        docs,
-      ),
-      mode,
+      parent,
+      text,
+      effort,
+      images,
       model,
-    );
+      search,
+      docs,
+    ),
+    mode,
+    model,
+  );
+}
+
+export const send = mutation({
+  args: { threadId: v.id("threads"), ...sendArgs },
+  returns: v.null(),
+  handler: async (ctx, { threadId, ...args }) => {
+    const ownerId = await requireOwner(ctx);
+    await sendTo(ctx, ownerId, await ownedThread(ctx, ownerId, threadId), args);
     return null;
+  },
+});
+
+// A new thread and its first message in one transaction (spec phase 12): the page opens the
+// thread when this returns, and a refused send leaves no empty thread behind. Effort here is
+// the thread's level, not a per-message change.
+export const startThread = mutation({
+  args: { ...newThreadArgs, ...sendArgs },
+  returns: v.id("threads"),
+  handler: async (ctx, { providerId, modelId, effort, ...args }) => {
+    const ownerId = await requireOwner(ctx);
+    const thread = await insertThread(ctx, ownerId, {
+      providerId,
+      modelId,
+      effort,
+    });
+    await sendTo(ctx, ownerId, thread, args);
+    return thread._id;
   },
 });
 
@@ -1025,7 +1060,7 @@ export const markActive = mutation({
     const ownerId = await requireOwner(ctx);
     const thread = await ctx.db.get("threads", threadId);
     if (thread?.ownerId === ownerId)
-      await ctx.db.patch("threads", threadId, { lastActiveAt: Date.now() });
+      await patchThreadState(ctx, threadId, { lastActiveAt: Date.now() });
     return null;
   },
 });
@@ -1065,7 +1100,7 @@ export const purgeThread = internalMutation({
         waiting = true;
         continue;
       }
-      if (m.streamId) await deleteStream(ctx, m.streamId);
+      await deleteStream(ctx, m._id);
       for (const image of m.images ?? [])
         await ctx.storage.delete(image.storageId);
       if (m.search) {
@@ -1075,6 +1110,11 @@ export const purgeThread = internalMutation({
           .unique();
         if (search) await ctx.db.delete("searches", search._id);
       }
+      const ancestors = await ctx.db
+        .query("messageAncestors")
+        .withIndex("by_messageId", (q) => q.eq("messageId", m._id))
+        .unique();
+      if (ancestors) await ctx.db.delete("messageAncestors", ancestors._id);
       await ctx.db.delete("messages", m._id);
     }
     const checkpoints = await ctx.db
@@ -1082,6 +1122,8 @@ export const purgeThread = internalMutation({
       .withIndex("by_threadId", (q) => q.eq("threadId", threadId))
       .take(PURGE_BATCH);
     for (const c of checkpoints) await ctx.db.delete("checkpoints", c._id);
+    const state = await threadState(ctx, threadId);
+    if (state) await ctx.db.delete("threadStates", state._id);
     const sideJobs = await ctx.db
       .query("sideJobs")
       .withIndex("by_threadId", (q) => q.eq("threadId", threadId))
@@ -1130,12 +1172,10 @@ export const sweepStuckReplies = internalMutation({
     for (const m of stuck) {
       // A reply working through a tool loop is alive while its steps keep starting.
       if ((m.stepStartedAt ?? 0) > Date.now() - STUCK_REPLY_MS) continue;
-      const content = m.streamId ? await streamText(ctx, m.streamId) : "";
       await ctx.runMutation(internal.chat.finalize, {
         messageId: m._id,
         status: "error",
-        content,
-        pending: "",
+        content: (await streamText(ctx, m._id)) ?? "",
         error: "The reply was interrupted",
       });
       closed++;
@@ -1184,7 +1224,8 @@ export const generationInput = internalQuery({
   returns: v.union(
     v.null(),
     v.object({
-      streamId: v.string(),
+      stopRequested: v.boolean(),
+      queuedAt: v.number(),
       model: v.string(),
       effort: v.optional(effortValidator),
       system: v.string(),
@@ -1209,8 +1250,7 @@ export const generationInput = internalQuery({
   ),
   handler: async (ctx, { messageId }) => {
     const message = await ctx.db.get("messages", messageId);
-    if (!message || message.status !== "streaming" || !message.streamId)
-      return null;
+    if (!message || message.status !== "streaming") return null;
     const thread = await ctx.db.get("threads", message.threadId);
     if (!thread) return null; // deleted while queued; purgeThread stops and removes the reply
     // The reply's own model: the thread's, or another one for a cheaper reply (spec phase 7).
@@ -1224,13 +1264,12 @@ export const generationInput = internalQuery({
       .query("settings")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", message.ownerId))
       .unique();
-    const history = await assembleHistory(
-      ctx,
-      message.threadId,
-      message.ancestorIds,
-    );
+    const ancestors = await ancestorIds(ctx, message);
+    const history = await assembleHistory(ctx, message.threadId, ancestors);
     return {
-      streamId: message.streamId,
+      stopRequested: message.stopRequested === true,
+      // When this step was queued, for the reply timing log: later steps set stepStartedAt.
+      queuedAt: message.stepStartedAt ?? message._creationTime,
       model,
       system: systemPrompt(thread.systemPromptVersion, thread.instructions),
       provider: provider && {
@@ -1254,15 +1293,34 @@ export const generationInput = internalQuery({
         thread.toolSet?.length && supportsTools(provider, model)
           ? thread.toolSet.map(toDefinition)
           : undefined,
-      // With keepalive off, pauses up to an hour stay cheap from the second turn on (the first
-      // turn's prefix is too short to be worth a 2x write). On, keepalive covers the pauses.
       maxTokens: MODE_MAX_TOKENS[message.outputMode ?? "normal"],
       effort: oneOff ? message.effort : effortFor(thread, provider),
-      cacheTtl:
-        settings?.keepaliveEnabled === false && message.ancestorIds.length > 1
-          ? ("1h" as const)
-          : ("5m" as const),
+      cacheTtl: requestCacheTtl(settings?.keepaliveEnabled, ancestors.length),
     };
+  },
+});
+
+// A streaming step's text so far, for its owner; null once the step has ended (ADR 0004). The
+// thread page watches it only for the branch's last message while it streams.
+export const streamingText = query({
+  args: { messageId: v.id("messages") },
+  returns: v.union(v.null(), v.string()),
+  handler: async (ctx, { messageId }) => {
+    const ownerId = await requireOwner(ctx);
+    await ownedMessage(ctx, ownerId, messageId);
+    return await streamText(ctx, messageId);
+  },
+});
+
+// One flush of a streaming step: appends the text and says whether to stop, in one round trip.
+export const flush = internalMutation({
+  args: { messageId: v.id("messages"), text: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, { messageId, text }) => {
+    const message = await ctx.db.get("messages", messageId);
+    // No stream row: the step was closed meanwhile (stuck-reply sweep), so the action stops.
+    if (!(await appendStream(ctx, messageId, text))) return true;
+    return message?.stopRequested === true;
   },
 });
 
@@ -1296,7 +1354,6 @@ export const finalize = internalMutation({
       v.literal("error"),
     ),
     content: v.string(), // this step's text
-    pending: v.string(),
     error: v.optional(v.string()),
     usage: v.optional(usageValidator),
     reports: v.optional(
@@ -1321,7 +1378,6 @@ export const finalize = internalMutation({
       messageId,
       status,
       content,
-      pending,
       error,
       usage,
       reports,
@@ -1367,11 +1423,9 @@ export const finalize = internalMutation({
     const withTools = usedTools(message.parts) || loop;
     const parts = withTools ? [...(message.parts ?? []), ...stepParts] : undefined;
 
-    if (message.streamId) {
-      // A step that goes on hands its text to the parts, so its stream is not needed any more.
-      if (loop) await deleteStream(ctx, message.streamId);
-      else await appendChunk(ctx, message.streamId, pending, true);
-    }
+    // The step's text moves onto the message (content, or parts when the reply goes on) in this
+    // same transaction, so no moment shows it twice or not at all.
+    await deleteStream(ctx, messageId);
 
     // A step is metered as it finishes; the reply's usage and cost are the sum of its steps.
     let metered: Partial<Doc<"messages">> = {};
@@ -1400,7 +1454,6 @@ export const finalize = internalMutation({
       await ctx.db.patch("messages", messageId, {
         ...metered,
         parts,
-        streamId: undefined,
         ...(approval
           ? {
               status: "waiting" as const,
@@ -1442,7 +1495,7 @@ export const finalize = internalMutation({
       const touchedAt =
         cacheRequest && touchedCache(usage) ? cacheRequest.startedAt : null;
       if (touchedAt !== null)
-        await ctx.db.patch("threads", thread._id, {
+        await patchThreadState(ctx, thread._id, {
           cacheTouchedAt: touchedAt,
           cacheTtl: cacheRequest!.ttl,
         });
@@ -1633,9 +1686,9 @@ export const finishTools = internalMutation({
     }
     await ctx.db.patch("messages", messageId, {
       parts,
-      streamId: await createStream(ctx),
       stepStartedAt: Date.now(),
     });
+    await createStream(ctx, messageId);
     await ctx.scheduler.runAfter(0, internal.chatActions.generate, {
       messageId,
     });
@@ -1709,7 +1762,7 @@ export const titleJobInput = internalQuery({
   handler: async (ctx, { threadId, replyId, now }) => {
     const thread = await ctx.db.get("threads", threadId);
     const reply = await ctx.db.get("messages", replyId);
-    const firstId = reply?.ancestorIds[0];
+    const firstId = reply && (await ancestorIds(ctx, reply))[0];
     const question = firstId && (await ctx.db.get("messages", firstId));
     if (!thread || !reply || !question) return null;
     const sideJob = await sideJobModelFor(ctx, thread);

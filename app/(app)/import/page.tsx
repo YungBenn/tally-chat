@@ -3,13 +3,14 @@
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { useRef, useState } from "react";
-import ChatShell from "@/components/ChatShell";
+import AppPage from "@/components/ChatShell";
 import { IconFileUpload } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Badge, ProgressBar, type BadgeTone } from "@/components/ui/feedback";
 import { Select } from "@/components/ui/fields";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { uploadFile } from "@/lib/uploadFile";
 
 const SOURCE = { chatgpt: "ChatGPT", claude: "Claude" } as const;
 const TONE: Record<
@@ -56,25 +57,17 @@ export default function ImportPage() {
     if (!file || !selected) return;
     setBusy(true);
     setError(null);
+    // Decided before the try: React Compiler can't compile a `||` or `finally` in one.
+    const contentType = file.type || "application/json";
+    const [providerId, modelId] = selected.split("|");
     try {
-      const res = await fetch(await uploadUrl(), {
-        method: "POST",
-        headers: { "Content-Type": file.type || "application/json" },
-        body: file,
-      });
-      if (!res.ok) throw new Error("Could not upload the file");
-      const { storageId } = (await res.json()) as {
-        storageId: Id<"_storage">;
-      };
-      const [providerId, modelId] = selected.split("|");
+      const storageId = await uploadFile(await uploadUrl(), file, "Could not upload the file", contentType);
       await start({
         storageId,
         fileName: file.name,
         providerId: providerId as Id<"providers">,
         modelId,
       });
-      setFile(null);
-      if (fileInput.current) fileInput.current.value = "";
     } catch (err) {
       setError(
         err instanceof ConvexError
@@ -83,13 +76,16 @@ export default function ImportPage() {
             ? err.message
             : "Could not start the import",
       );
-    } finally {
       setBusy(false);
+      return;
     }
+    setBusy(false);
+    setFile(null);
+    if (fileInput.current) fileInput.current.value = "";
   }
 
   return (
-    <ChatShell>
+    <AppPage>
       <div className="tc-page">
         <div className="tc-page-col max-w-[800px]">
           <div>
@@ -223,6 +219,6 @@ export default function ImportPage() {
           )}
         </div>
       </div>
-    </ChatShell>
+    </AppPage>
   );
 }

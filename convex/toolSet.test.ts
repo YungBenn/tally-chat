@@ -1,5 +1,4 @@
 /// <reference types="vite/client" />
-import persistentTextStreaming from "@convex-dev/persistent-text-streaming/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
@@ -35,7 +34,6 @@ const read = { name: "read.file", inputSchema: JSON.stringify({ type: "object" }
 
 async function setup() {
   const t = convexTest(schema, modules);
-  persistentTextStreaming.register(t);
   const ownerId = await t.run((ctx) => ctx.db.insert("users", { email: "owner" }));
   const apiKeyEncrypted = await t.run(() => encryptSecret("sk"));
   const base = { ownerId, apiKeyEncrypted, detected: "", keyCheckedAt: 0 };
@@ -150,6 +148,16 @@ describe("freezing a tool set", () => {
     await expect(s.owner.mutation(api.chat.send, { threadId: d, content: "Hi", tools: [{ serverId: s.docsId, tool: "search" }] })).rejects.toThrow("can't call tools");
     await s.send(d, "Hi"); // the default on a tool-less model is no tools
     expect(s.anthropicBodies()[2].tools).toBeUndefined();
+  });
+
+  test("a thread started in one step freezes the tools picked before its first send", async () => {
+    const s = await setup();
+    const threadId = await s.owner.mutation(api.chat.startThread, {
+      providerId: s.anthropicId, modelId: "claude-sonnet-5-5", content: "Hi", tools: [{ serverId: s.docsId, tool: "read.file" }],
+    });
+    await s.t.finishAllScheduledFunctions(() => {});
+    expect(s.anthropicBodies()[0].tools!.map((x) => x.name)).toEqual(["docs__read_file"]);
+    expect((await s.t.run((ctx) => ctx.db.get("threads", threadId)))!.toolSet!.map((x) => x.name)).toEqual(["docs__read_file"]);
   });
 
   test("a model without tools gets none; the Providers list says which models can call tools", async () => {

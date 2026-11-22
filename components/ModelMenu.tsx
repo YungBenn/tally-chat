@@ -10,7 +10,8 @@ import {
   IconStarFilled,
   IconTool,
 } from "@tabler/icons-react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQueries, useQuery } from "convex/react";
+import { makeUseQueryWithStatus } from "convex-helpers/react";
 import { useRef, useState } from "react";
 import { Popover } from "@/components/ui/overlay";
 import { api } from "@/convex/_generated/api";
@@ -19,6 +20,9 @@ import { usd } from "@/lib/format";
 import { SHORTCUTS } from "@/lib/shortcuts";
 import { useShortcut } from "@/lib/useShortcut";
 import { cn } from "@/lib/utils";
+
+// useQuery that returns a failure instead of throwing it.
+const useQueryWithStatus = makeUseQueryWithStatus(useQueries);
 
 export type ModelChoice = { providerId: Id<"providers">; modelId: string };
 
@@ -53,6 +57,10 @@ export type PickerModel = ModelChoice & {
 };
 
 type View = "favorites" | "all" | Id<"providers">;
+
+// A row index kept within 0..last. Outside ModelPicker because calling Math.max in two places
+// there trips an internal React Compiler error.
+const clampIndex = (i: number, last: number) => Math.min(Math.max(i, 0), last);
 
 /**
  * The model picker: search, then Favorites, All or one provider, then the models.
@@ -96,7 +104,7 @@ export function ModelPicker({
       : view === "all" || (view === "favorites" ? m.favorite : m.providerId === view),
   );
   const isSelected = (m: PickerModel) => !!selected && sameModel(m, selected);
-  const current = Math.min(active ?? Math.max(0, shown.findIndex(isSelected)), shown.length - 1);
+  const current = clampIndex(active ?? shown.findIndex(isSelected), shown.length - 1);
   // The provider is clear from the tab; elsewhere each row names it.
   const showProvider = providers.length > 1 && (words.length > 0 || view === "favorites" || view === "all");
 
@@ -155,7 +163,7 @@ export function ModelPicker({
               if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                 e.preventDefault();
                 const step = e.key === "ArrowDown" ? 1 : -1;
-                setActive(Math.min(Math.max(current + step, 0), shown.length - 1));
+                setActive(clampIndex(current + step, shown.length - 1));
               } else if (e.key === "Enter" && shown[current]) {
                 e.preventDefault();
                 pick(shown[current]);
@@ -271,6 +279,7 @@ export default function ModelMenu({
   selected,
   onPick,
   hotkey,
+  defaultOpen = false,
 }: {
   trigger: React.ReactElement<Record<string, unknown>>;
   title: string;
@@ -281,14 +290,17 @@ export default function ModelMenu({
   selected?: ModelChoice;
   onPick: (choice: ModelChoice) => void;
   hotkey?: boolean;
+  defaultOpen?: boolean; // mounted by a press (MountOnOpen): open right away
 }) {
   // When the picker opened: the thread's cache state is judged at that moment.
-  const [openedAt, setOpenedAt] = useState<number | null>(null);
+  const [openedAt, setOpenedAt] = useState<number | null>(() => (defaultOpen ? Date.now() : null));
   const providers = useQuery(api.providers.list);
-  const allRows = useQuery(
+  // A failure stays inside the menu: useQuery would throw it to the thread page's error boundary.
+  const estimates = useQueryWithStatus(
     api.inspector.modelEstimates,
     openedAt === null ? "skip" : { threadId, now: openedAt, draftTokens, maxOutputTokens, retryOf },
   );
+  const allRows = estimates.data;
   // A thread that uses tools can only be answered by models that can call them.
   const tools = useQuery(api.chat.threadTools, openedAt === null ? "skip" : { threadId });
   const needTools = (tools?.picks.length ?? 0) > 0;
@@ -323,7 +335,7 @@ export default function ModelMenu({
       models={models}
       selected={selected}
       onPick={onPick}
-      loading="Pricing…"
+      loading={estimates.isError ? "Couldn't price the models. Try again later." : "Pricing…"}
       notice={
         hidden > 0 &&
         `${hidden} ${hidden === 1 ? "model is" : "models are"} hidden: this thread uses tools they can't call.`

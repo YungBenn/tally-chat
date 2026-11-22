@@ -78,3 +78,64 @@ test("the cache-break confirmation threshold defaults to $0.10 and refuses negat
     owner.mutation(api.settings.setCacheBreakConfirm, { microUsd: -1 }),
   ).rejects.toThrow("$0 or more");
 });
+
+describe("new-thread defaults", () => {
+  async function withProvider() {
+    const { t, owner } = await setup();
+    const providerId = await t.run(async (ctx) => {
+      const ownerId = (await ctx.db.query("users").first())!._id;
+      return ctx.db.insert("providers", {
+        ownerId,
+        name: "A",
+        apiStyle: "anthropic",
+        baseUrl: "https://api.anthropic.com",
+        apiKeyEncrypted: "x",
+        detected: "",
+        keyCheckedAt: 0,
+        models: [
+          { id: "claude-sonnet-5-5", displayName: "Sonnet", hidden: false },
+          { id: "claude-old", displayName: "Old", hidden: true },
+        ],
+      });
+    });
+    return { owner, providerId };
+  }
+
+  test("default model and effort are unset until chosen, then saved and cleared", async () => {
+    const { owner, providerId } = await withProvider();
+    const before = await owner.query(api.settings.get, {});
+    expect(before.defaultModel).toBeNull();
+    expect(before.defaultEffort).toBeNull();
+
+    await owner.mutation(api.settings.setDefaultModel, {
+      defaultModel: { providerId, modelId: "claude-sonnet-5-5" },
+    });
+    await owner.mutation(api.settings.setDefaultEffort, { effort: "high" });
+    const after = await owner.query(api.settings.get, {});
+    expect(after.defaultModel).toEqual({
+      providerId,
+      modelId: "claude-sonnet-5-5",
+    });
+    expect(after.defaultEffort).toBe("high");
+
+    await owner.mutation(api.settings.setDefaultModel, { defaultModel: null });
+    await owner.mutation(api.settings.setDefaultEffort, { effort: null });
+    const cleared = await owner.query(api.settings.get, {});
+    expect(cleared.defaultModel).toBeNull();
+    expect(cleared.defaultEffort).toBeNull();
+  });
+
+  test("the default model must be a visible model of the owner's provider", async () => {
+    const { owner, providerId } = await withProvider();
+    await expect(
+      owner.mutation(api.settings.setDefaultModel, {
+        defaultModel: { providerId, modelId: "claude-old" },
+      }),
+    ).rejects.toThrow("Model not available");
+    await expect(
+      owner.mutation(api.settings.setDefaultModel, {
+        defaultModel: { providerId, modelId: "missing" },
+      }),
+    ).rejects.toThrow("Model not available");
+  });
+});

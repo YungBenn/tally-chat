@@ -1,5 +1,4 @@
 /// <reference types="vite/client" />
-import persistentTextStreaming from "@convex-dev/persistent-text-streaming/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import chatgptExport from "../test/fixtures/chatgpt-conversations.json";
@@ -30,7 +29,6 @@ afterEach(() => fake?.restore());
 
 async function setup() {
   const t = convexTest(schema, modules);
-  persistentTextStreaming.register(t);
   const ownerId = await t.run((ctx) =>
     ctx.db.insert("users", { email: "owner" }),
   );

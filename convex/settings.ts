@@ -1,5 +1,5 @@
 import { ConvexError, v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   internalQuery,
   mutation,
@@ -8,6 +8,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { condenseSettings } from "./lib/condense";
+import { effortValidator } from "./lib/effort";
 import { dayIn } from "./lib/rollups";
 import { MAX_INSTRUCTIONS_LENGTH } from "./lib/systemPrompts";
 import { requireOwner } from "./owner";
@@ -45,6 +46,8 @@ export const get = query({
     searchUrl: v.string(),
     allowlistedHosts: v.array(v.string()),
     sideJobModel: v.union(v.null(), sideJobModelValidator),
+    defaultModel: v.union(v.null(), sideJobModelValidator),
+    defaultEffort: v.union(v.null(), effortValidator),
     timeZone: v.union(v.null(), v.string()),
     keepaliveEnabled: v.boolean(),
     cacheBreakConfirmMicroUsd: v.number(),
@@ -62,6 +65,8 @@ export const get = query({
       searchUrl: settings?.searchUrl ?? "",
       allowlistedHosts: settings?.allowlistedHosts ?? [],
       sideJobModel: settings?.sideJobModel ?? null,
+      defaultModel: settings?.defaultModel ?? null,
+      defaultEffort: settings?.defaultEffort ?? null,
       timeZone: settings?.timeZone ?? null,
       keepaliveEnabled: settings?.keepaliveEnabled !== false,
       cacheBreakConfirmMicroUsd:
@@ -199,33 +204,72 @@ export const setTimeZone = mutation({
   },
 });
 
+// A model the owner can pick: a visible model of one of their providers.
+async function assertModelAvailable(
+  ctx: MutationCtx,
+  ownerId: Id<"users">,
+  { providerId, modelId }: { providerId: Id<"providers">; modelId: string },
+) {
+  const provider = await ctx.db.get("providers", providerId);
+  if (
+    !provider ||
+    provider.ownerId !== ownerId ||
+    !provider.models.some((m) => m.id === modelId && !m.hidden)
+  )
+    throw new ConvexError("Model not available");
+}
+
+async function patchSettings(
+  ctx: MutationCtx,
+  ownerId: Id<"users">,
+  fields: Partial<Doc<"settings">>,
+) {
+  const settings = await settingsFor(ctx, ownerId);
+  if (settings) await ctx.db.patch("settings", settings._id, fields);
+  else
+    await ctx.db.insert("settings", {
+      ownerId,
+      allowlistedHosts: [],
+      ...fields,
+    });
+}
+
 // null resets to the default: the cheapest priced model of each thread's provider.
 export const setSideJobModel = mutation({
   args: { sideJobModel: v.union(v.null(), sideJobModelValidator) },
   returns: v.null(),
   handler: async (ctx, { sideJobModel }) => {
     const ownerId = await requireOwner(ctx);
-    if (sideJobModel) {
-      const provider = await ctx.db.get("providers", sideJobModel.providerId);
-      if (
-        !provider ||
-        provider.ownerId !== ownerId ||
-        !provider.models.some((m) => m.id === sideJobModel.modelId && !m.hidden)
-      ) {
-        throw new ConvexError("Model not available");
-      }
-    }
-    const settings = await settingsFor(ctx, ownerId);
-    if (settings)
-      await ctx.db.patch("settings", settings._id, {
-        sideJobModel: sideJobModel ?? undefined,
-      });
-    else
-      await ctx.db.insert("settings", {
-        ownerId,
-        allowlistedHosts: [],
-        sideJobModel: sideJobModel ?? undefined,
-      });
+    if (sideJobModel) await assertModelAvailable(ctx, ownerId, sideJobModel);
+    await patchSettings(ctx, ownerId, {
+      sideJobModel: sideJobModel ?? undefined,
+    });
+    return null;
+  },
+});
+
+// The model a new thread starts on; null resets to the first listed model.
+export const setDefaultModel = mutation({
+  args: { defaultModel: v.union(v.null(), sideJobModelValidator) },
+  returns: v.null(),
+  handler: async (ctx, { defaultModel }) => {
+    const ownerId = await requireOwner(ctx);
+    if (defaultModel) await assertModelAvailable(ctx, ownerId, defaultModel);
+    await patchSettings(ctx, ownerId, {
+      defaultModel: defaultModel ?? undefined,
+    });
+    return null;
+  },
+});
+
+// The effort a new thread starts at; null resets to DEFAULT_EFFORT.
+export const setDefaultEffort = mutation({
+  args: { effort: v.union(v.null(), effortValidator) },
+  returns: v.null(),
+  handler: async (ctx, { effort }) => {
+    await patchSettings(ctx, await requireOwner(ctx), {
+      defaultEffort: effort ?? undefined,
+    });
     return null;
   },
 });

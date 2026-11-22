@@ -2,14 +2,13 @@
 
 import { IconPlus, IconX } from "@tabler/icons-react";
 import { useMutation, useQuery } from "convex/react";
-import { ConvexError } from "convex/values";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import BudgetBanner, { useSendingPaused } from "@/components/BudgetBanner";
 import BrandMark from "@/components/BrandMark";
-import ChatShell from "@/components/ChatShell";
+import AppPage from "@/components/ChatShell";
 import { EmptyState } from "@/components/ui/feedback";
 import Composer from "@/components/Composer";
 import ModeControl from "@/components/ModeControl";
@@ -22,6 +21,7 @@ import { NewThreadCostStrip } from "@/components/CostStrip";
 import EffortControl from "@/components/EffortControl";
 import { ModelPicker, ModelPickerButton } from "@/components/ModelMenu";
 import { Button as UiButton, IconButton } from "@/components/ui/button";
+import { rethrowSendError } from "@/lib/sendError";
 import { SHORTCUTS } from "@/lib/shortcuts";
 import { useShortcut } from "@/lib/useShortcut";
 import { estimateTokens, usd } from "@/lib/format";
@@ -142,8 +142,7 @@ function NewThreadModelMenu({
 
 export default function NewThread() {
   const providers = useQuery(api.providers.list);
-  const createThread = useMutation(api.chat.createThread);
-  const send = useMutation(api.chat.send);
+  const startThread = useMutation(api.chat.startThread);
   const webSearch = useWebSearch();
   const router = useRouter();
   const options = (providers ?? []).flatMap((p) =>
@@ -154,14 +153,23 @@ export default function NewThread() {
         label: `${p.name} · ${m.displayName}`,
       })),
   );
+  const settings = useQuery(api.settings.get);
   const [choice, setChoice] = useState<string | null>(null);
   const paused = useSendingPaused();
   const [draft, setDraft] = useState("");
   const [draftImages, setDraftImages] = useState<MessageImage[]>([]);
   const [draftDocTokens, setDraftDocTokens] = useState(0);
   const [mode, setMode] = useState<OutputMode>("normal");
-  const [effort, setEffort] = useState<Effort>(DEFAULT_EFFORT);
-  const selected = choice ?? options[0]?.value;
+  const [effortChoice, setEffort] = useState<Effort | null>(null);
+  const effort = effortChoice ?? settings?.defaultEffort ?? DEFAULT_EFFORT;
+  // The owner's default model while it's still listed, else the first one.
+  const defaultModel =
+    settings?.defaultModel &&
+    `${settings.defaultModel.providerId}|${settings.defaultModel.modelId}`;
+  const selected =
+    choice ??
+    options.find((o) => o.value === defaultModel)?.value ??
+    options[0]?.value;
   // Effort is an Anthropic-style setting (spec phase 4); other providers get no control.
   const anthropic =
     providers?.find((p) => p._id === selected?.split("|")[0])?.apiStyle ===
@@ -173,7 +181,7 @@ export default function NewThread() {
   const toolPicker = useToolPicker(selectedModel?.tools === true);
 
   return (
-    <ChatShell>
+    <AppPage>
       <div className="tc-home tc-grid-bg">
         {providers && options.length === 0 ? (
           <EmptyState
@@ -259,33 +267,22 @@ export default function NewThread() {
             onSend={async (text, images, documents) => {
               if (!selected) return;
               const [providerId, modelId] = selected.split("|");
-              try {
-                const threadId = await createThread({
-                  providerId: providerId as Id<"providers">,
-                  modelId,
-                  effort: anthropic ? effort : undefined,
-                });
-                await send({
-                  threadId,
-                  content: text,
-                  mode,
-                  images: images.length ? images : undefined,
-                  search: webSearch.on || undefined,
-                  documents: documents.length ? documents : undefined,
-                  tools: toolPicker.picks,
-                });
-                router.push(`/t/${threadId}`);
-              } catch (err) {
-                throw new Error(
-                  err instanceof ConvexError
-                    ? String(err.data)
-                    : "Could not send",
-                );
-              }
+              const threadId = await startThread({
+                providerId: providerId as Id<"providers">,
+                modelId,
+                effort: anthropic ? effort : undefined,
+                content: text,
+                mode,
+                images: images.length ? images : undefined,
+                search: webSearch.on || undefined,
+                documents: documents.length ? documents : undefined,
+                tools: toolPicker.picks,
+              }).catch(rethrowSendError);
+              router.push(`/t/${threadId}`);
             }}
           />
         )}
       </div>
-    </ChatShell>
+    </AppPage>
   );
 }

@@ -2,7 +2,8 @@
 
 import { IconAlertTriangle, IconLock } from "@tabler/icons-react";
 import { useMutation } from "convex/react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, useReducedMotion } from "motion/react";
+import * as m from "motion/react-m";
 import { useState } from "react";
 import { useTodayBudget } from "@/components/BudgetMeter";
 import { Button } from "@/components/ui/button";
@@ -104,7 +105,7 @@ export default function BudgetBanner() {
   return (
     <AnimatePresence initial={false}>
       {b && state && (
-        <motion.div
+        <m.div
           key={state}
           variants={v}
           initial="initial"
@@ -125,7 +126,7 @@ export default function BudgetBanner() {
               setDismissed(b.today);
             }}
           />
-        </motion.div>
+        </m.div>
       )}
     </AnimatePresence>
   );

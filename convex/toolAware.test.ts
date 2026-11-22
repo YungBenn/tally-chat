@@ -1,5 +1,4 @@
 /// <reference types="vite/client" />
-import persistentTextStreaming from "@convex-dev/persistent-text-streaming/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
@@ -8,6 +7,7 @@ import { fakeMcp } from "../test/fakeMcp";
 import { messageDelta, messageStart, messageStop, oaiDelta, oaiDone, oaiFinish, sse, textDelta, toolUse, toolUseStop } from "../test/sse";
 import { api } from "./_generated/api";
 import { encryptSecret } from "./lib/vault";
+import { threadState } from "./threadState";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -24,7 +24,6 @@ const search = { name: "search", description: "Search", inputSchema: JSON.string
 
 async function setup() {
   const t = convexTest(schema, modules);
-  persistentTextStreaming.register(t);
   const ownerId = await t.run((ctx) => ctx.db.insert("users", { email: "owner" }));
   const apiKeyEncrypted = await t.run(() => encryptSecret("sk"));
   const base = { ownerId, apiKeyEncrypted, detected: "", keyCheckedAt: 0 };
@@ -85,12 +84,12 @@ describe("a thread that uses tools", () => {
     await expect(s.owner.mutation(api.chat.retry, { messageId: reply._id, model: { providerId: s.openaiId, modelId: "plain" } })).rejects.toThrow("can't call the tools this thread uses");
     await expect(s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "More", model: { providerId: s.openaiId, modelId: "plain" } })).rejects.toThrow("can't call the tools");
 
-    const touchedBefore = (await s.t.run((ctx) => ctx.db.get("threads", s.threadId)))!.cacheTouchedAt;
+    const touchedBefore = (await s.t.run((ctx) => threadState(ctx, s.threadId)))?.cacheTouchedAt;
     await s.owner.mutation(api.chat.retry, { messageId: reply._id, model: { providerId: s.openaiId, modelId: "gpt-5" } });
     await s.t.finishAllScheduledFunctions(() => {});
     const wire = fake!.requests.findLast((r) => r.url.includes("chat/completions"))!.body as { tools: { function: { name: string } }[]; messages: { role: string }[] };
     expect(wire.tools.map((x) => x.function.name)).toEqual(["docs__search"]);
-    expect((await s.t.run((ctx) => ctx.db.get("threads", s.threadId)))!.cacheTouchedAt).toBe(touchedBefore); // a one-off model never touches the thread's cache
+    expect((await s.t.run((ctx) => threadState(ctx, s.threadId)))?.cacheTouchedAt).toBe(touchedBefore); // a one-off model never touches the thread's cache
   });
 
   test("a thread without tools sends to any model", async () => {

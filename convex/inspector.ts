@@ -13,8 +13,11 @@ import {
   cacheExpiresAt,
   cacheState,
   cacheTtlValidator,
+  requestCacheTtl,
 } from "./lib/cacheStatus";
-import { assembleHistory } from "./lib/context";
+import { threadState } from "./threadState";
+import { ancestorIds } from "./lib/ancestors";
+import { assembleHistory, type History } from "./lib/context";
 import { condensePending, condensePlan } from "./condense";
 import { imageTokens } from "./lib/images";
 import {
@@ -97,6 +100,16 @@ export function nextPrices(
   };
 }
 
+// The cache lifetime the next send after `branch` asks for (as sendTo picks it): every price in
+// this file uses it, not the lifetime the last request asked for.
+async function nextCacheTtl(ctx: QueryCtx, ownerId: Id<"users">, branch: unknown[]) {
+  const settings = await ctx.db
+    .query("settings")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+    .unique();
+  return requestCacheTtl(settings?.keepaliveEnabled, branch.length + 1);
+}
+
 // The cost strip on a new thread: the system prompt and the draft go out as fresh input. Also
 // the provider's cheapest priced model, for the starting-model suggestion (spec phase 7).
 export const newThread = query({
@@ -143,8 +156,8 @@ export const newThread = query({
 });
 
 // Everything the inspector, the cost strip and the cache-break hints show for a thread, priced,
-// so the client only formats. Queries can't read the clock, so cache state comes back as times
-// for the client to judge with lib/cacheStatus.
+// so the client only formats. The cache's expiry and keepalive come from threadState.cache, so
+// presence doesn't re-run this.
 export const get = query({
   args: { threadId: v.id("threads") },
   returns: v.union(
@@ -152,10 +165,7 @@ export const get = query({
     v.object({
       cache: v.object({
         managed: v.boolean(), // Anthropic style: tally.chat places the breakpoints
-        expiresAt: v.union(v.null(), v.number()),
-        keepaliveScheduled: v.boolean(),
-        lastActiveAt: v.union(v.null(), v.number()),
-        ttl: cacheTtlValidator,
+        ttl: cacheTtlValidator, // the lifetime the next send asks for
         lastReadTokens: v.union(v.null(), v.number()), // the latest reply's reported cache read
       }),
       effort: v.union(v.null(), effortValidator), // what the next send uses; null outside Anthropic style
@@ -212,24 +222,20 @@ export const get = query({
     const branch = await activeBranch(ctx, thread);
     const replies = branch.filter((m) => m.role === "assistant" && m.usage);
 
-    const layers = await contextLayers(ctx, thread, branch);
-    const ttl = thread.cacheTtl ?? "5m";
+    // Built once per run: the layers, edit hints and both condense plans all read it.
+    const history = await assembleHistory(
+      ctx,
+      thread._id,
+      branch.map((m) => m._id),
+    );
+    const layers = await contextLayers(ctx, thread, branch, history);
+    const ttl = await nextCacheTtl(ctx, ownerId, branch);
     const prices = nextPrices(provider, thread.modelId, ttl);
     const recent = replies.slice(-RECENT_REPLIES);
 
     return {
       cache: {
         managed: provider?.apiStyle === "anthropic",
-        expiresAt: cacheExpiresAt(thread),
-        keepaliveScheduled: thread.keepaliveJobId
-          ? (
-              await ctx.db.system.get(
-                "_scheduled_functions",
-                thread.keepaliveJobId,
-              )
-            )?.state.kind === "pending"
-          : false,
-        lastActiveAt: thread.lastActiveAt ?? null,
         ttl,
         lastReadTokens:
           (() => {
@@ -258,10 +264,10 @@ export const get = query({
       },
       editHints:
         provider?.apiStyle === "anthropic" && prices
-          ? await editHints(ctx, thread, branch, layers, prices)
+          ? editHints(branch, history.checkpoint, layers, prices)
           : [],
-      condense: await condenseStatus(ctx, thread, branch),
-      condenseNow: await condenseNowEstimate(ctx, thread, branch),
+      condense: await condenseStatus(ctx, thread, branch, history),
+      condenseNow: await condenseNowEstimate(ctx, thread, branch, history),
       thread: await threadFigures(ctx, ownerId, threadId),
     };
   },
@@ -273,9 +279,10 @@ async function condenseNowEstimate(
   ctx: QueryCtx,
   thread: Doc<"threads">,
   branch: Doc<"messages">[],
+  history: History,
 ) {
   if (branch.some((m) => (m.status === "streaming" || m.status === "waiting"))) return null;
-  const plan = await condensePlan(ctx, thread, branch, true);
+  const plan = await condensePlan(ctx, thread, branch, true, history);
   if (plan.kind !== "ready") return null;
   return {
     costMicroUsd:
@@ -293,8 +300,9 @@ async function condenseStatus(
   ctx: QueryCtx,
   thread: Doc<"threads">,
   branch: Doc<"messages">[],
+  history: History,
 ) {
-  const plan = await condensePlan(ctx, thread, branch);
+  const plan = await condensePlan(ctx, thread, branch, false, history);
   const { inTokens } = plan;
   if (plan.kind === "off") return { state: "off" as const, inTokens };
   if (await condensePending(ctx, thread))
@@ -322,10 +330,9 @@ const MIN_HINT_MICRO_USD = 10_000; // under a cent isn't worth a hint
 // since older cache entries expire, so everything after them up to the message is a cache write.
 // Compared with continuing (the whole prefix read from cache), that's the extra cost. It can
 // overstate a very recent edit; it never understates one.
-async function editHints(
-  ctx: QueryCtx,
-  thread: Doc<"threads">,
+function editHints(
   branch: Doc<"messages">[],
+  checkpoint: Doc<"checkpoints"> | null,
   layers: { kind: string; tokens: number }[],
   p: { cacheRead: number; cacheWrite: number },
 ) {
@@ -337,11 +344,6 @@ async function editHints(
     .reduce((sum, l) => sum + l.tokens, 0);
   const checkpointLayer =
     layers.find((l) => l.kind === "checkpoint")?.tokens ?? 0;
-  const { checkpoint } = await assembleHistory(
-    ctx,
-    thread._id,
-    branch.map((m) => m._id),
-  );
   const cut = checkpoint
     ? branch.findIndex((m) => m._id === checkpoint.coversUpToId) + 1
     : 0;
@@ -386,6 +388,7 @@ export async function contextLayers(
   ctx: QueryCtx,
   thread: Doc<"threads">,
   branch: Doc<"messages">[],
+  built?: History, // the branch's history, when the caller already has it
 ) {
   const system = estimateTokens(
     systemPrompt(thread.systemPromptVersion, thread.instructions) ?? "",
@@ -414,11 +417,13 @@ export async function contextLayers(
   ];
   if (branch.length === 0) return layers;
 
-  const history = await assembleHistory(
-    ctx,
-    thread._id,
-    branch.map((m) => m._id),
-  );
+  const history =
+    built ??
+    (await assembleHistory(
+      ctx,
+      thread._id,
+      branch.map((m) => m._id),
+    ));
   const layerText = history.messages.slice(0, history.layerEnd);
   // Turn numbers count user messages on the branch; verbatim turns start after the checkpoint.
   const cut = history.checkpoint
@@ -623,13 +628,14 @@ export const toolChange = query({
     const oldToolTokens = layers.find((l) => l.kind === "tools")?.tokens ?? 0;
     const current = layers.reduce((sum, l) => sum + l.tokens, 0);
     const prefixTokens = current - oldToolTokens + newToolTokens;
-    const p = nextPrices(provider, thread.modelId, thread.cacheTtl ?? "5m");
+    const state = await threadState(ctx, threadId);
+    const p = nextPrices(provider, thread.modelId, await nextCacheTtl(ctx, ownerId, branch));
     if (!p) return { newToolTokens, prefixTokens, extraMicroUsd: null };
     // Anthropic-style: the rewrite is a cache write, and continuing reads while the cache is warm.
     // Elsewhere the provider caches on its own: a rewrite pays input prices.
     const managed = provider?.apiStyle === "anthropic";
     const warm = managed
-      ? cacheState(cacheExpiresAt(thread), now).state !== "cold"
+      ? cacheState(cacheExpiresAt(state ?? {}), now).state !== "cold"
       : true;
     const rewrite = prefixTokens * (managed ? p.cacheWrite : p.input);
     const continuing = current * (warm ? p.cacheRead : managed ? p.cacheWrite : p.input);
@@ -678,7 +684,7 @@ export const modelEstimates = query({
       // A retry repeats the branch before the reply's question, then the question itself.
       const reply = await ctx.db.get("messages", retryOf);
       if (!reply || reply.threadId !== threadId || !reply.parentId) return [];
-      const ids = reply.ancestorIds.slice(0, -1);
+      const ids = (await ancestorIds(ctx, reply)).slice(0, -1);
       branch = (
         await Promise.all(ids.map((id) => ctx.db.get("messages", id)))
       ).filter((m): m is Doc<"messages"> => m !== null);
@@ -701,7 +707,9 @@ export const modelEstimates = query({
           ),
         )
       : 0;
-    const warm = cacheState(cacheExpiresAt(thread), now).state !== "cold";
+    const state = await threadState(ctx, threadId);
+    const warm = cacheState(cacheExpiresAt(state ?? {}), now).state !== "cold";
+    const ttl = await nextCacheTtl(ctx, ownerId, branch);
 
     const providers = await ctx.db
       .query("providers")
@@ -714,11 +722,7 @@ export const modelEstimates = query({
           const own =
             provider._id === thread.providerId && m.id === thread.modelId;
           const anthropic = provider.apiStyle === "anthropic";
-          const p = nextPrices(
-            provider,
-            m.id,
-            own ? (thread.cacheTtl ?? "5m") : "5m",
-          );
+          const p = nextPrices(provider, m.id, ttl);
           const historyPrice = !p
             ? 0
             : !anthropic

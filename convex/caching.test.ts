@@ -1,5 +1,4 @@
 /// <reference types="vite/client" />
-import persistentTextStreaming from "@convex-dev/persistent-text-streaming/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { cacheState } from "./lib/cacheStatus";
@@ -33,7 +32,6 @@ const breakpoints = (body: unknown) => [...JSON.stringify(body).matchAll(/"cache
 
 async function setup(usage: object = { input_tokens: 10, cache_read_input_tokens: 0, output_tokens: 2 }) {
   const t = convexTest(schema, modules);
-  persistentTextStreaming.register(t);
   const ownerId = await t.run((ctx) => ctx.db.insert("users", { email: "owner" }));
   const apiKeyEncrypted = await t.run(() => encryptSecret("sk"));
   const base = { ownerId, apiKeyEncrypted, detected: "", keyCheckedAt: 0 };
@@ -141,7 +139,7 @@ describe("cache-aware Anthropic requests", () => {
 describe("cache status", () => {
   const caching = { input_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 2000, output_tokens: 2 };
   const status = async (s: Awaited<ReturnType<typeof setup>>, thread = s.threadId) =>
-    (await s.owner.query(api.chat.getThread, { threadId: thread }))!.cacheExpiresAt;
+    (await s.owner.query(api.threadState.cache, { threadId: thread }))!.expiresAt;
 
   test("a never-touched thread is cold", async () => {
     const s = await setup(caching);

@@ -1,5 +1,4 @@
 /// <reference types="vite/client" />
-import persistentTextStreaming from "@convex-dev/persistent-text-streaming/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
@@ -18,6 +17,7 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { CURRENT_SYSTEM_PROMPT_VERSION, SYSTEM_PROMPTS } from "./lib/systemPrompts";
 import { encryptSecret } from "./lib/vault";
+import { ancestorIds } from "./lib/ancestors";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -36,7 +36,6 @@ const SYSTEM = Math.ceil(SYSTEM_PROMPTS[CURRENT_SYSTEM_PROMPT_VERSION].length / 
 
 async function setup(replyUsages: object[], model = "claude-sonnet-5-5") {
   const t = convexTest(schema, modules);
-  persistentTextStreaming.register(t);
   const ownerId = await t.run((ctx) =>
     ctx.db.insert("users", { email: "owner" }),
   );
@@ -229,7 +228,7 @@ describe("the inspector's context layers", () => {
         ownerId: s.ownerId,
         threadId: s.threadId,
         parentId: leaf._id,
-        ancestorIds: [...leaf.ancestorIds, leaf._id],
+        ancestorIds: [...(await ancestorIds(ctx, leaf)), leaf._id],
         role: "user",
         content: "x".repeat(400),
         status: "done",
@@ -247,18 +246,21 @@ describe("the inspector's context layers", () => {
 });
 
 describe("the next send's prices", () => {
-  test("priced per token for the thread's model, with the cache write at the thread's lifetime", async () => {
-    const s = await setup([]);
+  test("priced per token for the thread's model, with the cache write at the next send's lifetime", async () => {
+    const s = await setup([usage({ cache_creation_input_tokens: 600 })]);
     expect((await s.inspect()).next.prices).toEqual({
       input: 2e-6,
       output: 1e-5,
       cacheRead: 1e-7,
       cacheWrite: 2.5e-6,
     });
-    await s.t.run((ctx) =>
-      ctx.db.patch("threads", s.threadId, { cacheTtl: "1h" }),
-    );
+    expect((await s.inspect()).cache.ttl).toBe("5m");
+    // Keepalive off: from the second turn the next send asks for the 1-hour lifetime.
+    await s.owner.mutation(api.settings.setKeepaliveEnabled, { enabled: false });
+    expect((await s.inspect()).next.prices?.cacheWrite).toBe(2.5e-6); // the first turn stays on 5 minutes
+    await s.send("Hi");
     expect((await s.inspect()).next.prices?.cacheWrite).toBe(4e-6);
+    expect((await s.inspect()).cache.ttl).toBe("1h");
   });
 
   test("free providers price at 0; an unknown model has no price", async () => {
@@ -527,7 +529,7 @@ describe("image cost", () => {
       const thread = (await ctx.db.get("threads", s.threadId))!;
       const leaf = (await ctx.db.get("messages", thread.activeLeafId!))!;
       const id = await ctx.db.insert("messages", {
-        ownerId: s.ownerId, threadId: s.threadId, parentId: leaf._id, ancestorIds: [...leaf.ancestorIds, leaf._id], role: "user",
+        ownerId: s.ownerId, threadId: s.threadId, parentId: leaf._id, ancestorIds: [...(await ancestorIds(ctx, leaf)), leaf._id], role: "user",
         content: "x".repeat(40), status: "done", pinned: false,
         images: [
           { storageId, mediaType: "image/png", width: 800, height: 600 }, // 640

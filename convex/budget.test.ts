@@ -1,5 +1,4 @@
 /// <reference types="vite/client" />
-import persistentTextStreaming from "@convex-dev/persistent-text-streaming/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
@@ -46,7 +45,6 @@ async function setup(
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(Date.parse("2026-11-14T20:00:00Z")); // 03:00 on Nov 15 in Jakarta
   const t = convexTest(schema, modules);
-  persistentTextStreaming.register(t);
   const ownerId = await t.run((ctx) =>
     ctx.db.insert("users", { email: "owner" }),
   );
@@ -108,7 +106,7 @@ async function setup(
     fake!.requests.filter(
       (r) => (r.body as { max_tokens: number }).max_tokens === 30,
     ).length;
-  return { t, owner, threadId, send, messages, titleCalls };
+  return { t, owner, providerId, threadId, send, messages, titleCalls };
 }
 
 describe("the soft daily budget", () => {
@@ -130,6 +128,11 @@ describe("the soft daily budget", () => {
       s.owner.mutation(api.chat.edit, { messageId: user._id, content: "Uno" }),
     ).rejects.toThrow("Daily budget reached");
     expect(await s.messages()).toHaveLength(2); // nothing was appended
+    const threads = () => s.t.run(async (ctx) => (await ctx.db.query("threads").collect()).length);
+    await expect(
+      s.owner.mutation(api.chat.startThread, { providerId: s.providerId, modelId: "claude-sonnet-5-5", content: "New" }),
+    ).rejects.toThrow("Daily budget reached");
+    expect(await threads()).toBe(1); // no empty thread left behind
 
     await s.owner.mutation(api.settings.overrideBudgetToday, {});
     expect(

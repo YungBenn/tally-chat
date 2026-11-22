@@ -20,6 +20,7 @@ import type * as importActions from "../importActions.js";
 import type * as imports from "../imports.js";
 import type * as inspector from "../inspector.js";
 import type * as keepalive from "../keepalive.js";
+import type * as lib_ancestors from "../lib/ancestors.js";
 import type * as lib_anthropic from "../lib/anthropic.js";
 import type * as lib_budget from "../lib/budget.js";
 import type * as lib_cacheStatus from "../lib/cacheStatus.js";
@@ -50,6 +51,7 @@ import type * as providerActions from "../providerActions.js";
 import type * as providers from "../providers.js";
 import type * as search from "../search.js";
 import type * as settings from "../settings.js";
+import type * as threadState from "../threadState.js";
 import type * as toolServerActions from "../toolServerActions.js";
 import type * as toolServers from "../toolServers.js";
 import type * as usage from "../usage.js";
@@ -74,6 +76,7 @@ declare const fullApi: ApiFromModules<{
   imports: typeof imports;
   inspector: typeof inspector;
   keepalive: typeof keepalive;
+  "lib/ancestors": typeof lib_ancestors;
   "lib/anthropic": typeof lib_anthropic;
   "lib/budget": typeof lib_budget;
   "lib/cacheStatus": typeof lib_cacheStatus;
@@ -104,6 +107,7 @@ declare const fullApi: ApiFromModules<{
   providers: typeof providers;
   search: typeof search;
   settings: typeof settings;
+  threadState: typeof threadState;
   toolServerActions: typeof toolServerActions;
   toolServers: typeof toolServers;
   usage: typeof usage;
@@ -136,6 +140,4 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {
-  persistentTextStreaming: import("@convex-dev/persistent-text-streaming/_generated/component.js").ComponentApi<"persistentTextStreaming">;
-};
+export declare const components: {};

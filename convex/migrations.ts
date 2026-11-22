@@ -2,7 +2,9 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
+import { ancestorIds } from "./lib/ancestors";
 import { savedFor } from "./lib/metering";
+import { patchThreadState, threadState } from "./threadState";
 import { dayIn } from "./lib/rollups";
 import { USAGE_FIELDS, type Usage } from "./lib/usage";
 
@@ -97,6 +99,110 @@ export const backfillThreadStartedAt = internalMutation({
     }
     if (!page.isDone)
       await ctx.scheduler.runAfter(0, internal.migrations.backfillThreadStartedAt, { cursor: page.continueCursor });
+    return null;
+  },
+});
+
+const MOVE_BATCH = 200;
+
+// Phase 12: moves each thread's presence and cache bookkeeping to its threadStates row, in
+// batches, and clears it from the thread. A value already on the state row was written after the
+// deploy, so it is newer and stays. Runs on every self-host deploy (selfhost/setup.ts); moved
+// threads have nothing left to move, so it's safe to run again. Locally:
+// `npx convex run migrations:moveThreadState`.
+export const moveThreadState = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.null(),
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db
+      .query("threads")
+      .paginate({ numItems: MOVE_BATCH, cursor: cursor ?? null });
+    for (const t of page.page) {
+      const moved = {
+        lastActiveAt: t.lastActiveAt,
+        cacheTouchedAt: t.cacheTouchedAt,
+        cacheTtl: t.cacheTtl,
+        keepaliveJobId: t.keepaliveJobId,
+      };
+      if (Object.values(moved).every((x) => x === undefined)) continue;
+      const state = await threadState(ctx, t._id);
+      await patchThreadState(ctx, t._id, {
+        lastActiveAt: state?.lastActiveAt ?? moved.lastActiveAt,
+        cacheTouchedAt: state?.cacheTouchedAt ?? moved.cacheTouchedAt,
+        cacheTtl: state?.cacheTtl ?? moved.cacheTtl,
+        keepaliveJobId: state?.keepaliveJobId ?? moved.keepaliveJobId,
+      });
+      await ctx.db.patch("threads", t._id, {
+        lastActiveAt: undefined,
+        cacheTouchedAt: undefined,
+        cacheTtl: undefined,
+        keepaliveJobId: undefined,
+      });
+    }
+    if (!page.isDone)
+      await ctx.scheduler.runAfter(0, internal.migrations.moveThreadState, {
+        cursor: page.continueCursor,
+      });
+    return null;
+  },
+});
+
+// Up to 100 messages, cut short at 4 MiB of them: messages can be large, and each batch must stay
+// under Convex's 16 MiB read limit with the ancestor rows and writes on top.
+const ANCESTORS_BATCH = { numItems: 100, maximumBytesRead: 4 * 1024 * 1024 };
+
+// Phase 12: moves each message's ancestorIds to its messageAncestors row, in batches, and clears
+// it from the message. Runs on every self-host deploy (selfhost/setup.ts); moved messages have
+// nothing left to move, so it's safe to run again. Locally:
+// `npx convex run migrations:moveMessageAncestors`.
+export const moveMessageAncestors = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.null(),
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db
+      .query("messages")
+      .paginate({ ...ANCESTORS_BATCH, cursor: cursor ?? null });
+    for (const m of page.page) {
+      if (m.ancestorIds === undefined) continue;
+      const row = await ctx.db
+        .query("messageAncestors")
+        .withIndex("by_messageId", (q) => q.eq("messageId", m._id))
+        .unique();
+      if (!row)
+        await ctx.db.insert("messageAncestors", {
+          messageId: m._id,
+          ancestorIds: m.ancestorIds,
+        });
+      await ctx.db.patch("messages", m._id, { ancestorIds: undefined });
+    }
+    if (!page.isDone)
+      await ctx.scheduler.runAfter(0, internal.migrations.moveMessageAncestors, {
+        cursor: page.continueCursor,
+      });
+    return null;
+  },
+});
+
+// The rollback for moveMessageAncestors: copies each messageAncestors row back onto its message, so
+// code from before phase 12 (which requires messages.ancestorIds) validates and runs again. Run it
+// with this code still deployed, wait until it finishes, then deploy the older code. The rows stay,
+// and moving forward again later skips them. Safe to run again:
+// `npx convex run migrations:restoreMessageAncestors`.
+export const restoreMessageAncestors = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.null(),
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db
+      .query("messages")
+      .paginate({ ...ANCESTORS_BATCH, cursor: cursor ?? null });
+    for (const m of page.page) {
+      if (m.ancestorIds !== undefined) continue;
+      await ctx.db.patch("messages", m._id, { ancestorIds: await ancestorIds(ctx, m) });
+    }
+    if (!page.isDone)
+      await ctx.scheduler.runAfter(0, internal.migrations.restoreMessageAncestors, {
+        cursor: page.continueCursor,
+      });
     return null;
   },
 });

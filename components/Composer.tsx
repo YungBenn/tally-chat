@@ -13,6 +13,8 @@ import { MAX_IMAGES_PER_MESSAGE, imageTokens, type MessageImage } from "@/convex
 import { tokens } from "@/lib/format";
 import { ACCEPT_ATTRIBUTE, prepareAndUpload } from "@/lib/imageUpload";
 import { SHORTCUTS } from "@/lib/shortcuts";
+import type { SentAttachments } from "@/lib/optimisticSend";
+import { uploadFile } from "@/lib/uploadFile";
 import { useShortcut, useShortcutLabel } from "@/lib/useShortcut";
 import { cn } from "@/lib/utils";
 
@@ -49,7 +51,8 @@ export default function Composer({
   paused = false,
   placeholder = "Message tally...",
 }: {
-  onSend: (text: string, images: MessageImage[], documents: Id<"documents">[]) => Promise<unknown>;
+  // `shown`: the attachments as the composer showed them, for an optimistic message.
+  onSend: (text: string, images: MessageImage[], documents: Id<"documents">[], shown: SentAttachments) => Promise<unknown>;
   canAttach?: boolean; // the model accepts images (spec phase 4); documents work with any model
   onImagesChange?: (images: MessageImage[]) => void; // the cost strip prices attached images
   onDocumentsChange?: (tokens: number) => void; // ...and attached documents' text
@@ -57,7 +60,7 @@ export default function Composer({
   threadId?: Id<"threads">; // the open thread, which can't mention itself
   onStop?: () => void;
   onType?: () => void;
-  onDraftChange?: (text: string) => void; // the inspector and cost strip price the draft
+  onDraftChange?: (text: string) => void; // the settled draft, which the inspector and cost strip price
   onEditLast?: () => void; // ↑ in an empty composer
   footer?: React.ReactNode; // a line under the box (the cost strip)
   banner?: React.ReactNode; // notices above the box (the soft budget, a suggestion)
@@ -116,6 +119,13 @@ export default function Composer({
     );
   }, [attached, onImagesChange, onDocumentsChange]);
 
+  // The draft lives here; the page hears it only once typing settles, so a keystroke re-renders
+  // the composer alone (the cost strip and inspector price the settled draft).
+  useEffect(() => {
+    const timer = setTimeout(() => onDraftChange?.(text), 200);
+    return () => clearTimeout(timer);
+  }, [text, onDraftChange]);
+
   // Grow with the text up to the CSS max-height, then scroll.
   useLayoutEffect(() => {
     const el = box.current;
@@ -145,9 +155,7 @@ export default function Composer({
     const key = ++lastKey.current;
     setAttached((list) => [...list, { kind: "document", key, name: file.name }]);
     try {
-      const res = await fetch(await uploadUrl(), { method: "POST", body: file });
-      if (!res.ok) throw new Error(`Could not upload ${file.name}`);
-      const { storageId } = (await res.json()) as { storageId: Id<"_storage"> };
+      const storageId = await uploadFile(await uploadUrl(), file, `Could not upload ${file.name}`);
       const doc = await extract({ storageId, name: file.name });
       setAttached((list) =>
         list.map((a) => (a.key === key ? { ...a, doc: { id: doc.documentId, tokens: doc.tokens } } : a)),
@@ -185,7 +193,6 @@ export default function Composer({
     const end = mention.start + 1 + mention.query.length;
     const next = text.slice(0, mention.start) + text.slice(end);
     setText(next);
-    onDraftChange?.(next);
     setMention(null);
     requestAnimationFrame(() => box.current?.setSelectionRange(mention.start, mention.start));
     void mentionThread(t._id, t.title);
@@ -215,17 +222,26 @@ export default function Composer({
   async function submit() {
     if (!text.trim() || streaming || off || uploading) return;
     setError(null);
+    // Clear at once (the page shows the message optimistically); a failed send puts it all back.
+    const sent = { text, attached };
+    const shown: SentAttachments = {
+      images: attached.flatMap((a) => (a.kind === "image" && a.image ? [a.preview] : [])),
+      documents: attached.flatMap((a) => (a.kind === "document" && a.doc ? [{ name: a.name, tokens: a.doc.tokens, fromThreadId: a.thread }] : [])),
+    };
+    setText("");
+    setAttached([]);
     try {
-      await onSend(text, ready, readyDocs.map((d) => d.id));
-      setText("");
-      onDraftChange?.("");
-      attached.forEach((a) => a.kind === "image" && URL.revokeObjectURL(a.preview));
-      setAttached([]);
+      await onSend(text, ready, readyDocs.map((d) => d.id), shown);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Could not send";
+      // Anything typed meanwhile stays, after the restored text.
+      setText((now) => (now ? `${sent.text}\n\n${now}` : sent.text));
+      setAttached((now) => [...sent.attached, ...now]);
       // The budget banner above already says this, with the override.
       setError(message === "Daily budget reached" ? null : message);
+      return;
     }
+    sent.attached.forEach((a) => a.kind === "image" && URL.revokeObjectURL(a.preview));
   }
 
   const canSend = !!text.trim() && !off && !uploading;
@@ -350,7 +366,6 @@ export default function Composer({
             if (next?.query !== mention?.query) setPick(0);
             setMention(next);
             setText(e.target.value);
-            onDraftChange?.(e.target.value);
             onType?.();
           }}
           onKeyDown={(e) => {

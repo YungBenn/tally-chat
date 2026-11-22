@@ -13,7 +13,7 @@ import {
 import { useAction, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { useState } from "react";
-import ChatShell from "@/components/ChatShell";
+import AppPage from "@/components/ChatShell";
 import { Button } from "@/components/ui/button";
 import { Badge, EmptyState } from "@/components/ui/feedback";
 import { Checkbox, Input, SegmentedControl, Switch } from "@/components/ui/fields";
@@ -53,7 +53,7 @@ export default function ProvidersPage() {
   const open = providers?.find((p) => p._id === openId);
 
   return (
-    <ChatShell>
+    <AppPage>
       <div className="tc-page">
         <div className="tc-page-col max-w-[880px]">
           {open ? (
@@ -88,7 +88,7 @@ export default function ProvidersPage() {
           )}
         </div>
       </div>
-    </ChatShell>
+    </AppPage>
   );
 }
 

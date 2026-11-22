@@ -1,5 +1,4 @@
 /// <reference types="vite/client" />
-import persistentTextStreaming from "@convex-dev/persistent-text-streaming/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
@@ -18,6 +17,7 @@ let fake: ReturnType<typeof fakeFetch> | undefined;
 afterEach(() => {
   fake?.restore();
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 const sseResponse = (body: string): Recorded => ({ body, headers: { "content-type": "text/event-stream" } });
@@ -25,7 +25,6 @@ const reply = (usage: object, ...texts: string[]) => sseResponse(texts.map(oaiDe
 
 async function setup(opts: { baseUrl: string; model: string; key?: string; free?: boolean; allow?: string }) {
   const t = convexTest(schema, modules);
-  persistentTextStreaming.register(t);
   const ownerId = await t.run((ctx) => ctx.db.insert("users", { email: "owner" }));
   const owner = t.withIdentity({ subject: `${ownerId}|session` });
   if (opts.allow) await owner.mutation(api.settings.addAllowedHost, { host: opts.allow });
@@ -69,7 +68,9 @@ describe("OpenAI-compatible chat", () => {
   });
 
   test("stop aborts the request and keeps what streamed", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
+    // Past the 100 ms flush interval on every read: each chunk is flushed as the action reads it.
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => (now += 200));
     const s = await setup({ baseUrl: "https://api.openai.com/v1", model: "gpt-5" });
     const g = gate();
     let aborted = false;
@@ -84,10 +85,11 @@ describe("OpenAI-compatible chat", () => {
       },
     });
     await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Hi" });
-    await vi.waitFor(() => expect(g.reached).toBe(true));
+    await g.reached;
     const { _id } = (await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!.messages.at(-1)!;
+    // The stream is read ahead of the action: stop once the first chunk is really flushed.
+    await vi.waitFor(async () => expect(await s.owner.query(api.chat.streamingText, { messageId: _id })).toBe("Hello "), { timeout: 30_000 });
     await s.owner.mutation(api.chat.stop, { messageId: _id });
-    vi.setSystemTime(Date.now() + 200);
     g.release();
     await s.t.finishInProgressScheduledFunctions();
 

@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && next build",
     "start": "next start",
-    "lint": "eslint . --ignore-pattern \"convex/_generated/**\" --ignore-pattern \"docs/**\" --ignore-pattern \"prototypes/**\"",
+    "lint": "eslint . --ignore-pattern \"convex/_generated/**\" --ignore-pattern \"docs/**\" --ignore-pattern \"prototypes/**\" && node scripts/compiler-coverage.mjs",
     "test": "vitest run",
     "sync-prices": "node scripts/sync-prices.mjs"
   },
@@ -16,12 +16,12 @@
     "@ai-sdk/openai-compatible": "3.0.82",
     "@base-ui/react": "^1.9.0",
     "@convex-dev/auth": "^0.0.95",
-    "@convex-dev/persistent-text-streaming": "0.3.5",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@tabler/icons-react": "^3.50.0",
     "ai": "7.0.159",
     "clsx": "^2.1.1",
     "convex": "^1.44.0",
+    "convex-helpers": "0.1.135",
     "geist": "^1.9.2",
     "katex": "0.19.1",
     "mermaid": "12.2.0",
@@ -30,7 +30,6 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
-    "rehype-katex": "7.0.1",
     "remark-gfm": "^4.0.1",
     "remark-math": "6.0.0",
     "remark-parse": "^11.0.0",
@@ -40,6 +39,7 @@
     "unpdf": "2.1.0"
   },
   "devDependencies": {
+    "@babel/core": "^7.29.0",
     "@convex-dev/eslint-plugin": "^5.0.0",
     "@edge-runtime/vm": "^5.0.0",
     "@tailwindcss/postcss": "^4.3.3",
@@ -52,9 +52,13 @@
     "dotenv": "^18.0.6",
     "eslint": "^9.39.5",
     "eslint-config-next": "16.3.0",
+    "happy-dom": "^21.0.4",
     "prettier": "^3.9.6",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
     "vitest": "^5.0.5"
+  },
+  "overrides": {
+    "katex": "0.19.1"
   }
 }

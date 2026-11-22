@@ -1,11 +1,10 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   internalMutation,
   internalQuery,
   type MutationCtx,
-  type QueryCtx,
 } from "./_generated/server";
 import {
   ACTIVE_WINDOW_MS,
@@ -14,9 +13,11 @@ import {
   cacheTtlValidator,
 } from "./lib/cacheStatus";
 import { activeBranch, effortFor, isCheaperReply } from "./chat";
+import { keepalivePending, patchThreadState, threadState } from "./threadState";
 import { budgetReached } from "./lib/budget";
 import { effortValidator } from "./lib/effort";
 import { imageValidator } from "./lib/images";
+import { ancestorIds } from "./lib/ancestors";
 import { assembleHistory } from "./lib/context";
 import { meterCall } from "./lib/metering";
 import { usageValidator, type Usage } from "./lib/usage";
@@ -32,33 +33,29 @@ export const touchedCache = (usage: Usage) =>
   usage.cacheReadTokens + usage.cacheWriteTokens5m + usage.cacheWriteTokens1h >
   0;
 
+// Cancels the thread's keepalive job if it's still waiting to run.
+async function cancelKeepalive(ctx: MutationCtx, threadId: Id<"threads">) {
+  const state = await threadState(ctx, threadId);
+  if (state?.keepaliveJobId && (await keepalivePending(ctx, state)))
+    await ctx.scheduler.cancel(state.keepaliveJobId);
+}
+
 // After a condense (spec phase 6): the cached prefix no longer matches, so the thread reads cold,
 // and a keepalive writes the new prefix now if the owner is still in the thread.
 export async function warmAfterCondense(
   ctx: MutationCtx,
   thread: Doc<"threads">,
 ) {
-  if (await keepalivePending(ctx, thread))
-    await ctx.scheduler.cancel(thread.keepaliveJobId!);
+  await cancelKeepalive(ctx, thread._id);
   const keepaliveJobId = await ctx.scheduler.runAfter(
     0,
     internal.chatActions.keepalive,
     { threadId: thread._id, warm: true },
   );
-  await ctx.db.patch("threads", thread._id, {
+  await patchThreadState(ctx, thread._id, {
     cacheTouchedAt: undefined,
     keepaliveJobId,
   });
-}
-
-// Whether this thread has a keepalive job still waiting to run.
-export async function keepalivePending(ctx: QueryCtx, thread: Doc<"threads">) {
-  if (!thread.keepaliveJobId) return false;
-  const job = await ctx.db.system.get(
-    "_scheduled_functions",
-    thread.keepaliveJobId,
-  );
-  return job?.state.kind === "pending";
 }
 
 // After a reply: cancel any pending keepalive, then schedule one from this reply's cache
@@ -69,8 +66,7 @@ export async function restartKeepalive(
   thread: Doc<"threads">,
   touchedAt: number | null,
 ) {
-  if (await keepalivePending(ctx, thread))
-    await ctx.scheduler.cancel(thread.keepaliveJobId!);
+  await cancelKeepalive(ctx, thread._id);
   const settings = await ctx.db
     .query("settings")
     .withIndex("by_ownerId", (q) => q.eq("ownerId", thread.ownerId))
@@ -83,7 +79,7 @@ export async function restartKeepalive(
           internal.chatActions.keepalive,
           { threadId: thread._id },
         );
-  await ctx.db.patch("threads", thread._id, { keepaliveJobId });
+  await patchThreadState(ctx, thread._id, { keepaliveJobId });
 }
 
 const providerFields = v.object({
@@ -148,13 +144,14 @@ export const input = internalQuery({
     const awaitingApproval =
       leaf.status === "waiting" &&
       now - (leaf.pendingApproval?.requestedAt ?? 0) <= APPROVAL_TIMEOUT_MS;
+    const state = await threadState(ctx, threadId);
     if (
       !awaitingApproval &&
-      (thread.lastActiveAt === undefined ||
-        now - thread.lastActiveAt > ACTIVE_WINDOW_MS)
+      (state?.lastActiveAt === undefined ||
+        now - state.lastActiveAt > ACTIVE_WINDOW_MS)
     )
       return null;
-    if (!warm && cacheState(cacheExpiresAt(thread), now).state !== "warm")
+    if (!warm && cacheState(cacheExpiresAt(state ?? {}), now).state !== "warm")
       return null;
 
     const settings = await ctx.db
@@ -164,7 +161,7 @@ export const input = internalQuery({
     if (settings?.keepaliveEnabled === false) return null;
     if (await budgetReached(ctx, settings, now)) return null; // upkeep pauses while over budget
     const history = await assembleHistory(ctx, thread._id, [
-      ...leaf.ancestorIds,
+      ...(await ancestorIds(ctx, leaf)),
       leaf._id,
     ]);
     return {
@@ -182,7 +179,7 @@ export const input = internalQuery({
         thread.toolSet?.length && supportsTools(provider, thread.modelId)
           ? thread.toolSet.map(toDefinition)
           : undefined,
-      ttl: thread.cacheTtl ?? "5m",
+      ttl: state?.cacheTtl ?? "5m",
       allowlist: settings?.allowlistedHosts ?? [],
     };
   },
@@ -247,7 +244,7 @@ export const record = internalMutation({
       internal.chatActions.keepalive,
       { threadId },
     );
-    await ctx.db.patch("threads", threadId, {
+    await patchThreadState(ctx, threadId, {
       cacheTouchedAt: startedAt,
       cacheTtl: ttl,
       keepaliveJobId,

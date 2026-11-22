@@ -83,12 +83,11 @@ export default defineSchema({
     titleRequested: v.optional(v.boolean()), // the side-job title runs once per thread
     renamed: v.optional(v.boolean()), // the owner named it; a side-job title never replaces that
     pinnedAt: v.optional(v.number()), // pinned threads list first, most recently pinned on top
-    lastActiveAt: v.optional(v.number()), // owner focused on or typing in the thread (keepalive presence)
-    // Start time of the last request that read or wrote this thread's prompt cache, and the
-    // lifetime it asked for: the cache is warm until cacheTouchedAt + cacheTtl.
+    // Moved to threadStates (spec phase 12); kept only until migrations:moveThreadState empties them.
+    lastActiveAt: v.optional(v.number()),
     cacheTouchedAt: v.optional(v.number()),
     cacheTtl: v.optional(cacheTtlValidator),
-    keepaliveJobId: v.optional(v.id("_scheduled_functions")), // the thread's one pending keepalive, if any
+    keepaliveJobId: v.optional(v.id("_scheduled_functions")),
     effort: v.optional(effortValidator), // Anthropic-style threads: sent on every request; absent = low
     condenseJobId: v.optional(v.id("_scheduled_functions")), // the thread's one pending or running condense
     condenseFailure: v.optional(v.string()), // why the last condense wrote no checkpoint; cleared by the next one
@@ -111,6 +110,18 @@ export default defineSchema({
       searchField: "title",
       filterFields: ["ownerId"],
     }),
+  // A thread's presence and cache bookkeeping (spec phase 12). It changes every minute while the
+  // owner is in the thread, so it lives apart from the thread row: writes here don't re-run the
+  // thread page, the inspector or the thread list. At most one row per thread, made on first write.
+  threadStates: defineTable({
+    threadId: v.id("threads"),
+    lastActiveAt: v.optional(v.number()), // owner focused on or typing in the thread (keepalive presence)
+    // Start time of the last request that read or wrote this thread's prompt cache, and the
+    // lifetime it asked for: the cache is warm until cacheTouchedAt + cacheTtl.
+    cacheTouchedAt: v.optional(v.number()),
+    cacheTtl: v.optional(cacheTtlValidator),
+    keepaliveJobId: v.optional(v.id("_scheduled_functions")), // the thread's one pending keepalive, if any
+  }).index("by_threadId", ["threadId"]),
   // Append-only tree (ADR 0001). The only updates a message ever gets are
   // streaming -> final status (plus the stop flag before that) and its pin,
   // which can change only until a checkpoint covers it.
@@ -118,10 +129,12 @@ export default defineSchema({
     ownerId: v.id("users"),
     threadId: v.id("threads"),
     parentId: v.optional(v.id("messages")),
-    ancestorIds: v.array(v.id("messages")), // root..parent, so a branch is one read
+    // Moved to messageAncestors (spec phase 12); kept only until migrations:moveMessageAncestors
+    // empties it.
+    ancestorIds: v.optional(v.array(v.id("messages"))),
     role: v.union(v.literal("user"), v.literal("assistant")),
     pinned: v.boolean(),
-    content: v.string(), // final text; while streaming the text lives in streamId
+    content: v.string(), // final text; while a step streams its text lives in its streams row
     status: v.union(
       v.literal("streaming"),
       v.literal("waiting"), // a tool step waits for the owner's approval; no action runs (spec phase 10)
@@ -129,7 +142,7 @@ export default defineSchema({
       v.literal("stopped"),
       v.literal("error"),
     ),
-    streamId: v.optional(v.string()),
+    streamId: v.optional(v.string()), // legacy (persistent-text-streaming, ADR 0004): never written
     stopRequested: v.optional(v.boolean()),
     error: v.optional(v.string()),
     model: v.optional(v.string()),
@@ -167,6 +180,19 @@ export default defineSchema({
       searchField: "content",
       filterFields: ["ownerId"],
     }),
+  // A message's ancestors, root..parent, so a branch is one read (ADR 0001). One row per message,
+  // written with it and never changed; apart from the message so reading a branch reads each path
+  // once, not once per message (lib/ancestors).
+  messageAncestors: defineTable({
+    messageId: v.id("messages"),
+    ancestorIds: v.array(v.id("messages")),
+  }).index("by_messageId", ["messageId"]),
+  // The text so far of a reply's streaming step (lib/textStream, ADR 0004): one row while the step
+  // streams, deleted when it ends.
+  streams: defineTable({
+    messageId: v.id("messages"),
+    text: v.string(),
+  }).index("by_messageId", ["messageId"]),
   // A document's extracted text (lib/documents). threadId is set when a message first sends it;
   // until then it is a composer attachment, swept after a day.
   documents: defineTable({
@@ -265,6 +291,11 @@ export default defineSchema({
     sideJobModel: v.optional(
       v.object({ providerId: v.id("providers"), modelId: v.string() }),
     ),
+    // What a new thread starts with; unset = the first listed model and DEFAULT_EFFORT.
+    defaultModel: v.optional(
+      v.object({ providerId: v.id("providers"), modelId: v.string() }),
+    ),
+    defaultEffort: v.optional(effortValidator),
     timeZone: v.optional(v.string()), // IANA name; daily rollups use the owner's day, UTC until set
     keepaliveEnabled: v.optional(v.boolean()), // absent = on; off = 1-hour cache lifetime instead
     cacheBreakConfirmMicroUsd: v.optional(v.number()), // edits costing more than this ask first; absent = $0.10

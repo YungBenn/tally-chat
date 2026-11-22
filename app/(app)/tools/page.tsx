@@ -15,7 +15,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import Link from "next/link";
 import { useState } from "react";
-import ChatShell from "@/components/ChatShell";
+import AppPage from "@/components/ChatShell";
 import { Button } from "@/components/ui/button";
 import { Badge, EmptyState } from "@/components/ui/feedback";
 import { Input, Switch } from "@/components/ui/fields";
@@ -38,7 +38,7 @@ export default function ToolsPage() {
   const open = servers?.find((s) => s._id === openId);
 
   return (
-    <ChatShell>
+    <AppPage>
       <div className="tc-page">
         <div className="tc-page-col max-w-[880px]">
           {open ? (
@@ -76,7 +76,7 @@ export default function ToolsPage() {
           )}
         </div>
       </div>
-    </ChatShell>
+    </AppPage>
   );
 }
 
@@ -171,10 +171,13 @@ function ServerForm({ server, onDone, canCancel }: { server?: Server; onDone: ()
     setSaving(true);
     setError(null);
     const args = { name: String(form.get("name")), url: String(form.get("url")) };
+    // Decided before the try: React Compiler can't compile a ternary inside one.
+    const editHeaders = headersTouched ? { headers } : {};
+    const title = server ? "Tool server saved" : "Tool server added";
     try {
-      if (server) await edit({ serverId: server._id, ...args, ...(headersTouched ? { headers } : {}) });
+      if (server) await edit({ serverId: server._id, ...args, ...editHeaders });
       else await add({ ...args, headers });
-      toast({ title: server ? "Tool server saved" : "Tool server added", body: "The server answered and its tools are listed." });
+      toast({ title, body: "The server answered and its tools are listed." });
       onDone();
     } catch (err) {
       setError(errorText(err, "Could not reach the server"));

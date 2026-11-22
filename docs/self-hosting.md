@@ -164,6 +164,24 @@ Keep `TALLY_BIND=127.0.0.1`: Caddy reaches the stack on localhost, and the stack
 
 **The backend must reach its own public URLs.** It checks sign-in tokens against `CONVEX_SITE_PUBLIC_URL`, and its actions call back through `CONVEX_PUBLIC_URL`. So the hostnames have to resolve from the server itself, and the certificates have to be publicly trusted. With public DNS and Let's Encrypt, as above, that's already the case. A private CA or split-horizon DNS needs extra setup.
 
+### Over Tailscale, tailnet only
+
+If your devices are on a tailnet, Tailscale Serve gives the backend HTTPS on your machine's tailnet name without opening anything to the internet. Serve the two backend ports on their own HTTPS ports:
+
+```bash
+tailscale serve --bg --https=8443 http://127.0.0.1:3210
+tailscale serve --bg --https=8444 http://127.0.0.1:3211
+```
+
+```bash
+# .env
+TALLY_PUBLIC_URL=https://your-machine.your-tailnet.ts.net
+CONVEX_PUBLIC_URL=https://your-machine.your-tailnet.ts.net:8443
+CONVEX_SITE_PUBLIC_URL=https://your-machine.your-tailnet.ts.net:8444
+```
+
+Serve the app itself the same way (or on 443), then rebuild. `tailscale serve status` should list both backend ports as "tailnet only". A device without Tailscale running can load the sign-in page but can't reach the backend, so nothing after sign-in works there.
+
 ## Backups
 
 ```bash
@@ -175,11 +193,36 @@ This writes `backups/tally-<date>-<time>/` with two files, both readable only by
 - `data.zip`: a Convex export of everything, images included
 - `tally.env`: a copy of your secrets
 
-The stack keeps running during a backup. Copy the backup directory somewhere off the machine; it contains your secrets, so treat it like a password. To back up nightly, add a cron entry such as:
+The stack keeps running during a backup. Copy the backup directory somewhere off the machine; it contains your secrets, so treat it like a password. `./selfhost/backup.sh <dir>` writes the backup under another directory instead.
 
-```cron
-0 3 * * * cd /path/to/tally-chat && ./selfhost/backup.sh >> backups/backup.log 2>&1
+### Nightly backups
+
+`selfhost/nightly-backup.sh` runs a backup into `~/tally-backups/nightly/`, keeps the last 14 days and deletes older ones (only after a successful run). Every run adds a line to `~/Library/Logs/tally-backup.log`. A failure adds a `FAILED` line with the error and, on macOS, shows a notification. Set `TALLY_BACKUP_DIR` or `TALLY_BACKUP_LOG` to use other paths.
+
+On macOS, schedule it with launchd at 03:30 every night. If the Mac is asleep then, it runs on wake. Docker must be running. From the repository:
+
+```bash
+cat > ~/Library/LaunchAgents/chat.tally.backup.plist <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>chat.tally.backup</string>
+  <key>ProgramArguments</key><array><string>$PWD/selfhost/nightly-backup.sh</string></array>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string></dict>
+  <key>StartCalendarInterval</key><dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>30</integer></dict>
+  <key>StandardErrorPath</key><string>$HOME/Library/Logs/tally-backup.log</string>
+</dict></plist>
+PLIST
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/chat.tally.backup.plist
+launchctl kickstart gui/$(id -u)/chat.tally.backup   # run once now to check
+tail ~/Library/Logs/tally-backup.log
 ```
+
+To stop it: `launchctl bootout gui/$(id -u)/chat.tally.backup`. On Linux, a cron entry does the same: `30 3 * * * /path/to/tally-chat/selfhost/nightly-backup.sh`.
+
+**Where failures show up.** `~/Library/Logs/tally-backup.log` (also visible in Console.app under Log Reports): `ok` lines for good runs, `pruned` lines for deleted backups, and `FAILED` lines followed by the error. No new `ok` line for a day means the job isn't running; check `launchctl print gui/$(id -u)/chat.tally.backup`.
+
+To restore one of them, pass its directory to `./selfhost/restore.sh` (next section).
 
 ## Restore
 

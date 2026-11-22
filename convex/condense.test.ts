@@ -1,5 +1,4 @@
 /// <reference types="vite/client" />
-import persistentTextStreaming from "@convex-dev/persistent-text-streaming/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
@@ -10,6 +9,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { paybackTurns, planFold } from "./lib/condense";
 import { SUMMARY_PREFIX } from "./lib/context";
 import { encryptSecret } from "./lib/vault";
+import { threadState } from "./threadState";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -77,7 +77,6 @@ const LONG = "x".repeat(400); // ~100 tokens per user message
 
 async function setup(condense: Partial<Doc<"settings">> = {}, { modelId = "claude-sonnet-5-5", free = false } = {}) {
   const t = convexTest(schema, modules);
-  persistentTextStreaming.register(t);
   const ownerId = await t.run((ctx) => ctx.db.insert("users", { email: "owner" }));
   const apiKeyEncrypted = await t.run(() => encryptSecret("sk"));
   const providerId = await t.run((ctx) =>
@@ -331,8 +330,8 @@ describe("after a checkpoint lands", () => {
     expect(warm.messages.slice(1).map((m) => text(m.content).slice(0, 6))).toEqual(["Turn 5", "Answer", "Turn 6", "Answer", "."]);
     const rows = await s.t.run((ctx) => ctx.db.query("dailyUsage").collect());
     expect(rows.some((r) => r.dimension === "upkeep")).toBe(true);
-    const thread = await s.t.run((ctx) => ctx.db.get("threads", s.threadId));
-    expect(thread!.cacheTouchedAt).toBeDefined(); // the warm keepalive touched the new prefix
+    const state = await s.t.run((ctx) => threadState(ctx, s.threadId));
+    expect(state?.cacheTouchedAt).toBeDefined(); // the warm keepalive touched the new prefix
   });
 
   test("with the owner away, nothing is sent and the next send pays the write", async () => {
@@ -343,9 +342,9 @@ describe("after a checkpoint lands", () => {
     await s.chat(`Turn 6 ${LONG}`);
     expect(await s.checkpoints()).toHaveLength(1);
     expect(s.keepaliveCalls()).toHaveLength(before);
-    const thread = await s.t.run((ctx) => ctx.db.get("threads", s.threadId));
-    expect(thread!.cacheTouchedAt).toBeUndefined();
-    expect((await s.inspector())!.cache.expiresAt).toBeNull(); // cold: the cost strip prices a write
+    const state = await s.t.run((ctx) => threadState(ctx, s.threadId));
+    expect(state?.cacheTouchedAt).toBeUndefined();
+    expect((await s.owner.query(api.threadState.cache, { threadId: s.threadId }))!.expiresAt).toBeNull(); // cold: the cost strip prices a write
   });
 
   test("keepalive turned off means no warm-up either", async () => {

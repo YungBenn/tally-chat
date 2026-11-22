@@ -3,48 +3,32 @@
 import {
   IconLayoutSidebarRight,
   IconMessagePlus,
-  IconPlayerPlay,
-  IconPencil,
   IconPin,
-  IconPinFilled,
-  IconRefresh,
-  IconArrowsExchange,
   IconTrash,
   IconDownload,
-  IconFileText,
-  IconMessages,
 } from "@tabler/icons-react";
-import { useMutation, useQuery } from "convex/react";
-import { ConvexError } from "convex/values";
+import { useMutation } from "convex/react";
+import { useQuery } from "convex-helpers/react/cache/hooks";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import CacheStatus from "@/components/CacheStatus";
 import BudgetBanner, { useSendingPaused } from "@/components/BudgetBanner";
-import ChatShell from "@/components/ChatShell";
+import AppPage from "@/components/ChatShell";
 import CostStrip from "@/components/CostStrip";
 import Composer from "@/components/Composer";
 import Inspector from "@/components/Inspector";
 import EffortControl from "@/components/EffortControl";
 import ModeControl from "@/components/ModeControl";
-import { SearchSources, SearchToggle, useWebSearch } from "@/components/WebSearch";
+import { SearchToggle, useWebSearch } from "@/components/WebSearch";
 import ModelMenu, { ModelPickerButton, sameModel, type ModelChoice } from "@/components/ModelMenu";
 import { Button as UiButton, IconButton } from "@/components/ui/button";
-import { Badge, EmptyState, ErrorState } from "@/components/ui/feedback";
-import { Textarea as UiTextarea } from "@/components/ui/fields";
-import {
-  BranchSwitcher,
-  CheckpointMarker,
-  ImageThumb,
-  JumpToLatest,
-  MessageActions,
-  ReplyMeta,
-  StreamRail,
-  ThinkingIndicator,
-  CacheBreakDialog,
-} from "@/components/Messages";
+import { Badge, EmptyState } from "@/components/ui/feedback";
+import { CheckpointMarker, JumpToLatest, CacheBreakDialog } from "@/components/Messages";
+import MessageRow, { ThreadBusyContext, ThreadRowContext, type ThreadMessage } from "@/components/MessageRow";
 import { Dialog, Menu, MenuItem, Tooltip } from "@/components/ui/overlay";
 import { exportFileName, toJson, toMarkdown } from "@/lib/exportThread";
+import { rethrowSendError } from "@/lib/sendError";
 import { SHORTCUTS } from "@/lib/shortcuts";
 import { useShortcut, useShortcutLabel } from "@/lib/useShortcut";
 import { COMPACT, useMedia } from "@/lib/useMedia";
@@ -58,221 +42,16 @@ import {
   OUTPUT_MODES,
   type OutputMode,
 } from "@/convex/lib/outputModes";
-import Markdown, { CopyButton } from "@/components/Markdown";
-import { ApprovalPrompt, ToolCallRow } from "@/components/ToolCalls";
+import Markdown from "@/components/Markdown";
 import { api } from "@/convex/_generated/api";
-import { estimateTokens, tokens, usd } from "@/lib/format";
+import { estimateTokens } from "@/lib/format";
 import { useStoredChoice, useStoredFlag } from "@/lib/storedFlag";
 import { useCacheState } from "@/lib/useCacheState";
+import { useThreadView } from "@/lib/useThreadView";
 import { usePresence } from "@/lib/usePresence";
-import { cn } from "@/lib/utils";
+import { useStableMessages } from "@/lib/stableMessages";
+import { isOptimistic, sendOptimistically, useRowKeys } from "@/lib/optimisticSend";
 import type { Id } from "@/convex/_generated/dataModel";
-
-// Provider errors arrive without a final period; the charge note follows them.
-const sentence = (s: string) => (/[.!?]$/.test(s.trim()) ? s.trim() : `${s.trim()}.`);
-
-// Pin a message so it's never folded into a summary (spec phase 6). Once condensed, fixed.
-function PinButton({
-  id,
-  pinned,
-  locked,
-}: {
-  id: Id<"messages">;
-  pinned: boolean;
-  locked: boolean;
-}) {
-  const setPinned = useMutation(api.condense.setPinned);
-  const label = locked
-    ? pinned
-      ? "Pinned: kept verbatim after the summary"
-      : "Condensed: folded into the summary"
-    : pinned
-      ? "Unpin"
-      : "Pin: never fold into a summary";
-  return (
-    <IconButton
-      icon={pinned ? <IconPinFilled /> : <IconPin />}
-      label={label}
-      size="sm"
-      disabled={locked}
-      aria-pressed={pinned}
-      onClick={() => void setPinned({ messageId: id, pinned: !pinned })}
-    />
-  );
-}
-
-function UserMessage({
-  id,
-  text,
-  images,
-  pinned,
-  pinLocked,
-  siblingIds,
-  busy,
-  onType,
-  breakCost,
-  confirmAbove,
-  mode,
-  highlighted,
-  editRequest,
-  search,
-  documents,
-}: {
-  search?: React.ComponentProps<typeof SearchSources>["search"];
-  documents?: { name: string; tokens: number; fromThreadId?: Id<"threads"> }[];
-  editRequest: number | null; // bumped when ↑ in an empty composer asks to edit this message
-  mode: OutputMode;
-  highlighted: boolean;
-  id: Id<"messages">;
-  text: string;
-  pinned: boolean;
-  pinLocked: boolean;
-  images?: { url: string | null; width: number; height: number }[];
-  siblingIds: Id<"messages">[];
-  busy: boolean;
-  onType: () => void;
-  breakCost: number | null; // extra micro-dollars editing here costs, when it breaks the cache
-  confirmAbove: number;
-}) {
-  const edit = useMutation(api.chat.edit);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(text);
-  const [confirming, setConfirming] = useState(false);
-  const begin = () => {
-    setConfirming(false);
-    setDraft(text);
-    setEditing(true);
-  };
-  // Above the owner's threshold, editing asks first (spec phase 3, cache-break warning).
-  const requestEdit = () =>
-    breakCost !== null && breakCost > confirmAbove ? setConfirming(true) : begin();
-  const [seenRequest, setSeenRequest] = useState(editRequest);
-  if (editRequest !== seenRequest) {
-    setSeenRequest(editRequest);
-    if (editRequest !== null && !busy && !editing) requestEdit();
-  }
-  const save = () =>
-    draft.trim() && void edit({ messageId: id, content: draft, mode }).then(() => setEditing(false));
-
-  return (
-    <article
-      id={`m-${id}`}
-      className={cn("tc-turn tc-turn-user", highlighted && "tc-hl")}
-    >
-      {editing ? (
-        <form
-          className="tc-edit-card"
-          onSubmit={(e) => {
-            e.preventDefault();
-            save();
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              e.preventDefault();
-              setEditing(false);
-            } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              save();
-            }
-          }}
-        >
-          <UiTextarea
-            label="Edit message"
-            value={draft}
-            onChange={(e) => {
-              setDraft(e.target.value);
-              onType();
-            }}
-            rows={3}
-            autoFocus
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            {breakCost !== null && (
-              <span className="tc-mono text-mono-sm text-foreground-muted">
-                Breaks the cache · ~{usd(breakCost)} to rewrite
-              </span>
-            )}
-            <span className="flex-1" />
-            <UiButton variant="ghost" size="sm" onClick={() => setEditing(false)}>
-              Cancel
-            </UiButton>
-            <UiButton type="submit" variant="primary" size="sm" disabled={!draft.trim()}>
-              Save and send
-            </UiButton>
-          </div>
-        </form>
-      ) : (
-        <>
-          {images && images.length > 0 && (
-            <div className="flex flex-wrap justify-end gap-2">
-              {images.map((image, i) => (
-                <ImageThumb key={i} index={i} {...image} />
-              ))}
-            </div>
-          )}
-          {documents && documents.length > 0 && (
-            <div className="flex flex-wrap justify-end gap-2">
-              {documents.map((d, i) => {
-                const body = (
-                  <>
-                    <span className="tc-attach-thumb">
-                      {d.fromThreadId ? <IconMessages size={16} stroke={1.5} /> : <IconFileText size={16} stroke={1.5} />}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block max-w-48 truncate">{d.name}</span>
-                      <small>~{tokens(d.tokens)} tok</small>
-                    </span>
-                  </>
-                );
-                // A mentioned thread links back to it (the copy sent is from when it was mentioned).
-                return d.fromThreadId ? (
-                  <Link key={i} href={`/t/${d.fromThreadId}`} className="tc-attach tc-attach-link" title={`Open ${d.name}`}>
-                    {body}
-                  </Link>
-                ) : (
-                  <span key={i} className="tc-attach">
-                    {body}
-                  </span>
-                );
-              })}
-            </div>
-          )}
-          <div className="tc-user-bubble">{text}</div>
-          {search && <SearchSources search={search} />}
-          <MessageActions>
-            <BranchSwitcher ids={siblingIds} current={id} />
-            {breakCost !== null && (
-              <Tooltip content="Editing forks the thread here, so everything after the system prompt is written to the cache again">
-                <span className="tc-mono px-1 text-mono-xs text-foreground-subtle">
-                  breaks cache · +{usd(breakCost)}
-                </span>
-              </Tooltip>
-            )}
-            <CopyButton text={text} />
-            <IconButton
-              icon={<IconPencil />}
-              label="Edit"
-              size="sm"
-              disabled={busy}
-              onClick={requestEdit}
-            />
-            <PinButton id={id} pinned={pinned} locked={pinLocked} />
-          </MessageActions>
-        </>
-      )}
-      {breakCost !== null && (
-        <CacheBreakDialog
-          open={confirming}
-          extraMicroUsd={breakCost}
-          action={{ verb: "Editing this message", confirm: "Edit anyway" }}
-          body="Editing forks the thread here, so everything after the system prompt is written to the cache again. Continuing keeps the cache."
-          onConfirm={begin}
-          onCancel={() => setConfirming(false)}
-        />
-      )}
-    </article>
-  );
-}
 
 // The turns a checkpoint covers, folded behind its summary (spec phase 6): the thread shows what
 // the model sees, and the original turns are one click away.
@@ -336,7 +115,13 @@ function download(name: string, text: string, type: string) {
 
 export default function ThreadPage() {
   const { threadId } = useParams<{ threadId: Id<"threads"> }>();
-  const thread = useQuery(api.chat.getThread, { threadId });
+  const { stored, providers, threadCache } = useThreadView(threadId);
+  // Messages that didn't change keep their objects, so their memoized rows skip the update. A
+  // streaming reply's text isn't here: its row subscribes to it (ADR 0004).
+  const messages = useStableMessages(stored?.messages);
+  const thread = useMemo(() => stored && messages && { ...stored, messages }, [stored, messages]);
+  // A sent message's real row takes over its optimistic row in place (ticket 08).
+  const rowKey = useRowKeys(messages);
   // A search hit to open (spec phase 7): /t/<thread>?m=<message>.
   const target = useSearchParams().get("m") as Id<"messages"> | null;
   const [highlighted, setHighlighted] = useState<Id<"messages"> | null>(null);
@@ -345,25 +130,18 @@ export default function ThreadPage() {
   const send = useMutation(api.chat.send);
   const webSearch = useWebSearch();
   const stop = useMutation(api.chat.stop);
-  const approveTools = useMutation(api.chat.approveTools);
-  const retry = useMutation(api.chat.retry);
   const deleteThread = useMutation(api.chat.deleteThread);
   const markActive = usePresence(threadId);
   const inspector = useQuery(api.inspector.get, { threadId });
   const settings = useQuery(api.settings.get);
-  const cache = useCacheState(
-    inspector?.cache ?? {
-      expiresAt: null,
-      keepaliveScheduled: false,
-      lastActiveAt: null,
-    },
-  );
+  const cache = useCacheState(threadCache);
   // Edit hints only while the cache is warm: cold, editing costs no more than continuing.
-  const breakCosts = new Map(
-    inspector?.cache.managed && cache.state !== "cold"
-      ? inspector.editHints.map((h) => [h.messageId, h.extraMicroUsd] as const)
-      : [],
+  const warmHints = inspector?.cache.managed && cache.state !== "cold" ? inspector.editHints : null;
+  const breakCosts = useMemo(
+    () => new Map(warmHints?.map((h) => [h.messageId, h.extraMicroUsd] as const)),
+    [warmHints],
   );
+  // The settled draft (the composer owns what's being typed): the cost strip and inspector price it.
   const [draft, setDraft] = useState("");
   const [draftImages, setDraftImages] = useState<MessageImage[]>([]);
   const [draftDocTokens, setDraftDocTokens] = useState(0);
@@ -386,11 +164,13 @@ export default function ThreadPage() {
     threadId: string;
     model: ModelChoice;
   } | null>(null);
-  const providers = useQuery(api.providers.list);
-  const threadModel = thread && {
-    providerId: thread.providerId,
-    modelId: thread.modelId,
-  };
+  // From primitives, so it keeps its identity across thread updates (rows read it).
+  const providerId = thread?.providerId;
+  const modelId = thread?.modelId;
+  const threadModel = useMemo(
+    () => (providerId && modelId !== undefined ? { providerId, modelId } : null),
+    [providerId, modelId],
+  );
   const oneOff =
     replyWith?.threadId === threadId &&
     threadModel &&
@@ -443,11 +223,6 @@ export default function ThreadPage() {
     void switchBranch({ messageId: next });
   };
 
-  // Continue a cut-off reply: an ordinary next turn (5.5 models don't allow prefill).
-  const continueReply = () => {
-    setAtBottom(true);
-    return send({ threadId, content: "Continue.", mode }).catch(() => {});
-  };
   const [confirmDelete, setConfirmDelete] = useState(false);
   const paused = useSendingPaused();
   const inspectorKbd = useShortcutLabel(SHORTCUTS.toggleInspector);
@@ -481,6 +256,24 @@ export default function ThreadPage() {
   const router = useRouter();
   const scroller = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
+  // What every row reads. An explicit memo: the compiler leaves a plain object literal here
+  // unmemoized (it sits between hook calls), and a new value re-renders every row.
+  const confirmAbove = settings?.cacheBreakConfirmMicroUsd ?? 100_000;
+  const rowContext = useMemo(
+    () => ({
+      threadId,
+      mode,
+      threadModel,
+      confirmAbove,
+      onType: markActive,
+      // Continue a cut-off reply: an ordinary next turn (5.5 models don't allow prefill).
+      onContinue: () => {
+        setAtBottom(true);
+        void sendOptimistically(send, { threadId, content: "Continue.", mode }).catch(() => {});
+      },
+    }),
+    [threadId, mode, threadModel, confirmAbove, markActive, send],
+  );
   const last = thread?.messages.at(-1);
   // A reply waiting for approval is still in progress: sending is paused, Stop is offered.
   const streaming = last?.status === "streaming" || last?.status === "waiting";
@@ -493,10 +286,19 @@ export default function ThreadPage() {
   });
   const toBottom = () =>
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
-  // Follow new text only while the reader is at the bottom, so scrolling up to read isn't yanked back.
+  // Follow the last message as it grows (streamed text, tool steps, a status change) and each new
+  // turn, only while the reader is at the bottom, so scrolling up to read isn't yanked back.
+  // Watching its size means the streaming row needn't tell the page about each chunk.
+  const lastId = last?._id;
   useEffect(() => {
-    if (atBottom) toBottom();
-  }, [last?.text, last?.items?.length, last?.status, thread?.messages.length, atBottom]);
+    const el = lastId && document.getElementById(`m-${lastId}`);
+    if (!atBottom || !el) return;
+    const follow = () => scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
+    follow();
+    const observer = new ResizeObserver(follow);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [atBottom, lastId]);
 
   // Opening a search hit: switch to the branch holding it if needed (once), then mark it, which
   // opens a fold around it; the next effect scrolls to it. The URL drops the hit afterwards.
@@ -538,7 +340,7 @@ export default function ThreadPage() {
 
   if (thread === null) {
     return (
-      <ChatShell>
+      <AppPage>
         <div className="flex flex-1 flex-col items-center justify-center px-4">
           <EmptyState
             className="w-full max-w-md"
@@ -552,160 +354,24 @@ export default function ThreadPage() {
             }
           />
         </div>
-      </ChatShell>
+      </AppPage>
     );
   }
 
   // One message on the branch, as the thread shows it (also inside the condensed fold).
-  const renderMessage = (m: NonNullable<typeof thread>["messages"][number]) =>
-    m.role === "user" ? (
-      <UserMessage
-        key={m._id}
-        id={m._id}
-        text={m.text}
-        images={m.images}
-        pinned={m.pinned}
-        pinLocked={m.pinLocked}
-        siblingIds={m.siblingIds}
-        busy={streaming}
-        onType={markActive}
-        breakCost={breakCosts.get(m._id) ?? null}
-        confirmAbove={settings?.cacheBreakConfirmMicroUsd ?? 100_000}
-        mode={mode}
-        highlighted={highlighted === m._id}
-        editRequest={editTarget?.id === m._id ? editTarget.n : null}
-        search={m.search}
-        documents={m.documents}
-      />
-    ) : (
-      <article
-        key={m._id}
-        id={`m-${m._id}`}
-        className={cn("tc-turn tc-assistant", highlighted === m._id && "tc-hl")}
-        data-streaming={m.status === "streaming" ? "true" : undefined}
-      >
-        {m.status === "streaming" && m.text && <StreamRail />}
-        {m.status === "streaming" &&
-          !m.text &&
-          !m.items?.some((i) => i.kind === "tool" && i.status === "running") && <ThinkingIndicator />}
-        {m.items ? (
-          <>
-            {m.items.map((item, i) =>
-              item.kind === "tool" && item.status === "waiting" ? null : item.kind === "text" ? ( // waiting calls show in the prompt below
-                <Markdown key={i} text={item.text} />
-              ) : (
-                <ToolCallRow key={item.id} {...item} />
-              ),
-            )}
-            {/* While it runs, text is the step still streaming; after, the items hold all of it. */}
-            {m.status === "streaming" && m.text && <Markdown text={m.text} />}
-          </>
-        ) : (
-          m.text && <Markdown text={m.text} />
-        )}
-        {m.status === "error" && (
-          <ErrorState
-            title="Reply failed"
-            actions={
-              <UiButton
-                size="sm"
-                icon={<IconRefresh />}
-                disabled={streaming}
-                onClick={() => void retry({ messageId: m._id, mode })}
-              >
-                Retry
-              </UiButton>
-            }
-          >
-            {sentence(m.error ?? "Something went wrong")}
-            {!m.usage && " Nothing was charged."}
-          </ErrorState>
-        )}
-        {m.status === "waiting" && m.items && (
-          <ApprovalPrompt
-            calls={m.items.flatMap((i) => (i.kind === "tool" && i.status === "waiting" ? [i] : []))}
-            onAnswer={(declined) => approveTools({ messageId: m._id, declined })}
-          />
-        )}
-        {m.status === "streaming" || m.status === "waiting" ? (
-          m.text && (
-            <p className="tc-mono text-mono-sm text-foreground-subtle">
-              ~{tokens(estimateTokens(m.text))} out
-            </p>
-          )
-        ) : (
-          <div className="tc-msg-foot">
-            <BranchSwitcher ids={m.siblingIds} current={m._id} />
-            {m.usage && (
-              <ReplyMeta
-                messageId={m._id}
-                model={m.modelName ?? m.model ?? ""}
-                effort={m.effort}
-                costMicroUsd={m.costMicroUsd}
-                usage={m.usage}
-              />
-            )}
-            {m.status === "stopped" && <Badge>Stopped</Badge>}
-            {m.truncated && (
-              <Badge tone="warning" dot>
-                {m.hitStepLimit ? "Stopped after 10 steps" : m.approvalExpired ? "Approval timed out" : "Hit the output limit"}
-              </Badge>
-            )}
-            {m.pinned && <Badge tone="accent">Pinned</Badge>}
-            <span className="flex-1" />
-            <MessageActions shown={m._id === last?._id}>
-              <CopyButton text={m.text} />
-              <IconButton
-                icon={<IconRefresh />}
-                label="Retry"
-                size="sm"
-                disabled={streaming}
-                onClick={() => void retry({ messageId: m._id, mode })}
-              />
-              <ModelMenu
-                title="Retry with"
-                threadId={threadId}
-                maxOutputTokens={MODE_MAX_TOKENS[mode]}
-                retryOf={m._id}
-                onPick={(model) =>
-                  void retry({
-                    messageId: m._id,
-                    mode,
-                    model:
-                      threadModel && sameModel(model, threadModel)
-                        ? undefined
-                        : model,
-                  })
-                }
-                trigger={
-                  <UiButton
-                    variant="ghost"
-                    size="sm"
-                    iconOnly
-                    icon={<IconArrowsExchange />}
-                    disabled={streaming}
-                    aria-label="Retry with another model"
-                    title="Retry with another model"
-                  />
-                }
-              />
-              <PinButton id={m._id} pinned={m.pinned} locked={m.pinLocked} />
-            </MessageActions>
-          </div>
-        )}
-        {m.truncated && m._id === last?._id && (
-          <div className="flex items-center gap-2.5">
-            <UiButton variant="outline" size="sm" icon={<IconPlayerPlay />} onClick={() => void continueReply()}>
-              Continue
-            </UiButton>
-            <span className="tc-mono text-mono-sm text-foreground-muted">reuses the cached prefix</span>
-          </div>
-        )}
-      </article>
-    );
+  const renderMessage = (m: ThreadMessage) => (
+    <MessageRow
+      key={rowKey(m._id)}
+      message={m}
+      highlighted={highlighted === m._id}
+      isLast={m._id === last?._id}
+      breakCost={breakCosts.get(m._id) ?? null}
+      editRequest={editTarget?.id === m._id ? editTarget.n : null}
+    />
+  );
 
   return (
-    <ChatShell
+    <AppPage
       header={
         <>
           <h1 className="min-w-0 truncate text-subheading">{thread?.title}</h1>
@@ -718,9 +384,7 @@ export default function ThreadPage() {
           )}
           {thread?.cacheManaged && (
             <CacheStatus
-              expiresAt={thread.cacheExpiresAt}
-              keepaliveScheduled={thread.keepaliveScheduled}
-              lastActiveAt={thread.lastActiveAt}
+              {...threadCache}
               onOpen={() => openInspector("cache")}
             />
           )}
@@ -804,6 +468,8 @@ export default function ThreadPage() {
               }}
             >
               <div className="tc-col-msg tc-thread-col" onKeyDown={onBranchKeys}>
+                <ThreadRowContext value={rowContext}>
+                <ThreadBusyContext value={streaming}>
                 {thread && (
                   <Condensed
                     checkpoint={thread.checkpoint}
@@ -819,6 +485,8 @@ export default function ThreadPage() {
                 {thread?.messages
                   .slice(thread.checkpoint?.coveredCount ?? 0)
                   .map(renderMessage)}
+                </ThreadBusyContext>
+                </ThreadRowContext>
               </div>
             </div>
             {!atBottom && <JumpToLatest onClick={toBottom} />}
@@ -826,7 +494,8 @@ export default function ThreadPage() {
           <Composer
             threadId={threadId}
             streaming={streaming}
-            onStop={() => last && void stop({ messageId: last._id })}
+            // An optimistic placeholder has no reply to stop yet.
+            onStop={() => last && !isOptimistic(last._id) && void stop({ messageId: last._id })}
             onType={markActive}
             onDraftChange={setDraft}
             onEditLast={streaming ? undefined : editLast}
@@ -897,29 +566,21 @@ export default function ThreadPage() {
                 ? "First image in this thread: the provider may write the history to the cache again."
                 : undefined
             }
-            onSend={async (text, images, documents) => {
+            onSend={async (text, images, documents, shown) => {
               setAtBottom(true);
-              try {
-                await send({
-                  threadId,
-                  content: text,
-                  mode,
-                  // A per-message effort change waits for the thread's own model.
-                  effort: oneOff ? undefined : (pendingEffort ?? undefined),
-                  images: images.length ? images : undefined,
-                  model: oneOff ?? undefined,
-                  search: webSearch.on || undefined,
-                  documents: documents.length ? documents : undefined,
-                });
-                if (oneOff) setReplyWith(null);
-                else setPendingEffort(null);
-              } catch (err) {
-                throw new Error(
-                  err instanceof ConvexError
-                    ? String(err.data)
-                    : "Could not send",
-                );
-              }
+              await sendOptimistically(send, {
+                threadId,
+                content: text,
+                mode,
+                // A per-message effort change waits for the thread's own model.
+                effort: oneOff ? undefined : (pendingEffort ?? undefined),
+                images: images.length ? images : undefined,
+                model: oneOff ?? undefined,
+                search: webSearch.on || undefined,
+                documents: documents.length ? documents : undefined,
+              }, shown).catch(rethrowSendError);
+              if (oneOff) setReplyWith(null);
+              else setPendingEffort(null);
             }}
           />
         </div>
@@ -934,6 +595,6 @@ export default function ThreadPage() {
           closeKbd={inspectorKbd}
         />
       </div>
-    </ChatShell>
+    </AppPage>
   );
 }
