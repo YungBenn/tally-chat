@@ -19,3 +19,6 @@ backups/
 # local agent and editor tooling
 .mcp.json
 .serena/
+
+# selfhost/start.sh runtime files
+.run/
