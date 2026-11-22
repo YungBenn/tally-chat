@@ -35,6 +35,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { MODE_MAX_TOKENS, type OutputMode } from "@/convex/lib/outputModes";
 import { estimateTokens, tokens, usd } from "@/lib/format";
+import { isOptimistic } from "@/lib/optimisticSend";
 import { cn } from "@/lib/utils";
 
 export type ThreadMessage = NonNullable<FunctionReturnType<typeof api.chat.getThread>>["messages"][number];
@@ -147,7 +148,7 @@ function PinButton({ id, pinned, locked }: { id: Id<"messages">; pinned: boolean
       icon={pinned ? <IconPinFilled /> : <IconPin />}
       label={label}
       size="sm"
-      disabled={locked}
+      disabled={locked || isOptimistic(id)} // not saved yet
       aria-pressed={pinned}
       onClick={() => void setPinned({ messageId: id, pinned: !pinned })}
     />
@@ -308,7 +309,8 @@ function AssistantMessage({ m, highlighted, isLast }: { m: ThreadMessage; highli
   const streaming = m.status === "streaming";
   // A streaming step's text lives in its own row (ADR 0004): only this row subscribes, so a flush
   // re-renders this message alone. Null once the step ends, when the message holds the text.
-  const live = useQuery(api.chat.streamingText, streaming ? { messageId: m._id } : "skip");
+  // An optimistic placeholder (ticket 08) has no stream yet, and its id must never reach the server.
+  const live = useQuery(api.chat.streamingText, streaming && !isOptimistic(m._id) ? { messageId: m._id } : "skip");
   const text = (streaming ? live : null) ?? m.text;
   return (
     <article
