@@ -85,17 +85,13 @@ Use the machine's LAN address in both places, for example allowlist `192.168.1.2
 
 ## Web search
 
-Web search runs on SearXNG, a private metasearch engine that needs no API key. tally.chat ships one as an optional service:
+Web search runs on [Exa](https://exa.ai), a search API built for feeding models. There is nothing to host: create a key in [Exa's dashboard](https://dashboard.exa.ai/api-keys), then open Settings → **Web search** and paste it. The key is encrypted like a provider key and never sent back to the browser. Saving it doesn't run a search, so it costs nothing.
 
-```bash
-docker compose --profile search up -d
-```
+With a key saved, the composer gets a **Search** toggle: a message sent with it on is searched first, and the top results (titles, links and a short passage from each) go to the model with it. The sources show under your message.
 
-Then open Settings and set **Web search** to `http://searxng:8080`. The composer gets a **Search** toggle: a message sent with it on is searched first, and the top results (titles, links and short snippets) go to the model with it. The sources show under your message.
+Each search costs about a cent, billed by Exa to your account. tally.chat records the cost Exa reports: it shows on the sources line, adds to the thread's spend and the usage page, and counts toward your daily budget. A failed search costs nothing and shows Exa's reason, such as an invalid key or no credits left.
 
-SearXNG asks other search engines on your behalf, so they still see your queries, though not who sent them. Engines such as Google sometimes block it for a while; a search then returns fewer or no results.
-
-Already run SearXNG? Point the setting at it instead. Its `settings.yml` must list `json` under `search.formats`, or every search fails with HTTP 403. Naming the URL in Settings trusts its host, so it doesn't need a private host allowlist entry.
+Exa sees every query you search, tied to your Exa account. Leave Search off for anything you don't want it to see.
 
 ## Tool servers
 
