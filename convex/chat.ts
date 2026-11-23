@@ -338,6 +338,7 @@ const messageView = v.object({
       ),
       results: v.array(v.object({ title: v.string(), url: v.string() })),
       error: v.optional(v.string()),
+      costMicroUsd: v.optional(v.number()),
     }),
   ),
 });
@@ -590,6 +591,7 @@ async function searchView(ctx: QueryCtx, messageId: Id<"messages">) {
     status: search.error ? ("failed" as const) : ("done" as const),
     results: search.results.map(({ title, url }) => ({ title, url })),
     ...(search.error ? { error: search.error } : {}),
+    ...(search.costMicroUsd !== undefined ? { costMicroUsd: search.costMicroUsd } : {}),
   };
 }
 

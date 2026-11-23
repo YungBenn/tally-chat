@@ -4,6 +4,7 @@ import { IconWorld, IconWorldOff } from "@tabler/icons-react";
 import { useQuery } from "convex/react";
 import { Tooltip } from "@/components/ui/overlay";
 import { api } from "@/convex/_generated/api";
+import { usd } from "@/lib/format";
 import { useStoredFlag } from "@/lib/storedFlag";
 
 /**
@@ -49,6 +50,7 @@ export function SearchSources({
     status: "pending" | "done" | "failed";
     results: { title: string; url: string }[];
     error?: string;
+    costMicroUsd?: number;
   };
 }) {
   if (search.status === "pending")
@@ -78,6 +80,7 @@ export function SearchSources({
               </a>
             </Tooltip>
           ))}
+      {search.costMicroUsd !== undefined && <span>· {usd(search.costMicroUsd)}</span>}
     </div>
   );
 }

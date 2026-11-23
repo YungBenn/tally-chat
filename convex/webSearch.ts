@@ -1,5 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
+import { recordDailyUsage } from "./lib/rollups";
+import { USAGE_FIELDS, type Usage } from "./lib/usage";
 import { searchQuery, searchResultValidator } from "./lib/webSearch";
 
 // The search a reply waits for: its user message asked to search and has no stored search yet.
@@ -44,6 +46,7 @@ export const save = internalMutation({
     query: v.string(),
     results: v.array(searchResultValidator),
     error: v.optional(v.string()),
+    costMicroUsd: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, { messageId, ...search }) => {
@@ -53,12 +56,32 @@ export const save = internalMutation({
       .query("searches")
       .withIndex("by_messageId", (q) => q.eq("messageId", messageId))
       .unique();
-    if (!existing)
-      await ctx.db.insert("searches", {
+    if (existing) return null;
+    await ctx.db.insert("searches", {
+      ownerId: message.ownerId,
+      messageId,
+      ...search,
+    });
+    // A successful search is a metered call in the same mutation, so totals never drift from
+    // their searches. Zero usage keeps hit rate and savings about caching; no cost is unpriced.
+    if (!search.error) {
+      const settings = await ctx.db
+        .query("settings")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", message.ownerId))
+        .unique();
+      await recordDailyUsage(ctx, {
         ownerId: message.ownerId,
-        messageId,
-        ...search,
+        at: Date.now(),
+        timeZone: settings?.timeZone,
+        model: "exa-search",
+        providerId: "exa",
+        threadId: message.threadId,
+        usage: Object.fromEntries(USAGE_FIELDS.map((f) => [f, 0])) as Usage,
+        costMicroUsd: search.costMicroUsd ?? null,
+        savedMicroUsd: 0,
+        upkeep: false,
       });
+    }
     return null;
   },
 });

@@ -210,6 +210,7 @@ export default defineSchema({
     query: v.string(),
     results: v.array(searchResultValidator),
     error: v.optional(v.string()),
+    costMicroUsd: v.optional(v.number()), // what Exa reported; absent when it reported none
   }).index("by_messageId", ["messageId"]),
   // A summary standing in for every message up to coversUpToId on any branch containing it
   // (ADR 0001). Stored outside the tree so condensing never rewrites messages.

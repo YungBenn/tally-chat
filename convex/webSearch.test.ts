@@ -3,7 +3,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch, type Recorded } from "../test/fakeFetch";
-import { messageStop, sse, textDelta } from "../test/sse";
+import { messageDelta, messageStart, messageStop, sse, textDelta } from "../test/sse";
 import { api } from "./_generated/api";
 import { decryptSecret, encryptSecret } from "./lib/vault";
 import schema from "./schema";
@@ -268,5 +268,96 @@ describe("searching before a reply", () => {
 
     expect(s.searchRequests()).toHaveLength(2);
     expect(firstUserText(s.modelRequests()[1])).toBe('What is Bun?\n\n<web_search query="What is Bun?">\nThe web search returned no results.\n</web_search>');
+  });
+});
+
+describe("metering searches", () => {
+  // Exa reports cost as costDollars.total (its OpenAPI spec's CostDollarsOutput).
+  const PRICED = { ...RESULTS, costDollars: { total: 0.007, search: { neural: 0.005 }, contents: { highlights: 0.002 } } };
+
+  test("a search's reported cost is stored and shown on it", async () => {
+    const s = await setup();
+    await s.saveKey();
+    fake = fakeFetch(fixtures({ Hi: { body: PRICED } }));
+    await s.send("Hi");
+
+    expect((await s.thread()).messages[0].search).toMatchObject({ status: "done", costMicroUsd: 7000 });
+  });
+
+  test("adds to the thread's total spend, but not to the reply's cost, hit rate or savings", async () => {
+    // The same cached reply, once without a search and once with one.
+    const usage = { input_tokens: 100, cache_read_input_tokens: 1000, cache_creation_input_tokens: 200, output_tokens: 5 };
+    const run = async (search: boolean) => {
+      const s = await setup();
+      await s.saveKey();
+      fake = fakeFetch({
+        [MESSAGES_URL]: { body: sse(messageStart(usage), textDelta("ok"), messageDelta({}), messageStop) },
+        [EXA_URL]: exa({ Hi: { body: PRICED } }),
+      });
+      await s.send("Hi", search);
+      fake.restore();
+      const reply = (await s.thread()).messages[1];
+      return {
+        thread: (await s.owner.query(api.inspector.get, { threadId: s.threadId }))!.thread,
+        replyCost: (await s.owner.query(api.inspector.turn, { messageId: reply._id }))!.costMicroUsd,
+      };
+    };
+    const plain = await run(false);
+    const searched = await run(true);
+
+    expect(plain.thread.costMicroUsd).toBeGreaterThan(0);
+    expect(searched.thread.costMicroUsd).toBe(plain.thread.costMicroUsd + 7000);
+    expect(searched.thread.unpricedCalls).toBe(plain.thread.unpricedCalls);
+    expect(searched.thread.hitRate).toBe(plain.thread.hitRate);
+    expect(searched.thread.savedMicroUsd).toBe(plain.thread.savedMicroUsd);
+    expect(searched.replyCost).toBe(plain.replyCost);
+  });
+
+  const today = () => new Date().toISOString().slice(0, 10); // no time zone set: UTC days
+  const exaLine = async (s: Awaited<ReturnType<typeof setup>>) =>
+    (await s.owner.query(api.usage.summary, { today: today() })).models.find((m) => m.model === "exa-search");
+
+  test("shows in the usage page's daily spend and as an exa-search line, even after the thread is deleted", async () => {
+    const s = await setup();
+    await s.saveKey();
+    fake = fakeFetch(fixtures({ Hi: { body: PRICED } }));
+    await s.send("Hi");
+    await s.owner.mutation(api.chat.deleteThread, { threadId: s.threadId });
+    await s.settle();
+
+    const summary = await s.owner.query(api.usage.summary, { today: today() });
+    expect(summary.days.find((d) => d.day === today())).toMatchObject({ costMicroUsd: 7000 });
+    expect(await exaLine(s)).toEqual({ model: "exa-search", costMicroUsd: 7000, calls: 1, unpricedCalls: 0 });
+  });
+
+  test("counts toward the daily budget", async () => {
+    const s = await setup();
+    await s.saveKey();
+    await s.owner.mutation(api.settings.setDailyBudget, { microUsd: 5000 });
+    fake = fakeFetch(fixtures({ Hi: { body: PRICED } }));
+    await s.send("Hi");
+
+    expect(await s.owner.query(api.usage.budget, { today: today() })).toMatchObject({ budgetMicroUsd: 5000, spentMicroUsd: 7000 });
+    await expect(s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Again" })).rejects.toThrow("Daily budget reached");
+  });
+
+  test("a search without a reported cost is an unpriced call", async () => {
+    const s = await setup();
+    await s.saveKey();
+    fake = fakeFetch(fixtures({ Hi: { body: RESULTS } }));
+    await s.send("Hi");
+
+    expect((await s.thread()).messages[0].search).not.toHaveProperty("costMicroUsd");
+    expect(await exaLine(s)).toEqual({ model: "exa-search", costMicroUsd: 0, calls: 1, unpricedCalls: 1 });
+  });
+
+  test("a failed search adds nothing", async () => {
+    const s = await setup();
+    await s.saveKey();
+    fake = fakeFetch(fixtures({ Hi: { status: 402, body: { requestId: "r3", error: "Out of credits" } } }));
+    await s.send("Hi");
+
+    expect((await s.thread()).messages[0].search).toMatchObject({ status: "failed" });
+    expect(await exaLine(s)).toBeUndefined();
   });
 });

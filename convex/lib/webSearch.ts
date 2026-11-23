@@ -10,7 +10,8 @@ export const searchResultValidator = v.object({
   snippet: v.string(),
 });
 export type SearchResult = Infer<typeof searchResultValidator>;
-export type StoredSearch = { query: string; results: SearchResult[]; error?: string };
+// costMicroUsd: what Exa reported the search cost; absent when it reported none.
+export type StoredSearch = { query: string; results: SearchResult[]; error?: string; costMicroUsd?: number };
 
 // ponytail: the message text is the query; rewriting it into a better query costs a model call.
 export const searchQuery = (text: string) => text.slice(0, 300);
@@ -56,7 +57,13 @@ export async function searchExa(apiKey: string, query: string): Promise<StoredSe
       const message = await res.json().then((b: { error?: unknown }) => b?.error, () => undefined);
       return { query, results: [], error: typeof message === "string" && message ? `HTTP ${res.status}: ${message}` : `HTTP ${res.status}` };
     }
-    return { query, results: parseExa(await res.json()) };
+    const json = await res.json();
+    const cost = (json as { costDollars?: { total?: unknown } })?.costDollars?.total;
+    return {
+      query,
+      results: parseExa(json),
+      ...(typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? { costMicroUsd: Math.round(cost * 1e6) } : {}),
+    };
   } catch (err) {
     return { query, results: [], error: err instanceof Error && err.message ? err.message : "Could not reach Exa" };
   }

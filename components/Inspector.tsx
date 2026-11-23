@@ -367,7 +367,7 @@ function InspectorBody({
 
       <section className="flex flex-col">
         <h2 className="mb-2 text-subheading">This thread</h2>
-        <Figure label="Total spend" value={known(thread.costMicroUsd)} title="Every call in this thread: replies, title, keepalives and condensing" />
+        <Figure label="Total spend" value={known(thread.costMicroUsd)} title="Every call in this thread: replies, title, keepalives, condensing and searches" />
         <Figure label="Cache upkeep" value={known(thread.upkeepMicroUsd)} title="Keepalive spend" />
         <Figure
           label="Cache hit rate"
