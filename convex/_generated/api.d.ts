@@ -23,6 +23,7 @@ import type * as keepalive from "../keepalive.js";
 import type * as lib_ancestors from "../lib/ancestors.js";
 import type * as lib_anthropic from "../lib/anthropic.js";
 import type * as lib_budget from "../lib/budget.js";
+import type * as lib_builtinTools from "../lib/builtinTools.js";
 import type * as lib_cacheStatus from "../lib/cacheStatus.js";
 import type * as lib_condense from "../lib/condense.js";
 import type * as lib_context from "../lib/context.js";
@@ -81,6 +82,7 @@ declare const fullApi: ApiFromModules<{
   "lib/ancestors": typeof lib_ancestors;
   "lib/anthropic": typeof lib_anthropic;
   "lib/budget": typeof lib_budget;
+  "lib/builtinTools": typeof lib_builtinTools;
   "lib/cacheStatus": typeof lib_cacheStatus;
   "lib/condense": typeof lib_condense;
   "lib/context": typeof lib_context;
