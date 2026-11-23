@@ -19,7 +19,7 @@ beforeAll(setAuthEnv);
 let fake: ReturnType<typeof fakeFetch> | undefined;
 afterEach(() => fake?.restore());
 
-type Body = { model: string; max_tokens?: number; output_config?: { effort: string }; messages: { role: string; content: unknown }[] };
+type Body = { model: string; max_tokens?: number; output_config?: { effort: string }; messages: { role: string; content: unknown }[]; tools?: { name: string; description?: string }[] };
 const CACHING = { input_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 2000, output_tokens: 1 };
 
 async function setup() {
@@ -112,6 +112,22 @@ describe("reply with another model, once", () => {
       s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "x", effort: "low", model: { providerId: s.openaiId, modelId: "gpt-5" } }),
     ).rejects.toThrow("Change effort on a reply from the thread's own model");
     await expect(s.send("x", { providerId: s.anthropicId, modelId: "claude-hidden" })).rejects.toThrow("Model not available");
+  });
+
+  // Skills story 40: a skill added or replaced mid-thread doesn't reach the cheaper reply.
+  test("sends the thread's frozen read_skill catalog after skills change mid-thread", async () => {
+    const s = await setup();
+    const addSkill = (name: string, description: string) =>
+      s.owner.mutation(api.skills.addFromFiles, { files: [{ path: "SKILL.md", text: `---\nname: ${name}\ndescription: ${description}\n---\nBody.\n` }], replace: true });
+    await addSkill("alpha", "First.");
+    await s.send("First");
+    await addSkill("alpha", "Replaced.");
+    await addSkill("beta", "New.");
+    await s.send("Quick one", { providerId: s.anthropicId, modelId: "claude-haiku-5-5" });
+    const [first, cheaper] = s.replies().filter((b) => b.tools);
+    expect(cheaper.model).toBe("claude-haiku-5-5");
+    expect(first.tools![0].description).toMatch(/- alpha: First\.$/);
+    expect(JSON.stringify(cheaper.tools)).toBe(JSON.stringify(first.tools));
   });
 
   test("retry with another model becomes a new version of that reply", async () => {

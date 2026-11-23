@@ -25,7 +25,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-type Body = { model: string; max_tokens: number; stream: boolean; system: unknown; messages: { role: string; content: unknown }[]; cache_control?: unknown };
+type Body = { model: string; max_tokens: number; stream: boolean; system: unknown; messages: { role: string; content: unknown }[]; cache_control?: unknown; tools?: { name: string; description?: string }[] };
 const CACHING = { input_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 2000, output_tokens: 1 };
 const NO_CACHING = { input_tokens: 10, cache_read_input_tokens: 0, output_tokens: 1 };
 
@@ -117,6 +117,23 @@ describe("keepalive", () => {
     await s.later(4.5 * MIN);
     expect(s.keepalives()).toHaveLength(2);
     expect(await s.state()).toBe("keepalive");
+  });
+
+  // Skills story 40: a skill added or replaced mid-thread doesn't reach the keepalive.
+  test("sends the thread's frozen read_skill catalog after skills change mid-thread", async () => {
+    const s = await setup();
+    const addSkill = (name: string, description: string) =>
+      s.tab1.mutation(api.skills.addFromFiles, { files: [{ path: "SKILL.md", text: `---\nname: ${name}\ndescription: ${description}\n---\nBody.\n` }], replace: true });
+    await addSkill("alpha", "First.");
+    await s.tab1.mutation(api.chat.markActive, { threadId: s.threadId });
+    await s.send("Hi");
+    await addSkill("alpha", "Replaced.");
+    await addSkill("beta", "New.");
+    await s.later(4.6 * MIN);
+    const reply = fake!.requests.find((r) => (r.body as Body).max_tokens === 8192)!.body as Body;
+    const [keepalive] = s.keepalives();
+    expect(reply.tools![0].description).toMatch(/- alpha: First\.$/);
+    expect(JSON.stringify(keepalive.tools)).toBe(JSON.stringify(reply.tools));
   });
 
   // Presence and cache bookkeeping live in their own table, so they don't re-run the thread
