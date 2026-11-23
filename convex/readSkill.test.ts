@@ -2,7 +2,7 @@
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
-import { fakeFetch } from "../test/fakeFetch";
+import { fakeFetch, type Recorded } from "../test/fakeFetch";
 import { messageDelta, messageStart, messageStop, sse, textDelta, toolUse, toolUseStop } from "../test/sse";
 import { api } from "./_generated/api";
 import { encryptSecret } from "./lib/vault";
@@ -35,7 +35,7 @@ const SCHEMA = {
 const skillMd = (name: string, description: string, body = "Do the thing.\n") =>
   `---\nname: ${name}\ndescription: ${description}\n---\n${body}`;
 
-async function setup(steps: Step[] = [], { tools = true } = {}) {
+async function setup(steps: Step[] = [], { tools = true, github = {} as Record<string, Recorded> } = {}) {
   const t = convexTest(schema, modules);
   const ownerId = await t.run((ctx) => ctx.db.insert("users", { email: "owner" }));
   const apiKeyEncrypted = await t.run(() => encryptSecret("sk"));
@@ -48,6 +48,7 @@ async function setup(steps: Step[] = [], { tools = true } = {}) {
   const owner = t.withIdentity({ subject: `${ownerId}|session` });
   let n = 0;
   fake = fakeFetch({
+    ...github,
     [ANTHROPIC]: {
       respond: (init) => {
         const body = JSON.parse(String(init?.body)) as Body;
@@ -205,6 +206,38 @@ describe("the model reads a skill", () => {
       "Error: review has no file missing.md. Files: SKILL.md, refs/checklist.md",
       "Error: this skill was removed",
     ]);
+  });
+
+  test("refreshing a GitHub skill keeps the thread's catalog bytes; later reads get the new body", async () => {
+    let skillText = skillMd("pdf", "Work with PDF files.", "Old body.\n");
+    const s = await setup(
+      [
+        { calls: [{ id: "toolu_1", name: "read_skill", args: { name: "pdf" } }] },
+        { text: "Done." },
+        { calls: [{ id: "toolu_2", name: "read_skill", args: { name: "pdf" } }] },
+        { text: "Done again." },
+      ],
+      {
+        github: {
+          "GET https://api.github.com/repos/anthropics/skills/git/trees/main?recursive=1": { body: { tree: [{ path: "skills/pdf/SKILL.md", type: "blob" }], truncated: false } },
+          "GET https://raw.githubusercontent.com/anthropics/skills/main/skills/pdf/SKILL.md": { respond: () => new Response(skillText) },
+        },
+      },
+    );
+    await s.owner.action(api.skillActions.addFromGithub, { url: "https://github.com/anthropics/skills/tree/main/skills/pdf" });
+    const threadId = await s.newThread();
+    await s.send(threadId);
+    skillText = skillMd("pdf", "Now about every document.", "New body.\n");
+    const [skill] = await s.owner.query(api.skills.list, {});
+    await s.owner.action(api.skillActions.refresh, { skillId: skill._id });
+    await s.send(threadId);
+    const requests = s.replyRequests();
+    expect(requests).toHaveLength(4);
+    for (const body of requests) expect(JSON.stringify(body.tools)).toBe(JSON.stringify(requests[0].tools));
+    expect(requests[0].tools![0].description).toBe(`${PREAMBLE}- pdf: Work with PDF files.`);
+    const last = requests[3].messages;
+    expect(JSON.stringify(last)).toContain(JSON.stringify("Old body.\n"));
+    expect(resultOf(requests[3])).toEqual({ type: "tool_result", tool_use_id: "toolu_2", content: "New body.\n" });
   });
 
   test("a large file is capped like any tool result", async () => {

@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
-import { parseSkill, skillFileValidator, type ParsedSkill } from "./lib/skills";
+import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { parseSkill, skillFileValidator, skillSourceValidator, type ParsedSkill, type SkillSource } from "./lib/skills";
 import { requireOwner } from "./owner";
 
 const skillView = v.object({
@@ -9,7 +9,7 @@ const skillView = v.object({
   name: v.string(),
   description: v.string(),
   size: v.number(),
-  source: v.literal("upload"),
+  source: skillSourceValidator,
   onForNewThreads: v.boolean(),
 });
 
@@ -33,13 +33,14 @@ export async function saveSkill(
   ownerId: Id<"users">,
   skill: ParsedSkill,
   replace: boolean,
+  source: SkillSource = "upload",
 ): Promise<typeof addResult.type> {
   const existing = await ctx.db
     .query("skills")
     .withIndex("by_ownerId_and_name", (q) => q.eq("ownerId", ownerId).eq("name", skill.name))
     .unique();
   if (existing && !replace) return { status: "exists", name: skill.name };
-  const fields = { ...skill, source: "upload" as const };
+  const fields = { ...skill, source };
   if (existing) {
     await ctx.db.patch("skills", existing._id, fields);
     return { status: "added", skillId: existing._id };
@@ -99,6 +100,30 @@ export const addFromFiles = mutation({
     const parsed = parseSkill(files);
     if (!parsed.ok) return { status: "invalid" as const, reason: parsed.reason };
     return saveSkill(ctx, ownerId, parsed.skill, replace ?? false);
+  },
+});
+
+const parsedSkillValidator = v.object({
+  name: v.string(),
+  description: v.string(),
+  body: v.string(),
+  files: v.array(skillFileValidator),
+  size: v.number(),
+});
+
+// For skillActions: GitHub fetching runs in an action, saving goes through saveSkill.
+export const save = internalMutation({
+  args: { ownerId: v.id("users"), skill: parsedSkillValidator, replace: v.boolean(), source: skillSourceValidator },
+  returns: addResult,
+  handler: (ctx, { ownerId, skill, replace, source }) => saveSkill(ctx, ownerId, skill, replace, source),
+});
+
+export const getOwned = internalQuery({
+  args: { ownerId: v.id("users"), skillId: v.id("skills") },
+  returns: v.union(v.null(), v.object({ name: v.string(), source: skillSourceValidator })),
+  handler: async (ctx, { ownerId, skillId }) => {
+    const skill = await ownedSkill(ctx, ownerId, skillId);
+    return skill && { name: skill.name, source: skill.source };
   },
 });
 

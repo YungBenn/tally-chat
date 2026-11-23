@@ -4,6 +4,9 @@ import { parse } from "yaml";
 // Agent Skills format (agentskills.io): a SKILL.md with YAML frontmatter plus optional text files.
 export const skillFileValidator = v.object({ path: v.string(), text: v.string() });
 export type SkillFile = { path: string; text: string };
+// Where a skill came from: an upload, or the normalized GitHub URL it refreshes from.
+export const skillSourceValidator = v.union(v.literal("upload"), v.object({ github: v.string() }));
+export type SkillSource = typeof skillSourceValidator.type;
 export type ParsedSkill = {
   name: string;
   description: string;

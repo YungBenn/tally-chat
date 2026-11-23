@@ -10,7 +10,7 @@ import { searchResultValidator } from "./lib/webSearch";
 import { documentRefValidator } from "./lib/documents";
 import { frozenToolValidator } from "./lib/toolSet";
 import { partValidator } from "./lib/toolParts";
-import { skillFileValidator } from "./lib/skills";
+import { skillFileValidator, skillSourceValidator } from "./lib/skills";
 
 export const importSourceValidator = v.union(
   v.literal("chatgpt"),
@@ -79,7 +79,7 @@ export default defineSchema({
     body: v.string(), // SKILL.md after its frontmatter
     files: v.array(skillFileValidator), // every other text file
     size: v.number(),
-    source: v.literal("upload"),
+    source: skillSourceValidator,
     onForNewThreads: v.boolean(),
   }).index("by_ownerId_and_name", ["ownerId", "name"]), // also serves owner-only lookups
   threads: defineTable({
