@@ -219,7 +219,7 @@ export function ReplyMeta({
       <Popover
         title={`This reply · ${cost}`}
         side="top"
-        className="w-[340px] max-w-[calc(100vw-32px)]"
+        className="w-[21.25rem] max-w-[calc(100vw-2rem)]"
         defaultOpen
         trigger={trigger}
       >

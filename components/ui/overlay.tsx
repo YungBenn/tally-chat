@@ -225,7 +225,7 @@ export function Dialog({
           className="tc-dialog tc-dialog-modal holo-border holo-subtle"
           initialFocus={initialFocus}
         >
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: "0.75rem" }}>
             {icon && (
               <span className="tc-dialog-icon" data-tone={tone}>
                 {icon}
