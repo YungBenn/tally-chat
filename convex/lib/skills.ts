@@ -43,7 +43,7 @@ export async function skillHash({ name, description, body, files }: ParsedSkill)
 export const MAX_SKILL_BYTES = 1_000_000;
 const NAME = /^[a-z0-9-]+$/;
 
-const bytes = (s: string) => new TextEncoder().encode(s).length;
+const byteLength = (s: string) => new TextEncoder().encode(s).length;
 // Text read from a binary file carries NULs or decoding replacement characters.
 const isBinary = (text: string) => /[\u0000�]/.test(text);
 
@@ -78,7 +78,7 @@ export function parseSkill(input: SkillFile[]): { ok: true; skill: ParsedSkill }
     return { ok: false, reason: `The description is ${description.length} characters; at most 1024 characters are allowed.` };
 
   const rest = files.filter((f) => f !== skillMd && !isBinary(f.text));
-  const size = bytes(skillMd.text) + rest.reduce((n, f) => n + bytes(f.text), 0);
+  const size = byteLength(skillMd.text) + rest.reduce((n, f) => n + byteLength(f.text), 0);
   if (size > MAX_SKILL_BYTES)
     return { ok: false, reason: `The skill is ${(size / 1e6).toFixed(1)} MB of text; at most 1 MB is allowed.` };
 
