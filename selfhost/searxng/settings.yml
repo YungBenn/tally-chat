@@ -1,8 +1,0 @@
-# SearXNG for tally.chat's web search (opt-in: `docker compose --profile search up -d`).
-# Starts from SearXNG's defaults; tally.chat only needs the JSON output format.
-use_default_settings: true
-server:
-  limiter: false # a private instance behind tally.chat, not a public one
-  image_proxy: false
-search:
-  formats: [html, json]
