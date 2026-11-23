@@ -7,11 +7,9 @@ import { useState } from "react";
 import { Checkbox } from "@/components/ui/fields";
 import { Popover } from "@/components/ui/overlay";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import type { BuiltinPick, ToolPick } from "@/convex/lib/toolSet";
 
-type Pick = { serverId: Id<"toolServers">; tool: string };
-type ToolPick = Pick | { builtin: string; skills?: string[] };
-const keyOf = (p: Pick) => `${p.serverId}|${p.tool}`;
+const keyOf = (p: Exclude<ToolPick, BuiltinPick>) => `${p.serverId}|${p.tool}`;
 const skillKey = (name: string) => `skill|${name}`;
 const ADD_SKILL = "builtin|add_skill";
 // About the size of read_skill's preamble and input schema, before the catalog lines.
