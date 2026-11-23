@@ -22,11 +22,15 @@ export function ChangeToolsDialog({ threadId, onClose }: { threadId: Id<"threads
   const [now] = useState(() => Date.now());
   const [picked, setPicked] = useState<Set<string> | null>(null);
   const [busy, setBusy] = useState(false);
-  const start = new Set((current?.picks ?? []).map(toolKey));
+  const start = new Set((current?.picks ?? []).flatMap((p) => ("builtin" in p ? [] : [toolKey(p)])));
   const chosen = picked ?? start;
-  const picks = (servers ?? []).flatMap((s) =>
-    s.tools.map((t) => ({ serverId: s._id, tool: t.name })).filter((p) => chosen.has(toolKey(p))),
-  );
+  // Built-in tools aren't listed here: the thread keeps the ones it has.
+  const picks = [
+    ...(current?.picks ?? []).filter((p) => "builtin" in p),
+    ...(servers ?? []).flatMap((s) =>
+      s.tools.map((t) => ({ serverId: s._id, tool: t.name })).filter((p) => chosen.has(toolKey(p))),
+    ),
+  ];
   const cost = useQuery(api.inspector.toolChange, { threadId, now, tools: picks });
   const unchanged = chosen.size === start.size && [...chosen].every((k) => start.has(k));
   return (

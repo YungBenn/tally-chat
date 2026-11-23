@@ -55,8 +55,10 @@ import {
   toDefinition,
   toolDefinitionValidator,
   toolPickValidator,
+  toPick,
   type ToolPick,
 } from "./lib/toolSet";
+import { builtinTools, findBuiltin } from "./lib/builtinTools";
 import { requireOwner } from "./owner";
 import { importSourceValidator } from "./schema";
 import {
@@ -155,10 +157,7 @@ export const threadTools = query({
         await ctx.db.get("providers", thread.providerId),
         thread.modelId,
       ),
-      picks: (thread.toolSet ?? []).map(({ serverId, tool }) => ({
-        serverId,
-        tool,
-      })),
+      picks: (thread.toolSet ?? []).map(toPick),
     };
   },
 });
@@ -390,7 +389,13 @@ export const getThread = query({
     const servers = new Map(
       (
         await Promise.all(
-          [...new Set((thread.toolSet ?? []).map((t) => t.serverId))].map(
+          [
+            ...new Set(
+              (thread.toolSet ?? []).flatMap((t) =>
+                "serverId" in t ? [t.serverId] : [],
+              ),
+            ),
+          ].map(
             (id) => ctx.db.get("toolServers", id),
           ),
         )
@@ -506,15 +511,17 @@ function toolItems(
     if (p.type === "text") return p.text ? [{ kind: "text", text: p.text }] : [];
     if (p.type !== "toolCall") return [];
     const frozen = thread.toolSet?.find((t) => t.name === p.name);
-    const server = frozen && servers.get(frozen.serverId);
+    const server =
+      frozen && "serverId" in frozen ? servers.get(frozen.serverId) : undefined;
+    const tool = frozen && "tool" in frozen ? frozen.tool : p.name;
     const result = results.get(p.id);
     return [
       {
         kind: "tool",
         id: p.id,
-        tool: frozen?.tool ?? p.name,
+        tool,
         server: server?.name ?? null,
-        alwaysAllowed: !!frozen && !!server?.alwaysAllowed.includes(frozen.tool),
+        alwaysAllowed: !!server?.alwaysAllowed.includes(tool),
         status:
           result?.status ??
           (m.status === "waiting" && m.pendingApproval?.callIds.includes(p.id)
@@ -820,22 +827,31 @@ async function freezeToolSet(
     .query("toolServers")
     .withIndex("by_ownerId", (q) => q.eq("ownerId", thread.ownerId))
     .take(100);
-  const chosen =
+  // The default: every built-in tool the owner has something for, and the servers that are on.
+  const chosen: ToolPick[] =
     picks ??
     (capable
-      ? servers
-          .filter((s) => s.onForNewThreads)
-          .flatMap((s) => s.tools.map((t) => ({ serverId: s._id, tool: t.name })))
+      ? [
+          ...builtinTools.map((b) => ({ builtin: b.name })),
+          ...servers
+            .filter((s) => s.onForNewThreads)
+            .flatMap((s) => s.tools.map((t) => ({ serverId: s._id, tool: t.name }))),
+        ]
       : []);
   for (const pick of chosen) {
+    if ("builtin" in pick) continue; // checked once frozen
     const server = servers.find((s) => s._id === pick.serverId);
     if (!server?.tools.some((t) => t.name === pick.tool))
       throw new ConvexError("That tool is no longer offered");
   }
-  if (chosen.length)
-    await ctx.db.patch("threads", thread._id, {
-      toolSet: freezeTools(servers, chosen),
-    });
+  const toolSet = await freezeTools(ctx, thread.ownerId, servers, chosen);
+  if (
+    picks?.some(
+      (p) => "builtin" in p && !toolSet.some((t) => t.name === p.builtin),
+    )
+  )
+    throw new ConvexError("That tool is no longer offered");
+  if (toolSet.length) await ctx.db.patch("threads", thread._id, { toolSet });
 }
 
 const sendArgs = {
@@ -1529,6 +1545,10 @@ async function needsApproval(
   for (const call of calls) {
     const frozen = thread.toolSet?.find((t) => t.name === call.name);
     if (!frozen) continue;
+    if ("builtin" in frozen) {
+      if (findBuiltin(frozen.builtin)?.approval === "always") return true;
+      continue;
+    }
     const server = await ctx.db.get("toolServers", frozen.serverId);
     if (!server?.alwaysAllowed.includes(frozen.tool)) return true;
   }
@@ -1592,11 +1612,13 @@ export const toolRunInput = internalQuery({
   returns: v.union(
     v.null(),
     v.object({
+      ownerId: v.id("users"),
       allowlist: v.array(v.string()),
       calls: v.array(
         v.object({
           id: v.string(),
           input: v.string(),
+          builtin: v.optional(v.string()), // runs here, not on a tool server
           tool: v.optional(v.string()), // the server's own name for it
           url: v.optional(v.string()),
           headersEncrypted: v.optional(v.string()),
@@ -1619,6 +1641,17 @@ export const toolRunInput = internalQuery({
     for (const part of message.parts ?? []) {
       if (part.type !== "toolCall" || part.step !== step) continue;
       const frozen = thread.toolSet?.find((t) => t.name === part.name);
+      if (frozen && "builtin" in frozen) {
+        calls.push({
+          id: part.id,
+          input: part.input,
+          builtin: frozen.builtin,
+          problem: findBuiltin(frozen.builtin)
+            ? undefined
+            : "this built-in tool is no longer available",
+        });
+        continue;
+      }
       const server = frozen && (await ctx.db.get("toolServers", frozen.serverId));
       const offered = !!frozen && !!server?.tools.some((t) => t.name === frozen.tool);
       calls.push({
@@ -1636,7 +1669,7 @@ export const toolRunInput = internalQuery({
               : undefined,
       });
     }
-    return { allowlist: settings?.allowlistedHosts ?? [], calls };
+    return { ownerId: message.ownerId, allowlist: settings?.allowlistedHosts ?? [], calls };
   },
 });
 
