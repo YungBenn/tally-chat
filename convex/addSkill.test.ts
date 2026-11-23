@@ -104,7 +104,7 @@ describe("adding a skill through chat", () => {
     expect(waiting.items).toEqual([
       expect.objectContaining({
         kind: "tool", tool: "add_skill", status: "waiting", alwaysAllowed: false,
-        preview: { name: "pdf", description: "Fill PDF forms.", size: PDF.length, source: { github: PDF_URL }, replaces: false },
+        preview: { name: "pdf", description: "Fill PDF forms.", size: PDF.length, source: { github: PDF_URL }, hash: expect.stringMatching(/^[0-9a-f]{64}$/), replaces: false },
       }),
     ]);
     expect(await s.owner.query(api.skills.list, {})).toEqual([]);
@@ -176,6 +176,19 @@ describe("adding a skill through chat", () => {
     await s.send(threadId);
     const waiting = await s.reply(threadId);
     githubPdf = skillMd("pdf", "Something else.");
+    await s.owner.mutation(api.chat.approveTools, { messageId: waiting._id, declined: [] });
+    await s.settle();
+    expect(String(s.toolResult(s.replyRequests()[1]).content)).toMatch(/^Error: the skill changed after it was shown/);
+    expect(await s.owner.query(api.skills.list, {})).toEqual([]);
+  });
+
+  test("a skill whose body changed on GitHub at the same size is not added", async () => {
+    const s = await setup([addSkillCall(PDF_URL), { text: "Okay." }]);
+    const threadId = await s.newThread();
+    await s.send(threadId);
+    const waiting = await s.reply(threadId);
+    githubPdf = skillMd("pdf", "Fill PDF forms.", "Do the THING.\n");
+    expect(githubPdf.length).toBe(PDF.length);
     await s.owner.mutation(api.chat.approveTools, { messageId: waiting._id, declined: [] });
     await s.settle();
     expect(String(s.toolResult(s.replyRequests()[1]).content)).toMatch(/^Error: the skill changed after it was shown/);

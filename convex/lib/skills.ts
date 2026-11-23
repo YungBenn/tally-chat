@@ -15,6 +15,9 @@ export const skillPreviewValidator = v.union(
     description: v.string(),
     size: v.number(),
     source: skillSourceValidator,
+    // SHA-256 of what would be saved, so approving saves exactly this. Absent on calls stored
+    // before it existed: those are refused on approval.
+    hash: v.optional(v.string()),
     replaces: v.optional(v.boolean()),
   }),
   v.object({ error: v.string() }),
@@ -27,6 +30,14 @@ export type ParsedSkill = {
   files: SkillFile[]; // every other text file, paths relative to the skill folder
   size: number; // UTF-8 bytes of SKILL.md and every kept file
 };
+
+/** SHA-256 hex of everything a skill saves: name, description, body and files sorted by path. */
+export async function skillHash({ name, description, body, files }: ParsedSkill): Promise<string> {
+  const sorted = [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  const text = JSON.stringify([name, description, body, sorted.map((f) => [f.path, f.text])]);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 // Leaves room under Convex's 1 MiB document limit for the rest of the row.
 export const MAX_SKILL_BYTES = 1_000_000;

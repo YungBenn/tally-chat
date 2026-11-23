@@ -1,7 +1,7 @@
 import { internal } from "../_generated/api";
 import type { BuiltinTool } from "./builtinTools";
 import { fetchGithubSkill } from "./github";
-import { parseSkill, type ParsedSkill, type SkillSource } from "./skills";
+import { parseSkill, skillHash, type ParsedSkill, type SkillSource } from "./skills";
 import type { GuardOptions } from "./urlGuard";
 
 // add_skill (ADR 0005): adds a skill from chat. The call is resolved before the owner is asked,
@@ -53,16 +53,16 @@ export const addSkill: BuiltinTool = {
     const got = await resolve(input, guard);
     if (!got.ok) return { error: got.reason };
     const { name, description, size } = got.skill;
-    return { name, description, size, source: got.source };
+    return { name, description, size, source: got.source, hash: await skillHash(got.skill) };
   },
   // Runs only once approved, or with the resolve error that skipped asking. The source is fetched
-  // again and must still be what the owner approved.
+  // again and must still hash to what the owner approved.
   run: async (ctx, { ownerId, input, preview, guard }) => {
     if (!preview || "error" in preview) return error(preview?.error ?? "the skill was not resolved.");
     const got = await resolve(input, guard);
     if (!got.ok) return error(got.reason);
-    const { name, description, size } = got.skill;
-    if (name !== preview.name || description !== preview.description || size !== preview.size)
+    const { name } = got.skill;
+    if (!preview.hash || (await skillHash(got.skill)) !== preview.hash)
       return error("the skill changed after it was shown for approval, so it was not added. Call add_skill again to show the new version.");
     await ctx.runMutation(internal.skills.save, { ownerId, skill: got.skill, replace: true, source: got.source });
     return { text: `Added the skill ${name}. It is available from the next thread, not this one.`, status: "ok" };
