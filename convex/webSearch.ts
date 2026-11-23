@@ -11,8 +11,8 @@ export const pending = internalQuery({
     v.object({
       messageId: v.id("messages"),
       query: v.string(),
-      url: v.union(v.null(), v.string()), // null: search was turned off after the message
-      allowlist: v.array(v.string()),
+      // The Exa key's ciphertext; null: the key was removed after the message.
+      keyEncrypted: v.union(v.null(), v.string()),
     }),
   ),
   handler: async (ctx, { replyId }) => {
@@ -30,16 +30,10 @@ export const pending = internalQuery({
       .query("settings")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", user.ownerId))
       .unique();
-    const url = settings?.searchUrl ?? null;
     return {
       messageId: user._id,
       query: searchQuery(user.content),
-      url,
-      // The owner named this host, so it is trusted like an allowlisted one.
-      allowlist: [
-        ...(settings?.allowlistedHosts ?? []),
-        ...(url ? [new URL(url).host] : []),
-      ],
+      keyEncrypted: settings?.searchKeyEncrypted ?? null,
     };
   },
 });

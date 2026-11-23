@@ -1,7 +1,6 @@
 import { v, type Infer } from "convex/values";
-import { guardedFetch, type GuardOptions } from "./urlGuard";
 
-// Web search, phase 1: before a reply, search the owner's SearXNG for the user's message and
+// Web search: before a reply, search Exa for the user's message and
 // send the results with it. Results are stored once and rendered the same way on every later
 // request, so the message's bytes, and the cache built on them, never change.
 
@@ -17,32 +16,49 @@ export type StoredSearch = { query: string; results: SearchResult[]; error?: str
 export const searchQuery = (text: string) => text.slice(0, 300);
 
 const MAX_RESULTS = 6;
-// What a search adds before it runs: 6 results measured about 870 tokens on a real SearXNG.
+// What a search adds before it runs: 6 results with 300-character snippets measured
+// about 870 tokens.
 // ponytail: a fixed guess for unsent and unmeasured turns; measured usage replaces it after.
 export const SEARCH_TOKENS_ESTIMATE = 900;
 const MAX_SNIPPET = 300;
 const clip = (s: string) => (s.length > MAX_SNIPPET ? `${s.slice(0, MAX_SNIPPET - 1)}…` : s);
 
-export function parseSearxng(json: unknown): SearchResult[] {
+export function parseExa(json: unknown): SearchResult[] {
   const results = (json as { results?: unknown })?.results;
   if (!Array.isArray(results)) return [];
   return results
-    .filter((r): r is { title: string; url: string; content?: unknown } => typeof r?.title === "string" && typeof r?.url === "string")
-    // Some engines return links without a host (Brave's "http:///go/v1/…" redirects): useless as
-    // a source and a waste of tokens, so skip them before taking the first few.
+    .filter((r): r is { title?: unknown; url: string; highlights?: unknown } => typeof r?.url === "string")
+    // Links without a host are useless as a source and a waste of tokens, so skip them before
+    // taking the first few.
     .filter((r) => /^https?:\/\/[^/\s]/i.test(r.url))
     .slice(0, MAX_RESULTS)
-    .map((r) => ({ title: r.title.trim(), url: r.url, snippet: clip(typeof r.content === "string" ? r.content.trim() : "") }));
+    .map((r) => {
+      const title = typeof r.title === "string" ? r.title.trim() : "";
+      const highlights = Array.isArray(r.highlights) ? r.highlights.filter((h): h is string => typeof h === "string") : [];
+      return {
+        title: title || r.url,
+        url: r.url,
+        snippet: clip(highlights.map((h) => h.trim()).filter(Boolean).join(" … ")),
+      };
+    });
 }
 
-// SearXNG's JSON API: GET {base}/search?q=…&format=json (json must be enabled in its settings).
-export async function searchSearxng(baseUrl: string, query: string, guard: GuardOptions): Promise<StoredSearch> {
+// Exa's search API. Its host is fixed and public, so a plain fetch needs no URL guard.
+export async function searchExa(apiKey: string, query: string): Promise<StoredSearch> {
   try {
-    const res = await guardedFetch(`${baseUrl}/search?${new URLSearchParams({ q: query, format: "json" })}`, { headers: { accept: "application/json" } }, guard);
-    if (!res.ok) return { query, results: [], error: `HTTP ${res.status}` };
-    return { query, results: parseSearxng(await res.json()) };
+    const res = await fetch("https://api.exa.ai/search", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": apiKey },
+      body: JSON.stringify({ query, type: "auto", numResults: MAX_RESULTS, contents: { highlights: true } }),
+    });
+    if (!res.ok) {
+      // Exa's error body is { error: "Invalid API key" } and the like.
+      const message = await res.json().then((b: { error?: unknown }) => b?.error, () => undefined);
+      return { query, results: [], error: typeof message === "string" && message ? `HTTP ${res.status}: ${message}` : `HTTP ${res.status}` };
+    }
+    return { query, results: parseExa(await res.json()) };
   } catch (err) {
-    return { query, results: [], error: err instanceof Error ? err.message : "Could not reach SearXNG" };
+    return { query, results: [], error: err instanceof Error && err.message ? err.message : "Could not reach Exa" };
   }
 }
 

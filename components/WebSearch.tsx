@@ -7,13 +7,13 @@ import { api } from "@/convex/_generated/api";
 import { useStoredFlag } from "@/lib/storedFlag";
 
 /**
- * Whether the next message searches the web first. Offered only once a SearXNG URL is set;
+ * Whether the next message searches the web first. Offered only once an Exa API key is saved;
  * the choice is remembered in this browser.
  */
 export function useWebSearch() {
   const settings = useQuery(api.settings.get);
   const [on, setOn] = useStoredFlag("tally.webSearch", false);
-  const available = !!settings?.searchUrl;
+  const available = !!settings?.searchKeySet;
   return { available, on: available && on, setOn };
 }
 

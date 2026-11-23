@@ -542,13 +542,13 @@ function cleanText(content: string) {
   return text;
 }
 
-const searchUrlOf = async (ctx: QueryCtx, ownerId: Id<"users">) =>
-  (
+const searchKeySet = async (ctx: QueryCtx, ownerId: Id<"users">) =>
+  !!(
     await ctx.db
       .query("settings")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
       .unique()
-  )?.searchUrl;
+  )?.searchKeyEncrypted;
 
 // Documents a send carries: the owner's, extracted and not yet sent. Sending ties each one to
 // the thread, so deleting the thread removes it and no other thread can send it.
@@ -871,8 +871,8 @@ async function sendTo(
     throw new ConvexError(
       "Change effort on a reply from the thread's own model",
     );
-  if (search && !(await searchUrlOf(ctx, ownerId)))
-    throw new ConvexError("Set a SearXNG URL in Settings to search the web");
+  if (search && !(await searchKeySet(ctx, ownerId)))
+    throw new ConvexError("Add an Exa API key in Settings to search the web");
   const docs = await claimDocuments(ctx, ownerId, thread, documents ?? []);
   if (!thread.activeLeafId) await freezeToolSet(ctx, thread, tools);
   const parent = thread.activeLeafId
@@ -984,7 +984,7 @@ export const edit = mutation({
         original.images, // an edit changes the text; the images stay
         undefined,
         // A searched message searches again for its new text, while search is still set up.
-        original.search && !!(await searchUrlOf(ctx, ownerId)),
+        original.search && (await searchKeySet(ctx, ownerId)),
         original.documents, // like images, the documents stay
       ),
       mode,

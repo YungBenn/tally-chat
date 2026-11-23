@@ -5,20 +5,31 @@ import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch, type Recorded } from "../test/fakeFetch";
 import { messageStop, sse, textDelta } from "../test/sse";
 import { api } from "./_generated/api";
-import { encryptSecret } from "./lib/vault";
+import { decryptSecret, encryptSecret } from "./lib/vault";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 vi.mock("node:dns/promises", () => ({ lookup: async () => [{ address: "160.79.104.10", family: 4 }] }));
 const MESSAGES_URL = "POST https://api.anthropic.com/v1/messages";
-const SEARXNG = "http://searxng:8080";
-const searchKey = (q: string) => `GET ${SEARXNG}/search?${new URLSearchParams({ q, format: "json" })}`;
+const EXA_URL = "POST https://api.exa.ai/search";
+const EXA_KEY = "exa-test-key-123";
 const RESULTS = {
+  requestId: "r1",
   results: [
-    { title: "Convex | All gas", url: "https://www.convex.dev/", content: "Convex is the all-in-one backend." },
-    { title: "Convex docs", url: "https://docs.convex.dev/", content: "x".repeat(400) },
+    { id: "1", title: "Convex | All gas", url: "https://www.convex.dev/", highlights: ["Convex is the all-in-one backend."] },
+    { id: "2", title: "Convex docs", url: "https://docs.convex.dev/", highlights: ["x".repeat(400)] },
   ],
 };
+// Exa answers by query, so one fixture serves searches for different texts.
+const exa = (byQuery: Record<string, Recorded>): Recorded => ({
+  respond: (init) => {
+    const { query } = JSON.parse(init!.body as string) as { query: string };
+    const r = byQuery[query];
+    if (!r) throw new Error(`no Exa fixture for ${query}`);
+    if ("respond" in r) return r.respond(init);
+    return new Response(typeof r.body === "string" ? r.body : JSON.stringify(r.body), { status: r.status ?? 200 });
+  },
+});
 
 beforeAll(setAuthEnv);
 let fake: ReturnType<typeof fakeFetch> | undefined;
@@ -37,55 +48,86 @@ async function setup() {
   const owner = t.withIdentity({ subject: `${ownerId}|session` });
   const threadId = await owner.mutation(api.chat.createThread, { providerId, modelId: "claude-sonnet-5-5" });
   const settle = () => t.finishAllScheduledFunctions(() => {});
+  const saveKey = (apiKey = EXA_KEY) => owner.action(api.settings.setSearchKey, { apiKey });
   const send = async (content: string, search = true) => {
     await owner.mutation(api.chat.send, { threadId, content, search });
     await settle();
   };
   const thread = async () => (await owner.query(api.chat.getThread, { threadId }))!;
-  const modelRequests = () => fake!.requests.filter((r) => r.method === "POST").map((r) => r.body as { messages: { role: string; content: unknown }[] });
-  const searchRequests = () => fake!.requests.filter((r) => r.method === "GET");
-  return { t, owner, threadId, send, settle, thread, modelRequests, searchRequests };
+  const modelRequests = () =>
+    fake!.requests.filter((r) => `${r.method} ${r.url}` === MESSAGES_URL).map((r) => r.body as { messages: { role: string; content: unknown }[] });
+  const searchRequests = () => fake!.requests.filter((r) => `${r.method} ${r.url}` === EXA_URL);
+  return { t, ownerId, owner, threadId, saveKey, send, settle, thread, modelRequests, searchRequests };
 }
 
-const fixtures = (extra: Record<string, Recorded> = {}) => ({
+const fixtures = (byQuery: Record<string, Recorded> = {}) => ({
   [MESSAGES_URL]: { body: sse(textDelta("ok"), messageStop) },
-  ...extra,
+  [EXA_URL]: exa(byQuery),
 });
 const firstUserText = (body: { messages: { role: string; content: unknown }[] }) => {
   const c = body.messages[0].content;
   return typeof c === "string" ? c : (c as { type: string; text?: string }[]).filter((b) => b.type === "text").map((b) => b.text).join("");
 };
+const failedBlock = (query: string, error: string) =>
+  `${query}\n\n<web_search query=${JSON.stringify(query)}>\nThe web search failed (${error}), so there are no results.\n</web_search>`;
 
 describe("web search settings", () => {
-  test("saves a SearXNG URL without its trailing slash, and empty text clears it", async () => {
-    const { owner } = await setup();
-    expect((await owner.query(api.settings.get, {})).searchUrl).toBe("");
-    await owner.mutation(api.settings.setSearchUrl, { url: " http://searxng:8080/ " });
-    expect((await owner.query(api.settings.get, {})).searchUrl).toBe("http://searxng:8080");
-    await owner.mutation(api.settings.setSearchUrl, { url: "" });
-    expect((await owner.query(api.settings.get, {})).searchUrl).toBe("");
+  test("saves the key trimmed and encrypted, never returns it, and empty text clears it", async () => {
+    const { t, owner, saveKey } = await setup();
+    expect((await owner.query(api.settings.get, {})).searchKeySet).toBe(false);
+    await saveKey(`  ${EXA_KEY}\n`);
+
+    const stored = await t.run(async (ctx) => (await ctx.db.query("settings").unique())!.searchKeyEncrypted!);
+    expect(stored).not.toContain(EXA_KEY);
+    expect(await t.run(() => decryptSecret(stored))).toBe(EXA_KEY);
+    const view = await owner.query(api.settings.get, {});
+    expect(view.searchKeySet).toBe(true);
+    expect(JSON.stringify(view)).not.toContain(EXA_KEY);
+    expect(JSON.stringify(view)).not.toContain(stored);
+
+    await saveKey("  ");
+    expect((await owner.query(api.settings.get, {})).searchKeySet).toBe(false);
   });
 
-  test("rejects anything but an http(s) URL", async () => {
-    const { owner } = await setup();
-    for (const url of ["searxng:8080", "ftp://searxng", "http://user:pass@searxng"])
-      await expect(owner.mutation(api.settings.setSearchUrl, { url })).rejects.toThrow("Enter a URL like http://searxng:8080");
+  test("saving a key runs no search", async () => {
+    const { saveKey } = await setup();
+    fake = fakeFetch({});
+    await saveKey();
+    expect(fake.requests).toHaveLength(0);
   });
 
-  test("searching needs a URL first", async () => {
+  test("a legacy SearXNG URL in stored settings still reads fine", async () => {
+    const { t, ownerId, owner } = await setup();
+    await t.run((ctx) => ctx.db.insert("settings", { ownerId, allowlistedHosts: [], searchUrl: "http://searxng:8080" }));
+    expect((await owner.query(api.settings.get, {})).searchKeySet).toBe(false);
+  });
+
+  test("searching needs a key first", async () => {
     const { owner, threadId } = await setup();
-    await expect(owner.mutation(api.chat.send, { threadId, content: "Hi", search: true })).rejects.toThrow("Set a SearXNG URL in Settings");
+    await expect(owner.mutation(api.chat.send, { threadId, content: "Hi", search: true })).rejects.toThrow(
+      "Add an Exa API key in Settings to search the web",
+    );
   });
 });
 
 describe("searching before a reply", () => {
-  test("sends the results with the message, and shows them as sources", async () => {
+  test("asks Exa with the key and the agreed body", async () => {
     const s = await setup();
-    await s.owner.mutation(api.settings.setSearchUrl, { url: SEARXNG });
-    fake = fakeFetch(fixtures({ [searchKey("What is Convex?")]: { body: RESULTS } }));
+    await s.saveKey();
+    fake = fakeFetch(fixtures({ "What is Convex?": { body: RESULTS } }));
     await s.send("What is Convex?");
 
-    // The private SearXNG host needs no separate allowlist entry: the owner named it.
+    const [request] = s.searchRequests();
+    expect(request.headers["x-api-key"]).toBe(EXA_KEY);
+    expect(request.body).toEqual({ query: "What is Convex?", type: "auto", numResults: 6, contents: { highlights: true } });
+  });
+
+  test("sends the results with the message, and shows them as sources", async () => {
+    const s = await setup();
+    await s.saveKey();
+    fake = fakeFetch(fixtures({ "What is Convex?": { body: RESULTS } }));
+    await s.send("What is Convex?");
+
     expect(s.searchRequests()).toHaveLength(1);
     const text = firstUserText(s.modelRequests()[0]);
     expect(text).toBe(
@@ -119,8 +161,8 @@ describe("searching before a reply", () => {
 
   test("a retry and a later turn reuse the stored results, so the bytes never change", async () => {
     const s = await setup();
-    await s.owner.mutation(api.settings.setSearchUrl, { url: SEARXNG });
-    fake = fakeFetch(fixtures({ [searchKey("What is Convex?")]: { body: RESULTS } }));
+    await s.saveKey();
+    fake = fakeFetch(fixtures({ "What is Convex?": { body: RESULTS } }));
     await s.send("What is Convex?");
     const replyId = (await s.thread()).messages[1]._id;
     await s.owner.mutation(api.chat.retry, { messageId: replyId });
@@ -136,8 +178,8 @@ describe("searching before a reply", () => {
 
   test("before its reply is measured, a searched turn is estimated with the results", async () => {
     const s = await setup();
-    await s.owner.mutation(api.settings.setSearchUrl, { url: SEARXNG });
-    fake = fakeFetch(fixtures({ [searchKey("Hi")]: { body: RESULTS } }));
+    await s.saveKey();
+    fake = fakeFetch(fixtures({ Hi: { body: RESULTS } }));
     await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Hi", search: true });
     const view = await s.owner.query(api.inspector.get, { threadId: s.threadId });
     expect(view!.layers.find((l) => l.kind === "turns")).toMatchObject({ tokens: 1 + 900, estimated: true });
@@ -146,8 +188,8 @@ describe("searching before a reply", () => {
 
   test("deleting the thread removes its stored searches", async () => {
     const s = await setup();
-    await s.owner.mutation(api.settings.setSearchUrl, { url: SEARXNG });
-    fake = fakeFetch(fixtures({ [searchKey("Hi")]: { body: RESULTS } }));
+    await s.saveKey();
+    fake = fakeFetch(fixtures({ Hi: { body: RESULTS } }));
     await s.send("Hi");
     expect(await s.t.run((ctx) => ctx.db.query("searches").collect())).toHaveLength(1);
     await s.owner.mutation(api.chat.deleteThread, { threadId: s.threadId });
@@ -155,22 +197,71 @@ describe("searching before a reply", () => {
     expect(await s.t.run((ctx) => ctx.db.query("searches").collect())).toHaveLength(0);
   });
 
-  test("a failed search still gets a reply, told that the search failed", async () => {
+  test("a rejected key still gets a reply, told why in Exa's words", async () => {
     const s = await setup();
-    await s.owner.mutation(api.settings.setSearchUrl, { url: SEARXNG });
-    fake = fakeFetch(fixtures({ [searchKey("Hi")]: { status: 502, body: "Bad Gateway" } }));
+    await s.saveKey();
+    fake = fakeFetch(fixtures({ Hi: { status: 401, body: { requestId: "r2", error: "Invalid API key" } } }));
     await s.send("Hi");
 
-    expect(firstUserText(s.modelRequests()[0])).toBe('Hi\n\n<web_search query="Hi">\nThe web search failed (HTTP 502), so there are no results.\n</web_search>');
+    expect(firstUserText(s.modelRequests()[0])).toBe(failedBlock("Hi", "HTTP 401: Invalid API key"));
     const [user, reply] = (await s.thread()).messages;
-    expect(user.search).toEqual({ status: "failed", results: [], error: "HTTP 502" });
+    expect(user.search).toEqual({ status: "failed", results: [], error: "HTTP 401: Invalid API key" });
     expect(reply.status).toBe("done");
+  });
+
+  test("an error without Exa's message is just its status", async () => {
+    const s = await setup();
+    await s.saveKey();
+    fake = fakeFetch(fixtures({ Hi: { status: 502, body: "Bad Gateway" } }));
+    await s.send("Hi");
+
+    expect(firstUserText(s.modelRequests()[0])).toBe(failedBlock("Hi", "HTTP 502"));
+  });
+
+  test("a network failure keeps its message", async () => {
+    const s = await setup();
+    await s.saveKey();
+    fake = fakeFetch(fixtures({ Hi: { respond: () => { throw new TypeError("fetch failed"); } } }));
+    await s.send("Hi");
+
+    const [user, reply] = (await s.thread()).messages;
+    expect(user.search).toEqual({ status: "failed", results: [], error: "fetch failed" });
+    expect(reply.status).toBe("done");
+  });
+
+  test("a key that can't be decrypted fails the search, and the reply still runs", async () => {
+    const s = await setup();
+    await s.saveKey();
+    // Saved under another master key: the stored form is valid, the ciphertext isn't ours.
+    await s.t.run(async (ctx) => {
+      const settings = (await ctx.db.query("settings").unique())!;
+      await ctx.db.patch("settings", settings._id, { searchKeyEncrypted: "v1.AAAAAAAAAAAAAAAA.AAAAAAAAAAAAAAAAAAAAAA==" });
+    });
+    fake = fakeFetch(fixtures());
+    await s.send("Hi");
+
+    expect(s.searchRequests()).toHaveLength(0);
+    const [user, reply] = (await s.thread()).messages;
+    expect(user.search).toMatchObject({ status: "failed", error: expect.stringContaining("Exa API key can't be decrypted") });
+    expect(reply.status).toBe("done");
+  });
+
+  test("removing the key before the search runs fails it as off", async () => {
+    const s = await setup();
+    await s.saveKey();
+    fake = fakeFetch(fixtures());
+    await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Hi", search: true });
+    await s.saveKey("");
+    await s.settle();
+
+    expect(s.searchRequests()).toHaveLength(0);
+    expect((await s.thread()).messages[0].search).toEqual({ status: "failed", results: [], error: "web search is off" });
   });
 
   test("an edit of a searched message searches again for the new text", async () => {
     const s = await setup();
-    await s.owner.mutation(api.settings.setSearchUrl, { url: SEARXNG });
-    fake = fakeFetch(fixtures({ [searchKey("What is Convex?")]: { body: RESULTS }, [searchKey("What is Bun?")]: { body: { results: [] } } }));
+    await s.saveKey();
+    fake = fakeFetch(fixtures({ "What is Convex?": { body: RESULTS }, "What is Bun?": { body: { results: [] } } }));
     await s.send("What is Convex?");
     await s.owner.mutation(api.chat.edit, { messageId: (await s.thread()).messages[0]._id, content: "What is Bun?" });
     await s.settle();
