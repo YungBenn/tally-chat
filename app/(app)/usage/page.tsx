@@ -43,7 +43,7 @@ export default function UsagePage() {
   return (
     <AppPage>
       <div className="tc-page tc-grid-bg">
-        <div className="tc-page-col max-w-[1040px]">
+        <div className="tc-page-col max-w-[65rem]">
           <div className="flex items-center gap-3">
             <h1 className="flex-1 text-title">Usage</h1>
             {data && !empty && (

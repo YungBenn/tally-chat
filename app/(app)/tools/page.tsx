@@ -40,7 +40,7 @@ export default function ToolsPage() {
   return (
     <AppPage>
       <div className="tc-page">
-        <div className="tc-page-col max-w-[880px]">
+        <div className="tc-page-col max-w-[55rem]">
           {open ? (
             <ServerDetail server={open} onBack={() => setOpenId(null)} />
           ) : (
@@ -291,7 +291,7 @@ function ServerDetail({ server, onBack }: { server: Server; onBack: () => void }
             onCheckedChange={(on) => void setOn({ serverId: server._id, on })}
             label="On for new threads"
           />
-          <p className="pl-[38px] text-body-sm text-foreground-muted">
+          <p className="pl-[2.375rem] text-body-sm text-foreground-muted">
             Every request in a thread carries its tools&apos; definitions, so a server you don&apos;t need adds to each
             turn&apos;s cost. Threads already started keep the tools they began with.
           </p>

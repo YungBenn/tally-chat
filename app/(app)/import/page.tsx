@@ -87,7 +87,7 @@ export default function ImportPage() {
   return (
     <AppPage>
       <div className="tc-page">
-        <div className="tc-page-col max-w-[800px]">
+        <div className="tc-page-col max-w-[50rem]">
           <div>
             <h1 className="text-title">Import</h1>
             <p className="mt-2 text-body text-foreground-muted">

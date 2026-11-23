@@ -208,7 +208,7 @@ export function ErrorState({
         <div className="tc-error-title">{title}</div>
         {children != null && <div className="tc-error-body">{children}</div>}
         {actions && (
-          <div className="tc-row" style={{ marginTop: 10, gap: 8 }}>
+          <div className="tc-row" style={{ marginTop: "0.625rem", gap: "0.5rem" }}>
             {actions}
           </div>
         )}

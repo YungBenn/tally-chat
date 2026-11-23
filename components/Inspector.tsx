@@ -243,7 +243,7 @@ function Condense({
               Condense now
             </Button>
             <p className="flex items-start gap-1.5 text-body-sm text-foreground-muted">
-              <IconInfoCircle size={14} stroke={1.5} className="mt-[3px] shrink-0" />
+              <IconInfoCircle size={14} stroke={1.5} className="mt-[0.1875rem] shrink-0" />
               Condensing now would never pay for itself. A thread near the model&apos;s context window condenses
               anyway.
             </p>
@@ -347,7 +347,7 @@ function InspectorBody({
           </div>
         )}
         <p className="flex items-start gap-2 text-body-sm text-foreground-muted">
-          <IconClock size={14} stroke={1.5} className="mt-[3px] shrink-0" />
+          <IconClock size={14} stroke={1.5} className="mt-[0.1875rem] shrink-0" />
           <span>
             {note}
             {managed && ` Prices are for the ${data.cache.ttl === "1h" ? "1-hour" : "5-minute"} cache.`}
@@ -452,7 +452,7 @@ export default function Inspector({
   if (compact)
     return (
       <Sheet open={open} onOpenChange={(o) => !o && onClose()} side="bottom" title="Inspector">
-        <div className="mx-auto h-full w-full max-w-[560px] min-h-0">
+        <div className="mx-auto h-full w-full max-w-[35rem] min-h-0">
           <Panel onClose={onClose}>{body}</Panel>
         </div>
       </Sheet>
@@ -464,7 +464,7 @@ export default function Inspector({
           aria-label="Inspector"
           className="shrink-0 overflow-hidden border-l border-border"
           initial={{ width: 0 }}
-          animate={{ width: 360 }}
+          animate={{ width: "22.5rem" }}
           exit={{ width: 0 }}
           transition={transition.layout}
         >

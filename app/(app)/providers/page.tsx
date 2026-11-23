@@ -55,7 +55,7 @@ export default function ProvidersPage() {
   return (
     <AppPage>
       <div className="tc-page">
-        <div className="tc-page-col max-w-[880px]">
+        <div className="tc-page-col max-w-[55rem]">
           {open ? (
             <ProviderDetail provider={open} onBack={() => setOpenId(null)} />
           ) : (
@@ -294,7 +294,7 @@ function ProviderDetail({ provider, onBack }: { provider: Provider; onBack: () =
           }
           label="Free provider: record every call through it as $0"
         />
-        <p className="pl-[38px] text-body-sm text-foreground-muted">
+        <p className="pl-[2.375rem] text-body-sm text-foreground-muted">
           For local models you don&apos;t pay for. Leave it off for anything that bills you, including a proxy in front
           of a paid API. Changes apply to calls from now on.
         </p>
