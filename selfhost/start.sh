@@ -7,7 +7,7 @@ set -e
 cd "$(dirname "$0")/.."
 set -a; [ -f .env ] && . ./.env; set +a
 : "${CONVEX_PUBLIC_URL:=http://127.0.0.1:3210}" "${CONVEX_SITE_PUBLIC_URL:=http://127.0.0.1:3211}"
-docker compose up -d --wait backend dashboard
+docker compose up -d --wait --remove-orphans backend dashboard
 mkdir -p .run
 CONVEX_URL_INTERNAL=http://127.0.0.1:3210 \
 NEXT_PUBLIC_CONVEX_URL=$CONVEX_PUBLIC_URL NEXT_PUBLIC_CONVEX_SITE_URL=$CONVEX_SITE_PUBLIC_URL \
