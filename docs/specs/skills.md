@@ -73,7 +73,7 @@ A second built-in tool, `add_skill`, lets me add a skill from chat. It always as
 42. As the owner, I want to paste a whole `SKILL.md` in chat and have the model add it, so that single-file skills I find as text work too.
 43. As the owner, I want `add_skill` always to ask for approval, and never be settable to always allowed, so that nothing changes my setup or fetches from the web without me.
 44. As the owner, I want the approval card to show the skill's name, description, size and source, and whether it replaces an existing skill, so that I know exactly what I'm approving.
-45. As the owner, I want the approval card to show a validation or fetch error instead of an Allow button when the skill can't be added, so that I never approve something that will fail.
+45. As the owner, I want an `add_skill` call whose skill can't be fetched or validated to finish with that error, shown on the call and sent to the model, without asking me for approval, so that I never approve something that will fail.
 46. As the owner, I want declining `add_skill` to tell the model it was declined, so that the reply can carry on.
 47. As the owner, I want the `add_skill` result to say the skill is available from the next thread, so that I'm not surprised it isn't usable right away.
 48. As the owner, I want a skill added through chat to appear in Settings like any other, so that there is one list of skills.
