@@ -170,6 +170,17 @@ describe("adding a skill through chat", () => {
     expect(await s.owner.query(api.skills.list, {})).toEqual([]);
   });
 
+  test("a resolve that throws finishes that call with an error instead of failing the reply", async () => {
+    // No fixture for this repo: the fake GitHub fails at the network, which the resolver rethrows.
+    const s = await setup([addSkillCall("https://github.com/nobody/missing"), { text: "Sorry." }]);
+    const threadId = await s.newThread();
+    await s.send(threadId);
+    const done = await s.reply(threadId);
+    expect(done.status).toBe("done");
+    expect(done.items!.find((i) => i.kind === "tool")).toMatchObject({ status: "error" });
+    expect(s.toolResult(s.replyRequests()[1])).toMatchObject({ content: "Error: the tool call could not be made", is_error: true });
+  });
+
   test("a skill that changed on GitHub after the preview is not added", async () => {
     const s = await setup([addSkillCall(PDF_URL), { text: "Okay." }]);
     const threadId = await s.newThread();

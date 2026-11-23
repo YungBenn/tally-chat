@@ -225,11 +225,16 @@ export const generate = internalAction({
           return null;
         }
       }
-      // A built-in tool that previews (add_skill) is resolved before anyone is asked.
+      // A built-in tool that previews (add_skill) is resolved before anyone is asked. A preview
+      // that throws finishes that call with an error, like a tool run that throws.
       for (const call of toolCalls) {
         const builtin = input.tools?.some((t) => t.name === call.name) ? findBuiltin(call.name) : undefined;
-        if (builtin?.preview)
+        if (!builtin?.preview) continue;
+        try {
           call.preview = await builtin.preview(call.input, { allowlist: input.allowlist, resolve: systemResolve });
+        } catch {
+          call.preview = { error: "the tool call could not be made" };
+        }
       }
       await finish("done");
     } catch (err) {
