@@ -83,14 +83,28 @@ describe("the add_skill owner setting", () => {
 
     await s.owner.mutation(api.settings.setAddSkillOnForNewThreads, { on: false });
     expect((await s.owner.query(api.settings.get, {})).addSkillOnForNewThreads).toBe(false);
-    const off = await s.newThread();
-    await expect(s.owner.mutation(api.chat.send, { threadId: off, content: "Hi", tools: [{ builtin: "add_skill" }] })).rejects.toThrow("no longer offered");
-    await s.send(off);
+    await s.send(await s.newThread());
     expect(s.replyRequests()[1].tools).toBeUndefined();
 
     const toolless = await setup([], { tools: false });
     await toolless.send(await toolless.newThread());
     expect(toolless.replyRequests()[0].tools).toBeUndefined();
+  });
+
+  test("switched off, the owner can still pick add_skill for a new thread or an existing one", async () => {
+    const s = await setup();
+    await s.owner.mutation(api.settings.setAddSkillOnForNewThreads, { on: false });
+    const picked = await s.newThread();
+    await s.owner.mutation(api.chat.send, { threadId: picked, content: "Hi", tools: [{ builtin: "add_skill" }] });
+    await s.settle();
+    expect(s.replyRequests()[0].tools!.map((x) => x.name)).toEqual(["add_skill"]);
+
+    const changed = await s.newThread();
+    await s.send(changed);
+    expect(s.replyRequests()[1].tools).toBeUndefined();
+    await s.owner.mutation(api.chat.setThreadTools, { threadId: changed, tools: [{ builtin: "add_skill" }] });
+    await s.send(changed);
+    expect(s.replyRequests()[2].tools!.map((x) => x.name)).toEqual(["add_skill"]);
   });
 });
 

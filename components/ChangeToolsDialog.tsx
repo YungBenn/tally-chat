@@ -19,16 +19,13 @@ export function ChangeToolsDialog({ threadId, onClose }: { threadId: Id<"threads
   const servers = useQuery(api.toolServers.list);
   const skills = useQuery(api.skills.list);
   const current = useQuery(api.chat.threadTools, { threadId });
-  // add_skill can be picked only while its setting is on (or the change would be refused).
-  const settings = useQuery(api.settings.get);
-  const addSkill = settings?.addSkillOnForNewThreads === true;
   const setTools = useMutation(api.chat.setThreadTools);
   const [now] = useState(() => Date.now());
   const [picked, setPicked] = useState<Set<string> | null>(null);
   const [busy, setBusy] = useState(false);
   const start = keysOf(current?.picks ?? []);
   const chosen = picked ?? start;
-  const picks = picksOf(servers ?? [], skills ?? [], addSkill, chosen);
+  const picks = picksOf(servers ?? [], skills ?? [], chosen);
   const cost = useQuery(api.inspector.toolChange, { threadId, now, tools: picks });
   const unchanged = chosen.size === start.size && [...chosen].every((k) => start.has(k));
   return (
@@ -38,7 +35,7 @@ export function ChangeToolsDialog({ threadId, onClose }: { threadId: Id<"threads
       action={{ verb: "Changing tools", confirm: busy ? "Changing…" : "Change tools" }}
       cancelLabel="Keep current tools"
       body={`Tool definitions come first in every request, so the next one writes the whole conversation to the cache again${cost ? ` (about ${tokens(cost.prefixTokens)} tokens)` : ""}. Messages already sent keep their tool calls and results.`}
-      confirmDisabled={unchanged || busy || !servers || !skills || !settings}
+      confirmDisabled={unchanged || busy || !servers || !skills}
       onCancel={onClose}
       onConfirm={() => {
         setBusy(true);
@@ -58,7 +55,7 @@ export function ChangeToolsDialog({ threadId, onClose }: { threadId: Id<"threads
       }}
     >
       <div className="mt-4 max-h-[40vh] overflow-y-auto">
-        <ToolChecklist servers={servers ?? []} skills={skills ?? []} addSkill={addSkill} chosen={chosen} onChange={setPicked} />
+        <ToolChecklist servers={servers ?? []} skills={skills ?? []} chosen={chosen} onChange={setPicked} />
       </div>
     </CacheBreakDialog>
   );

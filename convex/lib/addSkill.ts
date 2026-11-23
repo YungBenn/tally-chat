@@ -42,13 +42,8 @@ async function resolve(
 export const addSkill: BuiltinTool = {
   name: "add_skill",
   approval: "always",
-  definition: async (ctx, ownerId) => {
-    const settings = await ctx.db
-      .query("settings")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-      .unique();
-    return settings?.addSkillOnForNewThreads === false ? null : { description: DESCRIPTION, inputSchema: INPUT_SCHEMA };
-  },
+  // Always offered: its owner setting only decides whether new threads pick it by default.
+  definition: async () => ({ description: DESCRIPTION, inputSchema: INPUT_SCHEMA }),
   preview: async (input, guard) => {
     const got = await resolve(input, guard);
     if (!got.ok) return { error: got.reason };

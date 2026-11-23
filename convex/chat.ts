@@ -831,12 +831,20 @@ async function freezeToolSet(
     .query("toolServers")
     .withIndex("by_ownerId", (q) => q.eq("ownerId", thread.ownerId))
     .take(100);
-  // The default: every built-in tool the owner has something for, and the servers that are on.
+  // The default: every built-in tool the owner has something for (add_skill only while its
+  // setting is on; picking it works either way), and the servers that are on.
+  const settings = await ctx.db
+    .query("settings")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", thread.ownerId))
+    .unique();
+  const addSkillOff = settings?.addSkillOnForNewThreads === false;
   const chosen: ToolPick[] =
     picks ??
     (capable
       ? [
-          ...builtinTools.map((b) => ({ builtin: b.name })),
+          ...builtinTools
+            .filter((b) => !(addSkillOff && b.name === "add_skill"))
+            .map((b) => ({ builtin: b.name })),
           ...servers
             .filter((s) => s.onForNewThreads)
             .flatMap((s) => s.tools.map((t) => ({ serverId: s._id, tool: t.name }))),

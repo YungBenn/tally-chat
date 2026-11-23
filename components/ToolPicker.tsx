@@ -22,27 +22,26 @@ const ADD_SKILL_TOKENS = 150;
 /**
  * The tools a new thread will freeze at its first message (spec phase 10): every tool of the
  * servers that are on for new threads, read_skill with the skills that are on, and add_skill when
- * its setting is on, until the owner changes the picks. Offered only for a tool-capable model
- * with something to pick.
+ * its setting is on (it can be picked either way), until the owner changes the picks. Offered
+ * only for a tool-capable model.
  */
 export function useToolPicker(capable: boolean) {
   const servers = useQuery(api.toolServers.list);
   const skills = useQuery(api.skills.list);
-  const addSkill = useQuery(api.settings.get)?.addSkillOnForNewThreads === true;
+  const addSkillDefault = useQuery(api.settings.get)?.addSkillOnForNewThreads === true;
   const [picked, setPicked] = useState<Set<string> | null>(null);
   const defaults = new Set([
-    ...(addSkill ? [ADD_SKILL] : []),
+    ...(addSkillDefault ? [ADD_SKILL] : []),
     ...(skills ?? []).filter((s) => s.onForNewThreads).map((s) => skillKey(s.name)),
     ...(servers ?? []).filter((s) => s.onForNewThreads).flatMap((s) => s.tools.map((t) => keyOf({ serverId: s._id, tool: t.name }))),
   ]);
   const chosen = picked ?? defaults;
-  const picks = picksOf(servers ?? [], skills ?? [], addSkill, chosen);
+  const picks = picksOf(servers ?? [], skills ?? [], chosen);
   const chosenSkills = (skills ?? []).filter((s) => chosen.has(skillKey(s.name)));
   return {
-    available: capable && (picksOf(servers ?? [], skills ?? [], addSkill, null).length > 0),
+    available: capable, // add_skill is always there to pick
     servers: servers ?? [],
     skills: skills ?? [],
-    addSkill,
     chosen,
     count: picks.length,
     // What the send carries: undefined when the model can't call tools, else the explicit picks.
@@ -53,7 +52,7 @@ export function useToolPicker(capable: boolean) {
         (chosenSkills.length
           ? Math.ceil(chosenSkills.reduce((sum, s) => sum + s.name.length + s.description.length + 5, READ_SKILL_CHARS) / 4)
           : 0) +
-        (addSkill && chosen.has(ADD_SKILL) ? ADD_SKILL_TOKENS : 0)
+        (chosen.has(ADD_SKILL) ? ADD_SKILL_TOKENS : 0)
       : 0,
     setChosen: setPicked,
   };
@@ -62,17 +61,13 @@ export function useToolPicker(capable: boolean) {
 type Servers = FunctionReturnType<typeof api.toolServers.list>;
 type Skills = { name: string }[];
 
-/**
- * The picks the chosen keys stand for: read_skill with its skills, add_skill when offered, then
- * each server tool. null = all.
- */
-export function picksOf(servers: Servers, skills: Skills, addSkill: boolean, chosen: Set<string> | null): ToolPick[] {
-  const has = (key: string) => !chosen || chosen.has(key);
-  const names = skills.map((s) => s.name).filter((n) => has(skillKey(n)));
+/** The picks the chosen keys stand for: read_skill with its skills, add_skill, then each server tool. */
+export function picksOf(servers: Servers, skills: Skills, chosen: Set<string>): ToolPick[] {
+  const names = skills.map((s) => s.name).filter((n) => chosen.has(skillKey(n)));
   return [
     ...(names.length ? [{ builtin: "read_skill", skills: names }] : []),
-    ...(addSkill && has(ADD_SKILL) ? [{ builtin: "add_skill" }] : []),
-    ...servers.flatMap((s) => s.tools.map((t) => ({ serverId: s._id, tool: t.name })).filter((p) => has(keyOf(p)))),
+    ...(chosen.has(ADD_SKILL) ? [{ builtin: "add_skill" }] : []),
+    ...servers.flatMap((s) => s.tools.map((t) => ({ serverId: s._id, tool: t.name })).filter((p) => chosen.has(keyOf(p)))),
   ];
 }
 
@@ -85,19 +80,17 @@ export const keysOf = (picks: ToolPick[]) =>
   );
 
 /**
- * read_skill with each skill under it, add_skill when offered, then every tool server with its
- * tools, as checkboxes; a group's box toggles all of its items.
+ * add_skill, read_skill with each skill under it, then every tool server with its tools, as
+ * checkboxes; a group's box toggles all of its items.
  */
 export function ToolChecklist({
   servers,
   skills,
-  addSkill,
   chosen,
   onChange,
 }: {
   servers: Servers;
   skills: Skills;
-  addSkill: boolean;
   chosen: Set<string>;
   onChange: (chosen: Set<string>) => void;
 }) {
@@ -109,12 +102,6 @@ export function ToolChecklist({
     }
     onChange(next);
   };
-  if (servers.length === 0 && skills.length === 0 && !addSkill)
-    return (
-      <p className="text-body-sm text-foreground-muted">
-        No tool servers or skills yet. Add a server on the Tools page, or a skill in Settings.
-      </p>
-    );
   const groups = [
     ...(skills.length
       ? [{ id: "read_skill", label: <>Skills <span className="tc-mono text-mono-sm font-normal text-foreground-muted">read_skill</span></>, items: skills.map((s) => ({ name: s.name, key: skillKey(s.name) })) }]
@@ -123,17 +110,15 @@ export function ToolChecklist({
   ];
   return (
     <div className="flex flex-col gap-3">
-      {addSkill && (
-        <Checkbox
-          checked={chosen.has(ADD_SKILL)}
-          onCheckedChange={(on) => toggle([ADD_SKILL], on)}
-          label={
-            <span className="text-body font-medium">
-              Add skills from chat <span className="tc-mono text-mono-sm font-normal text-foreground-muted">add_skill</span>
-            </span>
-          }
-        />
-      )}
+      <Checkbox
+        checked={chosen.has(ADD_SKILL)}
+        onCheckedChange={(on) => toggle([ADD_SKILL], on)}
+        label={
+          <span className="text-body font-medium">
+            Add skills from chat <span className="tc-mono text-mono-sm font-normal text-foreground-muted">add_skill</span>
+          </span>
+        }
+      />
       {groups.map((g) => {
         const keys = g.items.map((i) => i.key);
         return (
@@ -161,7 +146,7 @@ export function ToolChecklist({
 }
 
 export function ToolPickerButton({ picker }: { picker: ReturnType<typeof useToolPicker> }) {
-  const { servers, skills, addSkill, chosen, count, setChosen } = picker;
+  const { servers, skills, chosen, count, setChosen } = picker;
   return (
     <Popover
       side="top"
@@ -178,7 +163,7 @@ export function ToolPickerButton({ picker }: { picker: ReturnType<typeof useTool
       <p className="mb-3 text-body-sm text-foreground-muted">
         The thread keeps exactly these when you send the first message. Changing them later rewrites the cache.
       </p>
-      <ToolChecklist servers={servers} skills={skills} addSkill={addSkill} chosen={chosen} onChange={setChosen} />
+      <ToolChecklist servers={servers} skills={skills} chosen={chosen} onChange={setChosen} />
     </Popover>
   );
 }
