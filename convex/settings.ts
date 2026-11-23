@@ -159,11 +159,12 @@ export const setSearchKey = action({
   handler: async (ctx, { apiKey }) => {
     const ownerId = await requireOwner(ctx);
     const key = apiKey.trim();
-    await ctx.runMutation(internal.settings.writeSearchKey, {
+    // Same-file call: the annotation keeps TypeScript from inferring it circularly.
+    const saved: null = await ctx.runMutation(internal.settings.writeSearchKey, {
       ownerId,
       searchKeyEncrypted: key ? await encryptSecret(key) : undefined,
     });
-    return null;
+    return saved;
   },
 });
 
