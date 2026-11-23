@@ -19,6 +19,7 @@ export const frozenToolValidator = v.union(
     name: v.string(),
     description: v.optional(v.string()),
     inputSchema: v.string(),
+    skills: v.optional(v.array(v.string())), // read_skill: the catalog's names, so runs don't parse text
   }),
 );
 export type FrozenTool = Infer<typeof frozenToolValidator>;
@@ -38,11 +39,15 @@ export const toDefinition = ({ name, description, inputSchema }: FrozenTool): To
 
 export const toolPickValidator = v.union(
   v.object({ serverId: v.id("toolServers"), tool: v.string() }),
-  v.object({ builtin: v.string() }),
+  // skills: read_skill's catalog, by name; absent = every skill on for new threads.
+  v.object({ builtin: v.string(), skills: v.optional(v.array(v.string())) }),
 );
-export type ToolPick = { serverId: Id<"toolServers">; tool: string } | { builtin: string };
+export type BuiltinPick = { builtin: string; skills?: string[] };
+export type ToolPick = { serverId: Id<"toolServers">; tool: string } | BuiltinPick;
 export const toPick = (t: FrozenTool): ToolPick =>
-  "builtin" in t ? { builtin: t.builtin } : { serverId: t.serverId, tool: t.tool };
+  "builtin" in t
+    ? { builtin: t.builtin, ...(t.skills && { skills: t.skills }) }
+    : { serverId: t.serverId, tool: t.tool };
 
 // Whether a provider's model can call tools. Anthropic models all can unless marked otherwise;
 // OpenAI-compatible models only when the owner said so (like vision, which they don't report).
@@ -70,8 +75,9 @@ export async function freezeTools(
   const taken = new Set<string>();
   const frozen: FrozenTool[] = [];
   for (const builtin of builtinTools) {
-    if (!wanted.has(builtin.name)) continue;
-    const definition = await builtin.definition(ctx, ownerId);
+    const pick = picks.find((p): p is BuiltinPick => "builtin" in p && p.builtin === builtin.name);
+    if (!pick) continue;
+    const definition = await builtin.definition(ctx, ownerId, pick);
     if (definition) frozen.push({ builtin: builtin.name, name: builtin.name, ...definition });
   }
   for (const server of servers)

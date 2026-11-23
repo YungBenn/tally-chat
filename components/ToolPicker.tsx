@@ -2,6 +2,7 @@
 
 import { IconTool } from "@tabler/icons-react";
 import { useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { Checkbox } from "@/components/ui/fields";
 import { Popover } from "@/components/ui/overlay";
@@ -9,44 +10,76 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
 type Pick = { serverId: Id<"toolServers">; tool: string };
+type ToolPick = Pick | { builtin: string; skills?: string[] };
 const keyOf = (p: Pick) => `${p.serverId}|${p.tool}`;
+const skillKey = (name: string) => `skill|${name}`;
+// About the size of read_skill's preamble and input schema, before the catalog lines.
+const READ_SKILL_CHARS = 520;
 
 /**
  * The tools a new thread will freeze at its first message (spec phase 10): every tool of the
- * servers that are on for new threads until the owner changes the picks. Offered only for a
- * tool-capable model, and only when a tool server exists.
+ * servers that are on for new threads, and read_skill with the skills that are on, until the
+ * owner changes the picks. Offered only for a tool-capable model with something to pick.
  */
 export function useToolPicker(capable: boolean) {
   const servers = useQuery(api.toolServers.list);
+  const skills = useQuery(api.skills.list);
   const [picked, setPicked] = useState<Set<string> | null>(null);
-  const all = (servers ?? []).flatMap((s) => s.tools.map((t) => ({ serverId: s._id, tool: t.name })));
-  const defaults = new Set(
-    (servers ?? []).filter((s) => s.onForNewThreads).flatMap((s) => s.tools.map((t) => keyOf({ serverId: s._id, tool: t.name }))),
-  );
+  const defaults = new Set([
+    ...(skills ?? []).filter((s) => s.onForNewThreads).map((s) => skillKey(s.name)),
+    ...(servers ?? []).filter((s) => s.onForNewThreads).flatMap((s) => s.tools.map((t) => keyOf({ serverId: s._id, tool: t.name }))),
+  ]);
   const chosen = picked ?? defaults;
+  const picks = picksOf(servers ?? [], skills ?? [], chosen);
+  const chosenSkills = (skills ?? []).filter((s) => chosen.has(skillKey(s.name)));
   return {
-    available: capable && all.length > 0,
+    available: capable && (picksOf(servers ?? [], skills ?? [], null).length > 0),
     servers: servers ?? [],
+    skills: skills ?? [],
     chosen,
+    count: picks.filter((p) => !("builtin" in p)).length + (chosenSkills.length ? 1 : 0),
     // What the send carries: undefined when the model can't call tools, else the explicit picks.
-    picks: capable ? all.filter((p) => chosen.has(keyOf(p))) : undefined,
+    picks: capable ? picks : undefined,
     // Rough tokens of the chosen definitions: they go out with the first request.
     tokens: capable
-      ? (servers ?? []).flatMap((s) => s.tools.filter((t) => chosen.has(keyOf({ serverId: s._id, tool: t.name })))).reduce((sum, t) => sum + t.tokens, 0)
+      ? (servers ?? []).flatMap((s) => s.tools.filter((t) => chosen.has(keyOf({ serverId: s._id, tool: t.name })))).reduce((sum, t) => sum + t.tokens, 0) +
+        (chosenSkills.length
+          ? Math.ceil(chosenSkills.reduce((sum, s) => sum + s.name.length + s.description.length + 5, READ_SKILL_CHARS) / 4)
+          : 0)
       : 0,
     setChosen: setPicked,
   };
 }
 
-type Servers = ReturnType<typeof useToolPicker>["servers"];
+type Servers = FunctionReturnType<typeof api.toolServers.list>;
+type Skills = { name: string }[];
 
-/** Every tool server with its tools as checkboxes; a server's box toggles all of its tools. */
+/** The picks the chosen keys stand for: read_skill with its skills, then each server tool. null = all. */
+export function picksOf(servers: Servers, skills: Skills, chosen: Set<string> | null): ToolPick[] {
+  const has = (key: string) => !chosen || chosen.has(key);
+  const names = skills.map((s) => s.name).filter((n) => has(skillKey(n)));
+  return [
+    ...(names.length ? [{ builtin: "read_skill", skills: names }] : []),
+    ...servers.flatMap((s) => s.tools.map((t) => ({ serverId: s._id, tool: t.name })).filter((p) => has(keyOf(p)))),
+  ];
+}
+
+/** The keys a thread's current picks stand for, to start the checklist from. */
+export const keysOf = (picks: ToolPick[]) =>
+  new Set(picks.flatMap((p) => ("builtin" in p ? (p.skills ?? []).map(skillKey) : [keyOf(p)])));
+
+/**
+ * read_skill with each skill under it, then every tool server with its tools, as checkboxes;
+ * a group's box toggles all of its items.
+ */
 export function ToolChecklist({
   servers,
+  skills,
   chosen,
   onChange,
 }: {
   servers: Servers;
+  skills: Skills;
   chosen: Set<string>;
   onChange: (chosen: Set<string>) => void;
 }) {
@@ -58,30 +91,36 @@ export function ToolChecklist({
     }
     onChange(next);
   };
-  if (servers.length === 0)
+  if (servers.length === 0 && skills.length === 0)
     return (
       <p className="text-body-sm text-foreground-muted">
-        No tool servers yet. Add one on the Tools page first.
+        No tool servers or skills yet. Add a server on the Tools page, or a skill in Settings.
       </p>
     );
+  const groups = [
+    ...(skills.length
+      ? [{ id: "read_skill", label: <>Skills <span className="tc-mono text-mono-sm font-normal text-foreground-muted">read_skill</span></>, items: skills.map((s) => ({ name: s.name, key: skillKey(s.name) })) }]
+      : []),
+    ...servers.map((s) => ({ id: s._id, label: s.name, items: s.tools.map((t) => ({ name: t.name, key: keyOf({ serverId: s._id, tool: t.name }) })) })),
+  ];
   return (
     <div className="flex flex-col gap-3">
-      {servers.map((s) => {
-        const keys = s.tools.map((t) => keyOf({ serverId: s._id, tool: t.name }));
+      {groups.map((g) => {
+        const keys = g.items.map((i) => i.key);
         return (
-          <div key={s._id} className="flex flex-col gap-1.5">
+          <div key={g.id} className="flex flex-col gap-1.5">
             <Checkbox
               checked={keys.length > 0 && keys.every((k) => chosen.has(k))}
               onCheckedChange={(on) => toggle(keys, on)}
-              label={<span className="text-body font-medium">{s.name}</span>}
+              label={<span className="text-body font-medium">{g.label}</span>}
             />
             <div className="flex flex-col gap-1 pl-6">
-              {s.tools.map((t, i) => (
+              {g.items.map((i) => (
                 <Checkbox
-                  key={t.name}
-                  checked={chosen.has(keys[i])}
-                  onCheckedChange={(on) => toggle([keys[i]], on)}
-                  label={<span className="tc-mono truncate text-mono-sm">{t.name}</span>}
+                  key={i.key}
+                  checked={chosen.has(i.key)}
+                  onCheckedChange={(on) => toggle([i.key], on)}
+                  label={<span className="tc-mono truncate text-mono-sm">{i.name}</span>}
                 />
               ))}
             </div>
@@ -92,27 +131,25 @@ export function ToolChecklist({
   );
 }
 
-export const toolKey = keyOf;
-
 export function ToolPickerButton({ picker }: { picker: ReturnType<typeof useToolPicker> }) {
-  const { servers, chosen, setChosen } = picker;
+  const { servers, skills, chosen, count, setChosen } = picker;
   return (
     <Popover
       side="top"
       title="Tools for this thread"
       className="max-h-[min(28rem,70vh)] w-[min(22rem,calc(100vw-2rem))] overflow-y-auto"
       trigger={
-        <button type="button" className="tc-picker" aria-label={`Tools: ${chosen.size} selected`}>
+        <button type="button" className="tc-picker" aria-label={`Tools: ${count} selected`}>
           <IconTool size={14} stroke={1.75} />
           Tools
-          <span className="tc-num">{chosen.size}</span>
+          <span className="tc-num">{count}</span>
         </button>
       }
     >
       <p className="mb-3 text-body-sm text-foreground-muted">
         The thread keeps exactly these when you send the first message. Changing them later rewrites the cache.
       </p>
-      <ToolChecklist servers={servers} chosen={chosen} onChange={setChosen} />
+      <ToolChecklist servers={servers} skills={skills} chosen={chosen} onChange={setChosen} />
     </Popover>
   );
 }

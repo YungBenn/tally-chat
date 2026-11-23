@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { parseSkill, skillFileValidator, type ParsedSkill } from "./lib/skills";
 import { requireOwner } from "./owner";
 
@@ -121,5 +121,18 @@ export const remove = mutation({
     if (!skill) throw new ConvexError("Skill not found");
     await ctx.db.delete("skills", skill._id);
     return null;
+  },
+});
+
+// What read_skill returns from: the skill as it is now, or null once deleted.
+export const forRead = internalQuery({
+  args: { ownerId: v.id("users"), name: v.string() },
+  returns: v.union(v.null(), v.object({ body: v.string(), files: v.array(skillFileValidator) })),
+  handler: async (ctx, { ownerId, name }) => {
+    const skill = await ctx.db
+      .query("skills")
+      .withIndex("by_ownerId_and_name", (q) => q.eq("ownerId", ownerId).eq("name", name))
+      .unique();
+    return skill && { body: skill.body, files: skill.files };
   },
 });

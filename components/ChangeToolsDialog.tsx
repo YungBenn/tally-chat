@@ -4,7 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { useState } from "react";
 import { CacheBreakDialog } from "@/components/Messages";
-import { toolKey, ToolChecklist } from "@/components/ToolPicker";
+import { keysOf, picksOf, ToolChecklist } from "@/components/ToolPicker";
 import { toast } from "@/components/ui/toast";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -17,19 +17,18 @@ import { tokens } from "@/lib/format";
  */
 export function ChangeToolsDialog({ threadId, onClose }: { threadId: Id<"threads">; onClose: () => void }) {
   const servers = useQuery(api.toolServers.list);
+  const skills = useQuery(api.skills.list);
   const current = useQuery(api.chat.threadTools, { threadId });
   const setTools = useMutation(api.chat.setThreadTools);
   const [now] = useState(() => Date.now());
   const [picked, setPicked] = useState<Set<string> | null>(null);
   const [busy, setBusy] = useState(false);
-  const start = new Set((current?.picks ?? []).flatMap((p) => ("builtin" in p ? [] : [toolKey(p)])));
+  const start = keysOf(current?.picks ?? []);
   const chosen = picked ?? start;
-  // Built-in tools aren't listed here: the thread keeps the ones it has.
+  // Built-in tools other than read_skill aren't listed here: the thread keeps the ones it has.
   const picks = [
-    ...(current?.picks ?? []).filter((p) => "builtin" in p),
-    ...(servers ?? []).flatMap((s) =>
-      s.tools.map((t) => ({ serverId: s._id, tool: t.name })).filter((p) => chosen.has(toolKey(p))),
-    ),
+    ...(current?.picks ?? []).filter((p) => "builtin" in p && p.builtin !== "read_skill"),
+    ...picksOf(servers ?? [], skills ?? [], chosen),
   ];
   const cost = useQuery(api.inspector.toolChange, { threadId, now, tools: picks });
   const unchanged = chosen.size === start.size && [...chosen].every((k) => start.has(k));
@@ -40,7 +39,7 @@ export function ChangeToolsDialog({ threadId, onClose }: { threadId: Id<"threads
       action={{ verb: "Changing tools", confirm: busy ? "Changing…" : "Change tools" }}
       cancelLabel="Keep current tools"
       body={`Tool definitions come first in every request, so the next one writes the whole conversation to the cache again${cost ? ` (about ${tokens(cost.prefixTokens)} tokens)` : ""}. Messages already sent keep their tool calls and results.`}
-      confirmDisabled={unchanged || busy || !servers}
+      confirmDisabled={unchanged || busy || !servers || !skills}
       onCancel={onClose}
       onConfirm={() => {
         setBusy(true);
@@ -60,7 +59,7 @@ export function ChangeToolsDialog({ threadId, onClose }: { threadId: Id<"threads
       }}
     >
       <div className="mt-4 max-h-[40vh] overflow-y-auto">
-        <ToolChecklist servers={servers ?? []} chosen={chosen} onChange={setPicked} />
+        <ToolChecklist servers={servers ?? []} skills={skills ?? []} chosen={chosen} onChange={setPicked} />
       </div>
     </CacheBreakDialog>
   );

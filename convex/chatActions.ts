@@ -268,7 +268,7 @@ export const runTools = internalAction({
         if (call.problem) return fail(call.problem);
         try {
           if (call.builtin) {
-            const result = await findBuiltin(call.builtin)!.run(ctx, { ownerId: input.ownerId, input: call.input });
+            const result = await findBuiltin(call.builtin)!.run(ctx, { ownerId: input.ownerId, input: call.input, skills: call.skills });
             return { id: call.id, text: resultText([{ type: "text", text: result.text }]), status: result.status };
           }
           const headers = call.headersEncrypted

@@ -1619,6 +1619,7 @@ export const toolRunInput = internalQuery({
           id: v.string(),
           input: v.string(),
           builtin: v.optional(v.string()), // runs here, not on a tool server
+          skills: v.optional(v.array(v.string())), // read_skill's catalog
           tool: v.optional(v.string()), // the server's own name for it
           url: v.optional(v.string()),
           headersEncrypted: v.optional(v.string()),
@@ -1646,6 +1647,7 @@ export const toolRunInput = internalQuery({
           id: part.id,
           input: part.input,
           builtin: frozen.builtin,
+          skills: frozen.skills,
           problem: findBuiltin(frozen.builtin)
             ? undefined
             : "this built-in tool is no longer available",
