@@ -5,8 +5,7 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { action, type ActionCtx } from "./_generated/server";
-import { resolveGithubSkill } from "./lib/github";
-import { parseSkill, type ParsedSkill } from "./lib/skills";
+import { fetchGithubSkill } from "./lib/github";
 import { requireOwner } from "./owner";
 import { addResult } from "./skills";
 
@@ -14,17 +13,9 @@ type AddResult = typeof addResult.type;
 
 const systemResolve = async (host: string) => (await lookup(host, { all: true })).map((a) => a.address);
 
-// Fetches and validates a GitHub skill; a bad URL, a GitHub error or a bad skill comes back as a reason.
-async function fetchSkill(
-  ctx: ActionCtx,
-  ownerId: Id<"users">,
-  url: string,
-): Promise<{ ok: true; skill: ParsedSkill; source: string } | { ok: false; reason: string }> {
+async function fetchSkill(ctx: ActionCtx, ownerId: Id<"users">, url: string) {
   const allowlist: string[] = await ctx.runQuery(internal.settings.allowlist, { ownerId });
-  const fetched = await resolveGithubSkill(url, { allowlist, resolve: systemResolve });
-  if (!fetched.ok) return fetched;
-  const parsed = parseSkill(fetched.files);
-  return parsed.ok ? { ok: true, skill: parsed.skill, source: fetched.source } : parsed;
+  return fetchGithubSkill(url, { allowlist, resolve: systemResolve });
 }
 
 export const addFromGithub = action({

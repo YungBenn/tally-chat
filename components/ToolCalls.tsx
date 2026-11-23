@@ -5,6 +5,8 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge, type BadgeTone } from "@/components/ui/feedback";
 import { Checkbox } from "@/components/ui/fields";
+import type { SkillPreview } from "@/convex/lib/skills";
+import { bytes } from "@/lib/format";
 
 type Status = "running" | "waiting" | "notRun" | "ok" | "error" | "declined" | "timedOut";
 const CHIP: Record<Status, { label: string; tone?: BadgeTone }> = {
@@ -61,7 +63,26 @@ export function ToolCallRow({
   );
 }
 
-type Pending = { id: string; tool: string; server: string | null; input: string; alwaysAllowed: boolean };
+type Pending = { id: string; tool: string; server: string | null; input: string; alwaysAllowed: boolean; preview?: SkillPreview };
+
+/**
+ * What add_skill will add: the resolved skill, in place of its raw arguments. A call whose skill
+ * couldn't be resolved never waits here: it finished with the error.
+ */
+function SkillPreviewCard({ preview }: { preview: Extract<SkillPreview, { name: string }> }) {
+  return (
+    <div className="tc-skill-preview">
+      <div className="flex items-center gap-2">
+        <span className="tc-mono truncate text-mono-sm text-foreground">{preview.name}</span>
+        {preview.replaces && <Badge tone="warning">replaces existing</Badge>}
+      </div>
+      <p className="text-body-sm text-foreground-muted">{preview.description}</p>
+      <p className="tc-mono truncate text-mono-sm text-foreground-subtle">
+        {bytes(preview.size)} · {preview.source === "upload" ? "pasted SKILL.md" : preview.source.github.replace("https://", "")}
+      </p>
+    </div>
+  );
+}
 
 /**
  * The prompt for one step (spec phase 10): every call the model made at once, with its arguments.
@@ -107,7 +128,7 @@ export function ApprovalPrompt({
               <span className="flex-1" />
               <Checkbox checked={declined.has(c.id)} onCheckedChange={(on) => toggle(c.id, on)} label="Decline" />
             </div>
-            <pre className="tc-toolcall-pre">{c.input}</pre>
+            {c.preview && "name" in c.preview ? <SkillPreviewCard preview={c.preview} /> : <pre className="tc-toolcall-pre">{c.input}</pre>}
           </div>
         ))}
       </div>

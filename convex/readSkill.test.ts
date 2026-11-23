@@ -46,6 +46,7 @@ async function setup(steps: Step[] = [], { tools = true, github = {} as Record<s
     }),
   );
   const owner = t.withIdentity({ subject: `${ownerId}|session` });
+  await owner.mutation(api.settings.setAddSkillOnForNewThreads, { on: false }); // these tests are about other tools
   let n = 0;
   fake = fakeFetch({
     ...github,

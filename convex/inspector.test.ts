@@ -63,6 +63,7 @@ async function setup(replyUsages: object[], model = "claude-sonnet-5-5") {
     }),
   );
   const owner = t.withIdentity({ subject: `${ownerId}|session` });
+  await owner.mutation(api.settings.setAddSkillOnForNewThreads, { on: false }); // these tests are about other tools
   const threadId = await owner.mutation(api.chat.createThread, {
     providerId,
     modelId: model,

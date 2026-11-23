@@ -60,6 +60,7 @@ async function setup(opts: { steps: Step[] | ((body: Body, n: number) => Step); 
   if (opts.budget !== undefined)
     await t.run((ctx) => ctx.db.insert("settings", { ownerId, allowlistedHosts: [], dailyBudgetMicroUsd: opts.budget }));
   const owner = t.withIdentity({ subject: `${ownerId}|session` });
+  await owner.mutation(api.settings.setAddSkillOnForNewThreads, { on: false }); // these tests are about other tools
   const threadId = await owner.mutation(api.chat.createThread, { providerId, modelId: "claude-sonnet-5-5" });
 
   let n = 0;

@@ -64,6 +64,7 @@ async function setup() {
     );
   const docsId = await server("Docs", "docs", [search, read]);
   const owner = t.withIdentity({ subject: `${ownerId}|session` });
+  await owner.mutation(api.settings.setAddSkillOnForNewThreads, { on: false }); // these tests are about other tools
   const thread = (providerId: Id<"providers">, modelId: string) => owner.mutation(api.chat.createThread, { providerId, modelId });
   const reply = [messageStart({ input_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 2000 }), textDelta("ok"), messageDelta({ output_tokens: 2 }), messageStop];
   fake = fakeFetch({

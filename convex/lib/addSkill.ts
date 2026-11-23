@@ -1,0 +1,70 @@
+import { internal } from "../_generated/api";
+import type { BuiltinTool } from "./builtinTools";
+import { fetchGithubSkill } from "./github";
+import { parseSkill, type ParsedSkill, type SkillSource } from "./skills";
+import type { GuardOptions } from "./urlGuard";
+
+// add_skill (ADR 0005): adds a skill from chat. The call is resolved before the owner is asked,
+// so the approval card shows what will be added; it always asks.
+const DESCRIPTION =
+  "Add a skill to tally.chat for the user, from a GitHub URL (a repo, a folder or a SKILL.md file) " +
+  "or the full text of a SKILL.md. The user sees the skill and approves it first. " +
+  "The skill is available from the user's next thread, not this one.";
+const INPUT_SCHEMA = JSON.stringify({
+  type: "object",
+  properties: {
+    source: {
+      type: "string",
+      description: "A GitHub URL to the skill, or the whole SKILL.md text starting with its --- frontmatter",
+    },
+  },
+  required: ["source"],
+});
+
+const error = (text: string) => ({ text: `Error: ${text}`, status: "error" as const });
+
+// Text starting with frontmatter is a SKILL.md; anything else is a GitHub URL.
+async function resolve(
+  input: string,
+  guard: GuardOptions,
+): Promise<{ ok: true; skill: ParsedSkill; source: SkillSource } | { ok: false; reason: string }> {
+  const { source } = JSON.parse(input) as { source?: unknown };
+  if (typeof source !== "string") return { ok: false, reason: "source must be a GitHub URL or SKILL.md text." };
+  const text = source.trimStart();
+  if (text.startsWith("---")) {
+    const parsed = parseSkill([{ path: "SKILL.md", text }]);
+    return parsed.ok ? { ok: true, skill: parsed.skill, source: "upload" } : parsed;
+  }
+  const got = await fetchGithubSkill(source, guard);
+  return got.ok ? { ok: true, skill: got.skill, source: { github: got.source } } : got;
+}
+
+export const addSkill: BuiltinTool = {
+  name: "add_skill",
+  approval: "always",
+  definition: async (ctx, ownerId) => {
+    const settings = await ctx.db
+      .query("settings")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+      .unique();
+    return settings?.addSkillOnForNewThreads === false ? null : { description: DESCRIPTION, inputSchema: INPUT_SCHEMA };
+  },
+  preview: async (input, guard) => {
+    const got = await resolve(input, guard);
+    if (!got.ok) return { error: got.reason };
+    const { name, description, size } = got.skill;
+    return { name, description, size, source: got.source };
+  },
+  // Runs only once approved, or with the resolve error that skipped asking. The source is fetched
+  // again and must still be what the owner approved.
+  run: async (ctx, { ownerId, input, preview, guard }) => {
+    if (!preview || "error" in preview) return error(preview?.error ?? "the skill was not resolved.");
+    const got = await resolve(input, guard);
+    if (!got.ok) return error(got.reason);
+    const { name, description, size } = got.skill;
+    if (name !== preview.name || description !== preview.description || size !== preview.size)
+      return error("the skill changed after it was shown for approval, so it was not added. Call add_skill again to show the new version.");
+    await ctx.runMutation(internal.skills.save, { ownerId, skill: got.skill, replace: true, source: got.source });
+    return { text: `Added the skill ${name}. It is available from the next thread, not this one.`, status: "ok" };
+  },
+};

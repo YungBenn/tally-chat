@@ -406,6 +406,27 @@ function CacheBreakConfirm() {
   );
 }
 
+function AddSkillTool() {
+  const settings = useQuery(api.settings.get);
+  const setOn = useMutation(api.settings.setAddSkillOnForNewThreads);
+  if (!settings) return null;
+  return (
+    <SettingsRow
+      title="Add skills from chat"
+      control={
+        <SwitchSetting
+          checked={settings.addSkillOnForNewThreads}
+          label="Give new threads the add_skill tool"
+          onSave={(on) => setOn({ on })}
+        />
+      }
+    >
+      New threads get the <code className="tc-mono text-mono-sm">add_skill</code> tool, so you can paste a GitHub URL
+      or a SKILL.md and ask the model to add it. It always asks first. Off, new threads don&apos;t pay for the tool.
+    </SettingsRow>
+  );
+}
+
 function Keepalive() {
   const settings = useQuery(api.settings.get);
   const setKeepaliveEnabled = useMutation(api.settings.setKeepaliveEnabled);
@@ -692,8 +713,13 @@ const SECTIONS = [
     label: "Skills",
     icon: IconBook,
     group: 1,
-    terms: "skill skills SKILL.md agent upload instructions",
-    Content: SkillsSettings,
+    terms: "skill skills SKILL.md agent upload instructions add_skill chat",
+    Content: () => (
+      <>
+        <AddSkillTool />
+        <SkillsSettings />
+      </>
+    ),
   },
   {
     id: "search",

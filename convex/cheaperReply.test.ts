@@ -50,6 +50,7 @@ async function setup() {
     }),
   );
   const owner = t.withIdentity({ subject: `${ownerId}|session` });
+  await owner.mutation(api.settings.setAddSkillOnForNewThreads, { on: false }); // these tests are about other tools
   fake = fakeFetch({
     [ANTHROPIC]: { respond: () => new Response(sse(messageStart(CACHING), textDelta("ok"), messageDelta({ output_tokens: 1 }), messageStop)) },
     [OPENAI]: { body: oaiDelta("ok") + oaiFinish({ prompt_tokens: 5, completion_tokens: 1 }) + oaiDone },

@@ -65,6 +65,7 @@ async function setup() {
     [OPENAI]: { body: oaiDelta("cheap reply") + oaiFinish({ prompt_tokens: 10, completion_tokens: 2 }) + oaiDone },
   });
   const owner = t.withIdentity({ subject: `${ownerId}|session` });
+  await owner.mutation(api.settings.setAddSkillOnForNewThreads, { on: false }); // these tests are about other tools
   const threadId = await owner.mutation(api.chat.createThread, { providerId: anthropicId, modelId: "claude-sonnet-5-5" });
   await owner.mutation(api.chat.send, { threadId, content: "Find it" });
   await t.finishAllScheduledFunctions(() => {});

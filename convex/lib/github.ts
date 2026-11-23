@@ -1,5 +1,5 @@
 import { ConvexError } from "convex/values";
-import type { SkillFile } from "./skills";
+import { parseSkill, type ParsedSkill, type SkillFile } from "./skills";
 import { guardedFetch, type GuardOptions } from "./urlGuard";
 
 // Reads a skill folder from a public GitHub repo: one tree listing through the API (no token),
@@ -77,4 +77,15 @@ export async function resolveGithubSkill(input: string, guard: GuardOptions): Pr
     if (err instanceof ConvexError) return { ok: false, reason: String(err.data) };
     throw err;
   }
+}
+
+// Fetches and validates a GitHub skill; a bad URL, a GitHub error or a bad skill comes back as a reason.
+export async function fetchGithubSkill(
+  url: string,
+  guard: GuardOptions,
+): Promise<{ ok: true; skill: ParsedSkill; source: string } | { ok: false; reason: string }> {
+  const fetched = await resolveGithubSkill(url, guard);
+  if (!fetched.ok) return fetched;
+  const parsed = parseSkill(fetched.files);
+  return parsed.ok ? { ok: true, skill: parsed.skill, source: fetched.source } : parsed;
 }

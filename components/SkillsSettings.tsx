@@ -11,14 +11,12 @@ import { toast } from "@/components/ui/toast";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { parseSkill, type SkillFile } from "@/convex/lib/skills";
+import { bytes } from "@/lib/format";
 import { unzipSkill } from "@/lib/skillZip";
 
 type Skill = NonNullable<ReturnType<typeof useQuery<typeof api.skills.list>>>[number];
 type AddResult = Awaited<ReturnType<ReturnType<typeof useMutation<typeof api.skills.addFromFiles>>>>;
 type Send = (replace: boolean) => Promise<AddResult>;
-
-const formatSize = (bytes: number) =>
-  bytes < 1000 ? `${bytes} B` : bytes < 1e6 ? `${(bytes / 1000).toFixed(1)} KB` : `${(bytes / 1e6).toFixed(1)} MB`;
 
 /** Settings › Skills: upload a SKILL.md or a zip, or add one from GitHub; then view, switch, refresh or delete each skill. */
 export default function SkillsSettings() {
@@ -183,7 +181,7 @@ function SkillRow({ skill, onView, onDelete }: { skill: Skill; onView: () => voi
         <p className="tc-mono truncate text-mono-sm">{skill.name}</p>
         <p className="line-clamp-2 text-body-sm text-foreground-muted">{skill.description}</p>
         <p className="tc-mono mt-0.5 text-mono-sm text-foreground-subtle">
-          {formatSize(skill.size)} ·{" "}
+          {bytes(skill.size)} ·{" "}
           {skill.source === "upload" ? (
             "uploaded"
           ) : (
@@ -265,7 +263,7 @@ function SkillView({ skillId, onClose }: { skillId: Id<"skills"> | null; onClose
                   <li key={f.path}>
                     <span className="tc-mono truncate text-mono-sm">{f.path}</span>
                     <span className="tc-mono shrink-0 pr-2 text-mono-sm text-foreground-subtle">
-                      {formatSize(f.size)}
+                      {bytes(f.size)}
                     </span>
                   </li>
                 ))}

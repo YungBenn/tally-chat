@@ -721,6 +721,9 @@ button.tc-provider:hover { border-color: var(--border-strong); }
 .tc-approval { display: flex; flex-direction: column; gap: 0.75rem; padding: 0.875rem 1rem; border: 1px solid var(--border-strong); border-radius: var(--radius-card); background: var(--surface); }
 .tc-approval-call { display: flex; flex-direction: column; gap: 0.375rem; }
 .tc-approval-call[data-declined] .tc-toolcall-pre { opacity: 0.5; text-decoration: line-through; }
+/* add_skill's resolved skill, shown in place of its arguments. */
+.tc-skill-preview { display: flex; flex-direction: column; gap: 0.125rem; min-width: 0; padding: 0.5rem 0.625rem; border-radius: 0.375rem; border: 1px solid var(--border-subtle); }
+.tc-approval-call[data-declined] .tc-skill-preview { opacity: 0.5; }
 /* A tool server's tools: name and description, then the always-allow switch (stays on phones). */
 .tc-tools-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.75rem; align-items: center; min-height: 3rem; padding: 0.5rem 1rem; border-bottom: 1px solid var(--border-subtle); }
 .tc-tools-row:last-child { border-bottom: 0; }

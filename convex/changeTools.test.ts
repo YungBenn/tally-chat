@@ -53,6 +53,7 @@ async function setup() {
     [OPENAI]: { body: oaiDelta("ok") + oaiFinish({ prompt_tokens: 10, completion_tokens: 2 }) + oaiDone },
   });
   const owner = t.withIdentity({ subject: `${ownerId}|session` });
+  await owner.mutation(api.settings.setAddSkillOnForNewThreads, { on: false }); // these tests are about other tools
   const thread = async (providerId: Id<"providers">, modelId: string) => {
     const id = await owner.mutation(api.chat.createThread, { providerId, modelId });
     await owner.mutation(api.chat.send, { threadId: id, content: "Hi" });

@@ -20,6 +20,7 @@ import { callMcpTool } from "./lib/mcp";
 import { streamOpenAICompatible } from "./lib/openaiCompatible";
 import { RESULT_NOTE, type ToolStatus } from "./lib/toolParts";
 import { resultText } from "./lib/toolResult";
+import type { SkillPreview } from "./lib/skills";
 import type { NormalizedUsage } from "./lib/usage";
 import { decryptSecret } from "./lib/vault";
 import { searchExa, type StoredSearch } from "./lib/webSearch";
@@ -130,7 +131,7 @@ export const generate = internalAction({
     let cacheRequest: { startedAt: number; ttl: CacheTtl } | undefined;
     let truncated = false;
     // What the model asked for in this step, and the thinking it must get back with the results.
-    const toolCalls: { id: string; name: string; input: string }[] = [];
+    const toolCalls: { id: string; name: string; input: string; preview?: SkillPreview }[] = [];
     const thinking: (
       | { type: "thinking"; thinking: string; signature: string }
       | { type: "redactedThinking"; data: string }
@@ -224,6 +225,12 @@ export const generate = internalAction({
           return null;
         }
       }
+      // A built-in tool that previews (add_skill) is resolved before anyone is asked.
+      for (const call of toolCalls) {
+        const builtin = input.tools?.some((t) => t.name === call.name) ? findBuiltin(call.name) : undefined;
+        if (builtin?.preview)
+          call.preview = await builtin.preview(call.input, { allowlist: input.allowlist, resolve: systemResolve });
+      }
       await finish("done");
     } catch (err) {
       if (!(err instanceof ConvexError)) console.error("reply failed:", err);
@@ -268,7 +275,13 @@ export const runTools = internalAction({
         if (call.problem) return fail(call.problem);
         try {
           if (call.builtin) {
-            const result = await findBuiltin(call.builtin)!.run(ctx, { ownerId: input.ownerId, input: call.input, skills: call.skills });
+            const result = await findBuiltin(call.builtin)!.run(ctx, {
+              ownerId: input.ownerId,
+              input: call.input,
+              skills: call.skills,
+              preview: call.preview,
+              guard,
+            });
             return { id: call.id, text: resultText([{ type: "text", text: result.text }]), status: result.status };
           }
           const headers = call.headersEncrypted

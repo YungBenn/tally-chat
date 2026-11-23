@@ -7,6 +7,19 @@ export type SkillFile = { path: string; text: string };
 // Where a skill came from: an upload, or the normalized GitHub URL it refreshes from.
 export const skillSourceValidator = v.union(v.literal("upload"), v.object({ github: v.string() }));
 export type SkillSource = typeof skillSourceValidator.type;
+// What add_skill's approval card shows (ADR 0005): the resolved skill, or why it can't be added.
+// `replaces` is set once the call is stored, from the owner's skills at that moment.
+export const skillPreviewValidator = v.union(
+  v.object({
+    name: v.string(),
+    description: v.string(),
+    size: v.number(),
+    source: skillSourceValidator,
+    replaces: v.optional(v.boolean()),
+  }),
+  v.object({ error: v.string() }),
+);
+export type SkillPreview = typeof skillPreviewValidator.type;
 export type ParsedSkill = {
   name: string;
   description: string;

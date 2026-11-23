@@ -2,6 +2,7 @@ import { v, type Infer } from "convex/values";
 import type { AssistantBlock, ChatMessage } from "./anthropic";
 import { imageValidator } from "./images";
 import { effortValidator } from "./effort";
+import { skillPreviewValidator } from "./skills";
 
 // A reply's ordered parts (spec phase 10): written step by step while the reply runs and never
 // changed after. `content` stays the reply's text parts joined. Parts exist only on replies that
@@ -20,7 +21,8 @@ export const partValidator = v.union(
   v.object({ type: v.literal("thinking"), step: v.number(), thinking: v.string(), signature: v.string() }),
   v.object({ type: v.literal("redactedThinking"), step: v.number(), data: v.string() }),
   // input is JSON text, so the bytes sent on later requests are the bytes stored.
-  v.object({ type: v.literal("toolCall"), step: v.number(), id: v.string(), name: v.string(), input: v.string() }),
+  // preview: add_skill's resolved skill, written with the call (lib/addSkill).
+  v.object({ type: v.literal("toolCall"), step: v.number(), id: v.string(), name: v.string(), input: v.string(), preview: v.optional(skillPreviewValidator) }),
   v.object({ type: v.literal("toolResult"), step: v.number(), id: v.string(), text: v.string(), status: toolStatusValidator }),
 );
 export type Part = Infer<typeof partValidator>;

@@ -59,6 +59,7 @@ import {
   type ToolPick,
 } from "./lib/toolSet";
 import { builtinTools, findBuiltin } from "./lib/builtinTools";
+import { skillPreviewValidator, type SkillPreview } from "./lib/skills";
 import { requireOwner } from "./owner";
 import { importSourceValidator } from "./schema";
 import {
@@ -294,6 +295,7 @@ const messageView = v.object({
             toolStatusValidator,
           ),
           alwaysAllowed: v.boolean(),
+          preview: v.optional(skillPreviewValidator), // add_skill: what the approval card shows
           input: v.string(),
           result: v.optional(v.string()),
         }),
@@ -486,6 +488,7 @@ type ReplyItem =
       server: string | null;
       status: "running" | "waiting" | "notRun" | ToolStatus;
       alwaysAllowed: boolean;
+      preview?: SkillPreview;
       input: string;
       result?: string;
     };
@@ -522,6 +525,7 @@ function toolItems(
         tool,
         server: server?.name ?? null,
         alwaysAllowed: !!server?.alwaysAllowed.includes(tool),
+        preview: p.preview,
         status:
           result?.status ??
           (m.status === "waiting" && m.pendingApproval?.callIds.includes(p.id)
@@ -1385,7 +1389,7 @@ export const finalize = internalMutation({
     thinking: v.optional(v.array(thinkingValidator)), // this step's thinking blocks
     toolCalls: v.optional(
       v.array(
-        v.object({ id: v.string(), name: v.string(), input: v.string() }),
+        v.object({ id: v.string(), name: v.string(), input: v.string(), preview: v.optional(skillPreviewValidator) }),
       ),
     ),
   },
@@ -1432,6 +1436,14 @@ export const finalize = internalMutation({
       }
     }
     const loop = calls.length > 0;
+    // A previewed skill says whether it would replace one the owner has now.
+    calls = await Promise.all(
+      calls.map(async (c) =>
+        c.preview && "name" in c.preview
+          ? { ...c, preview: { ...c.preview, replaces: await hasSkill(ctx, message.ownerId, c.preview.name) } }
+          : c,
+      ),
+    );
 
     const stepParts: Part[] = [
       ...(thinking ?? []).map((t) => ({ ...t, step })),
@@ -1477,7 +1489,7 @@ export const finalize = internalMutation({
               status: "waiting" as const,
               pendingApproval: {
                 step,
-                callIds: calls.map((c) => c.id),
+                callIds: calls.filter((c) => !failedPreview(c.preview)).map((c) => c.id),
                 requestedAt: Date.now(),
               },
             }
@@ -1535,16 +1547,24 @@ export const finalize = internalMutation({
   },
 });
 
+const failedPreview = (preview: SkillPreview | undefined) => !!preview && "error" in preview;
+const hasSkill = async (ctx: QueryCtx, ownerId: Id<"users">, name: string) =>
+  !!(await ctx.db
+    .query("skills")
+    .withIndex("by_ownerId_and_name", (q) => q.eq("ownerId", ownerId).eq("name", name))
+    .unique());
+
 // Whether a step's calls need the owner's say: any call to a tool of the thread that isn't always
-// allowed. A call to a tool the thread never had can't run, so it asks for nothing.
+// allowed. A call to a tool the thread never had can't run, and a call whose preview failed
+// finishes with its error, so neither asks for anything.
 async function needsApproval(
   ctx: QueryCtx,
   thread: Doc<"threads">,
-  calls: { name: string }[],
+  calls: { name: string; preview?: SkillPreview }[],
 ) {
   for (const call of calls) {
     const frozen = thread.toolSet?.find((t) => t.name === call.name);
-    if (!frozen) continue;
+    if (!frozen || failedPreview(call.preview)) continue;
     if ("builtin" in frozen) {
       if (findBuiltin(frozen.builtin)?.approval === "always") return true;
       continue;
@@ -1620,6 +1640,7 @@ export const toolRunInput = internalQuery({
           input: v.string(),
           builtin: v.optional(v.string()), // runs here, not on a tool server
           skills: v.optional(v.array(v.string())), // read_skill's catalog
+          preview: v.optional(skillPreviewValidator), // add_skill's resolved skill
           tool: v.optional(v.string()), // the server's own name for it
           url: v.optional(v.string()),
           headersEncrypted: v.optional(v.string()),
@@ -1648,6 +1669,7 @@ export const toolRunInput = internalQuery({
           input: part.input,
           builtin: frozen.builtin,
           skills: frozen.skills,
+          preview: part.preview,
           problem: findBuiltin(frozen.builtin)
             ? undefined
             : "this built-in tool is no longer available",

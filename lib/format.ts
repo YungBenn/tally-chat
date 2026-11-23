@@ -12,6 +12,10 @@ export const tokens = (n: number) =>
       ? `${Number((n / 1000).toFixed(1))}k`
       : `${Number((n / 1e6).toFixed(1))}M`;
 
+// 512 B, 12.4 KB, 1.0 MB.
+export const bytes = (n: number) =>
+  n < 1000 ? `${n} B` : n < 1e6 ? `${(n / 1000).toFixed(1)} KB` : `${(n / 1e6).toFixed(1)} MB`;
+
 // Rough token count for text not yet measured by a provider (characters ÷ 4).
 export const estimateTokens = (text: string) => Math.ceil(text.length / 4);
 

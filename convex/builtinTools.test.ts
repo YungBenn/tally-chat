@@ -60,6 +60,7 @@ async function setup(steps: Step[] = []) {
     }),
   );
   const owner = t.withIdentity({ subject: `${ownerId}|session` });
+  await owner.mutation(api.settings.setAddSkillOnForNewThreads, { on: false }); // these tests are about other tools
   const threadId = await owner.mutation(api.chat.createThread, { providerId, modelId: "claude-sonnet-5-5" });
   let n = 0;
   // Only the model is faked: a call reaching any tool server would fail the fetch.

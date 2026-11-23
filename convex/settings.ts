@@ -54,6 +54,7 @@ export const get = query({
     defaultEffort: v.union(v.null(), effortValidator),
     timeZone: v.union(v.null(), v.string()),
     keepaliveEnabled: v.boolean(),
+    addSkillOnForNewThreads: v.boolean(),
     cacheBreakConfirmMicroUsd: v.number(),
     dailyBudgetMicroUsd: v.union(v.null(), v.number()),
     condense: v.object({
@@ -73,6 +74,7 @@ export const get = query({
       defaultEffort: settings?.defaultEffort ?? null,
       timeZone: settings?.timeZone ?? null,
       keepaliveEnabled: settings?.keepaliveEnabled !== false,
+      addSkillOnForNewThreads: settings?.addSkillOnForNewThreads !== false,
       cacheBreakConfirmMicroUsd:
         settings?.cacheBreakConfirmMicroUsd ?? DEFAULT_CACHE_BREAK_CONFIRM,
       dailyBudgetMicroUsd: settings?.dailyBudgetMicroUsd ?? null,
@@ -359,6 +361,19 @@ export const setKeepaliveEnabled = mutation({
         allowlistedHosts: [],
         keepaliveEnabled: enabled,
       });
+    return null;
+  },
+});
+
+// Whether new threads get add_skill; threads already started keep their tools.
+export const setAddSkillOnForNewThreads = mutation({
+  args: { on: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, { on }) => {
+    const ownerId = await requireOwner(ctx);
+    const settings = await settingsFor(ctx, ownerId);
+    if (settings) await ctx.db.patch("settings", settings._id, { addSkillOnForNewThreads: on });
+    else await ctx.db.insert("settings", { ownerId, allowlistedHosts: [], addSkillOnForNewThreads: on });
     return null;
   },
 });
