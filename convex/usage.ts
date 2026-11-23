@@ -80,6 +80,7 @@ export const summary = query({
     ),
     savedMicroUsd7: v.number(),
     savedMicroUsd30: v.number(),
+    hitRate7: v.union(v.null(), v.number()),
     hitRate30: v.union(v.null(), v.number()),
   }),
   handler: async (ctx, { today }) => {
@@ -155,6 +156,7 @@ export const summary = query({
         .sort((a, b) => b.costMicroUsd - a.costMicroUsd || b.calls - a.calls),
       savedMicroUsd7: netSaved(week.all, week.upkeep),
       savedMicroUsd30: netSaved(month.all, month.upkeep),
+      hitRate7: hitRate(week.all, week.upkeep),
       hitRate30: hitRate(month.all, month.upkeep),
     };
   },

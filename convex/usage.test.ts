@@ -12,6 +12,8 @@ import {
 } from "../test/sse";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { recordDailyUsage } from "./lib/rollups";
+import { USAGE_FIELDS, type Usage } from "./lib/usage";
 import { encryptSecret } from "./lib/vault";
 import schema from "./schema";
 
@@ -159,6 +161,24 @@ describe("the usage page", () => {
       saved,
       1000 / 1320,
     ]);
+  });
+
+  test("the 7-day hit rate is weighted by input tokens, so zero-token searches don't shift it", async () => {
+    const s = await setup();
+    const thread = await s.chat(); // Nov 15: 1,000 read of 1,320 input
+    const ownerId = (await s.t.run((ctx) => ctx.db.query("users").first()))!._id;
+    const call = (at: number, usage: Partial<Usage>, providerId = String(s.providerId)) =>
+      s.t.run((ctx) =>
+        recordDailyUsage(ctx, {
+          ownerId, at, timeZone: "Asia/Jakarta", model: "m", providerId, threadId: thread,
+          usage: { ...(Object.fromEntries(USAGE_FIELDS.map((f) => [f, 0])) as Usage), ...usage },
+          costMicroUsd: 0, savedMicroUsd: 0, upkeep: false,
+        }),
+      );
+    for (let i = 0; i < 20; i++) await call(Date.now(), {}, "exa"); // searches on Nov 15
+    await call(Date.now() + 86_400_000, { inputTokens: 900, cacheReadTokens: 100 }); // Nov 16
+
+    expect((await s.summary("2026-11-16")).hitRate7).toBeCloseTo((1000 + 100) / (1320 + 1000));
   });
 
   test("spend from deleted threads still counts; days outside the window drop off", async () => {
