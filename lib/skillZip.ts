@@ -1,5 +1,5 @@
 import { unzipSync } from "fflate";
-import type { SkillFile } from "@/convex/lib/skills";
+import type { SkillFile } from "../convex/lib/skills";
 
 /** Unzips a skill folder in the browser into the `{ path, text }` list a single-file upload sends. */
 export function unzipSkill(zip: Uint8Array): SkillFile[] {
