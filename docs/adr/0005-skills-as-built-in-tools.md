@@ -6,10 +6,11 @@ A skill (Agent Skills format: `SKILL.md` plus optional text files) is never put 
 
 - **Catalog in the system prompt**: the obvious place, but the system prompt is versioned and every thread keeps its version (design doc S5). Putting the catalog there means a second per-thread frozen field and a new prompt shape. The tool set is already frozen per thread, already measured in the Inspector, and already has an explicit "change tools" path that warns about the cache break.
 - **Whole skill bodies in context**: no tool needed, but every skill's full text is paid on every request, and most threads use none of them.
-- **Slash invocation only** (`/skill-name` attaches the body to the user message): works on models without tool calling, but the owner has to remember which skill fits. It can be added later next to the model-chosen path.
+- **Slash invocation only** (`/skill-name` attaches the body to the user message): works on models without tool calling, but the owner has to remember which skill fits. Added later next to the model-chosen path (see Consequences).
 
 ## Consequences
 
 - Models that can't call tools can't use skills.
 - A skill added mid-thread, including through `add_skill`, appears only in threads created afterwards, unless the owner explicitly changes the thread's tool set.
 - Refreshing or deleting a skill never changes bytes already sent: earlier reads stay verbatim; later reads get the new body or a "this skill was removed" result.
+- `/skill-name` in the composer attaches a copy of the skill's instructions to that message, frozen when it is invoked, like a mentioned thread (`documents.fromSkill`). It works for any skill, on any model, in any thread, because it changes only the new message's bytes. The skill's other files are reachable only through `read_skill`.

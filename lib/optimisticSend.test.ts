@@ -41,7 +41,7 @@ test("the placeholder shows the attached images, documents and a pending web sea
       images: [{ storageId: "s" as Id<"_storage">, width: 40, height: 30, mediaType: "image/png" }],
       search: true,
     },
-    { images: ["blob:preview"], documents: [{ name: "a.pdf", tokens: 120, fromThreadId: undefined }] },
+    { images: ["blob:preview"], documents: [{ name: "a.pdf", tokens: 120, fromThreadId: undefined, fromSkillId: undefined }] },
     "2",
   );
   expect(out.messages[2]).toMatchObject({

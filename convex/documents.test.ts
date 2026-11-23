@@ -196,3 +196,37 @@ describe("mentioning a thread", () => {
     );
   });
 });
+
+describe("invoking a skill with /", () => {
+  const addSkill = (s: Awaited<ReturnType<typeof setup>>, name: string, body: string) =>
+    s.t.run(async (ctx) => {
+      const ownerId = (await ctx.db.query("users").first())!._id;
+      return ctx.db.insert("skills", {
+        ownerId, name, description: "How we write.", body, files: [], size: body.length, source: "upload", onForNewThreads: true,
+      });
+    });
+
+  test("sends a frozen copy of the skill's instructions with the message", async () => {
+    const s = await setup();
+    fake = fakeFetch({ [MESSAGES_URL]: { body: sse(textDelta("ok"), messageStop) } });
+    const skillId = await addSkill(s, "house-style", "Write short sentences.");
+    const doc = await s.owner.mutation(api.documents.fromSkill, { skillId });
+    expect(doc.name).toBe("house-style");
+    await s.t.run((ctx) => ctx.db.patch("skills", skillId, { body: "Changed later." }));
+    await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Write an intro", documents: [doc.documentId] });
+    await s.settle();
+    expect(s.firstUserText()).toBe(
+      '<document name="house-style">\nThe owner invoked the skill "house-style": How we write.\nFollow its instructions.\n\nWrite short sentences.\n</document>\n\nWrite an intro',
+    );
+    expect((await s.thread()).messages[0].documents).toEqual([{ name: "house-style", tokens: doc.tokens, fromSkillId: skillId }]);
+
+    const stranger = s.t.withIdentity({ subject: `${await s.t.run((ctx) => ctx.db.insert("users", { email: "x" }))}|session` });
+    await expect(stranger.mutation(api.documents.fromSkill, { skillId })).rejects.toThrow("Skill not found");
+  });
+
+  test("a skill over the document limit is refused", async () => {
+    const s = await setup();
+    const skillId = await addSkill(s, "huge", "z".repeat(400_100));
+    await expect(s.owner.mutation(api.documents.fromSkill, { skillId })).rejects.toThrow("huge is about 100k tokens; the limit is 100k.");
+  });
+});

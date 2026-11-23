@@ -326,6 +326,7 @@ const messageView = v.object({
         name: v.string(),
         tokens: v.number(),
         fromThreadId: v.optional(v.id("threads")),
+        fromSkillId: v.optional(v.id("skills")),
       }),
     ),
   ),
@@ -441,10 +442,11 @@ export const getThread = query({
             )
           : undefined,
         search: m.search ? await searchView(ctx, m._id) : undefined,
-        documents: m.documents?.map(({ name, tokens, fromThreadId }) => ({
+        documents: m.documents?.map(({ name, tokens, fromThreadId, fromSkillId }) => ({
           name,
           tokens,
           fromThreadId,
+          fromSkillId,
         })),
       })),
     );
@@ -587,6 +589,7 @@ async function claimDocuments(
       name: doc.name,
       tokens: doc.tokens,
       ...(doc.fromThreadId ? { fromThreadId: doc.fromThreadId } : {}),
+      ...(doc.fromSkillId ? { fromSkillId: doc.fromSkillId } : {}),
     });
   }
   return refs;

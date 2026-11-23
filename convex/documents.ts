@@ -3,7 +3,7 @@ import { internalMutation, mutation } from "./_generated/server";
 import { activeBranch } from "./chat";
 import { estimateTokens } from "./inspector";
 import { latestCheckpoint } from "./lib/context";
-import { MAX_DOCUMENT_TOKENS, threadTranscript } from "./lib/documents";
+import { MAX_DOCUMENT_TOKENS, skillText, threadTranscript } from "./lib/documents";
 import { requireOwner } from "./owner";
 
 export const save = internalMutation({
@@ -71,6 +71,27 @@ export const fromThread = mutation({
       );
     const name = thread.title;
     const documentId = await ctx.db.insert("documents", { ownerId, name, text, tokens, fromThreadId: thread._id });
+    return { documentId, name, tokens };
+  },
+});
+
+// Invoking a skill with / (ADR 0005): a copy of its instructions as a document, frozen now like a
+// mentioned thread, so the message keeps the same bytes after the skill is refreshed or deleted.
+export const fromSkill = mutation({
+  args: { skillId: v.id("skills") },
+  returns: v.object({ documentId: v.id("documents"), name: v.string(), tokens: v.number() }),
+  handler: async (ctx, { skillId }) => {
+    const ownerId = await requireOwner(ctx);
+    const skill = await ctx.db.get("skills", skillId);
+    if (!skill || skill.ownerId !== ownerId) throw new ConvexError("Skill not found");
+    const text = skillText(skill.name, skill.description, skill.body);
+    const tokens = estimateTokens(text);
+    if (tokens > MAX_DOCUMENT_TOKENS)
+      throw new ConvexError(
+        `${skill.name} is about ${Math.round(tokens / 1000)}k tokens; the limit is ${MAX_DOCUMENT_TOKENS / 1000}k.`,
+      );
+    const name = skill.name;
+    const documentId = await ctx.db.insert("documents", { ownerId, name, text, tokens, fromSkillId: skillId });
     return { documentId, name, tokens };
   },
 });

@@ -10,6 +10,7 @@ export const documentRefValidator = v.object({
   name: v.string(),
   tokens: v.number(),
   fromThreadId: v.optional(v.id("threads")), // a mentioned thread, copied when it was mentioned
+  fromSkillId: v.optional(v.id("skills")), // a skill invoked with /, copied when it was invoked
 });
 export type DocumentRef = Infer<typeof documentRefValidator>;
 
@@ -35,6 +36,11 @@ export const DOCUMENT_ACCEPT = [
 // that sent a document, so treat it like a system prompt.
 export const documentBlock = (name: string, text: string) =>
   `<document name=${JSON.stringify(name)}>\n${text}\n</document>`;
+
+// A skill invoked with / as document text. Changing it changes the bytes of every message that
+// invoked one, like documentBlock.
+export const skillText = (name: string, description: string, body: string) =>
+  `The owner invoked the skill ${JSON.stringify(name)}: ${description}\nFollow its instructions.\n\n${body}`;
 
 // A mentioned thread as document text: who said what on its active branch, the attachments
 // named but not repeated. `summary` stands in for the turns a condense covered.

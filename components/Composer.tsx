@@ -1,6 +1,6 @@
 "use client";
 
-import { IconArrowUp, IconFileText, IconMessages, IconPaperclip, IconPlayerStopFilled, IconX } from "@tabler/icons-react";
+import { IconArrowUp, IconBook, IconFileText, IconMessages, IconPaperclip, IconPlayerStopFilled, IconX } from "@tabler/icons-react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -21,10 +21,14 @@ import { cn } from "@/lib/utils";
 // Dragged from the sidebar onto the composer to mention a thread: {"id", "title"}.
 export const THREAD_DRAG_TYPE = "application/x-tally-thread";
 
-// "@query" right before the caret, at the start or after whitespace: a thread mention being typed.
+// Right before the caret, at the start or after whitespace: "@query" is a thread mention being
+// typed, "/query" a skill being invoked.
 function mentionAt(value: string, caret: number) {
-  const m = /(?:^|\s)@([^@\n]{0,40})$/.exec(value.slice(0, caret));
-  return m ? { start: caret - m[1].length - 1, query: m[1] } : null;
+  const before = value.slice(0, caret);
+  const thread = /(?:^|\s)@([^@\n]{0,40})$/.exec(before);
+  if (thread) return { kind: "thread" as const, start: caret - thread[1].length - 1, query: thread[1] };
+  const skill = /(?:^|\s)\/([a-z0-9-]{0,64})$/.exec(before);
+  return skill ? { kind: "skill" as const, start: caret - skill[1].length - 1, query: skill[1] } : null;
 }
 
 /**
@@ -83,6 +87,7 @@ export default function Composer({
           key: number;
           name: string;
           thread?: Id<"threads">; // a mentioned thread rather than a file
+          skill?: Id<"skills">; // ...or a skill invoked with /
           doc?: { id: Id<"documents">; tokens: number };
         }
     )[]
@@ -94,16 +99,26 @@ export default function Composer({
   const uploadUrl = useMutation(api.chat.generateImageUploadUrl);
   const extract = useAction(api.documentActions.extract);
   const fromThread = useMutation(api.documents.fromThread);
+  const fromSkill = useMutation(api.documents.fromSkill);
   const threads = useQuery(api.chat.listThreads);
-  // The @ thread picker: open while "@query" sits before the caret and some title matches.
-  const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
+  const skills = useQuery(api.skills.list);
+  // The @ thread and / skill picker: open while "@query" or "/query" sits before the caret and
+  // something matches.
+  const [mention, setMention] = useState<ReturnType<typeof mentionAt>>(null);
   const [pick, setPick] = useState(0);
-  const matches =
-    mention && threads
+  const query = mention?.query.trim().toLowerCase() ?? "";
+  const matches: { id: string; label: string; note?: string; choose: () => void }[] =
+    mention?.kind === "thread" && threads
       ? threads
-          .filter((t) => t._id !== threadId && t.title.toLowerCase().includes(mention.query.trim().toLowerCase()))
+          .filter((t) => t._id !== threadId && t.title.toLowerCase().includes(query))
           .slice(0, 6)
-      : [];
+          .map((t) => ({ id: t._id, label: t.title, choose: () => void mentionThread(t._id, t.title) }))
+      : mention?.kind === "skill" && skills
+        ? skills
+            .filter((k) => k.name.includes(query))
+            .slice(0, 6)
+            .map((k) => ({ id: k._id, label: `/${k.name}`, note: k.description, choose: () => void invokeSkill(k._id, k.name) }))
+        : [];
   const uploading = attached.some((a) => (a.kind === "image" ? !a.image : !a.doc));
   const ready = attached.flatMap((a) => (a.kind === "image" && a.image ? [a.image] : []));
   const readyDocs = attached.flatMap((a) => (a.kind === "document" && a.doc ? [a.doc] : []));
@@ -167,35 +182,50 @@ export default function Composer({
     }
   }
 
-  // Copies the thread's branch into a document now (documents.fromThread), priced like a file.
-  async function mentionThread(id: Id<"threads">, title: string) {
+  // Attaches a copy made now on the server (a mentioned thread or an invoked skill), priced like a file.
+  async function attachCopy(
+    name: string,
+    from: { thread?: Id<"threads">; skill?: Id<"skills"> },
+    copy: () => Promise<{ documentId: Id<"documents">; tokens: number }>,
+  ) {
     setError(null);
-    if (id === threadId) return setError("A thread can't mention itself");
-    if (attached.some((a) => a.kind === "document" && a.thread === id)) return;
+    if (attached.some((a) => a.kind === "document" && (from.thread ? a.thread === from.thread : a.skill === from.skill)))
+      return;
     if (attached.filter((a) => a.kind === "document").length >= MAX_DOCUMENTS_PER_MESSAGE)
       return setError(`At most ${MAX_DOCUMENTS_PER_MESSAGE} documents per message`);
     const key = ++lastKey.current;
-    setAttached((list) => [...list, { kind: "document", key, name: title, thread: id }]);
+    setAttached((list) => [...list, { kind: "document", key, name, ...from }]);
     try {
-      const doc = await fromThread({ threadId: id });
+      const doc = await copy();
       setAttached((list) =>
         list.map((a) => (a.key === key ? { ...a, doc: { id: doc.documentId, tokens: doc.tokens } } : a)),
       );
     } catch (err) {
       setAttached((list) => list.filter((a) => a.key !== key));
-      setError(err instanceof ConvexError ? String(err.data) : `Could not mention ${title}`);
+      setError(err instanceof ConvexError ? String(err.data) : `Could not attach ${name}`);
     }
   }
 
-  // Replaces the typed "@query" with nothing and mentions the chosen thread.
-  function chooseMention(t: { _id: Id<"threads">; title: string }) {
+  // Copies the thread's branch into a document now (documents.fromThread).
+  async function mentionThread(id: Id<"threads">, title: string) {
+    if (id === threadId) return setError("A thread can't mention itself");
+    await attachCopy(title, { thread: id }, () => fromThread({ threadId: id }));
+  }
+
+  // Copies the skill's instructions into a document now (documents.fromSkill).
+  async function invokeSkill(id: Id<"skills">, name: string) {
+    await attachCopy(name, { skill: id }, () => fromSkill({ skillId: id }));
+  }
+
+  // Replaces the typed "@query" or "/query" with nothing and attaches the chosen thread or skill.
+  function chooseMention(option: { choose: () => void }) {
     if (!mention) return;
     const end = mention.start + 1 + mention.query.length;
     const next = text.slice(0, mention.start) + text.slice(end);
     setText(next);
     setMention(null);
     requestAnimationFrame(() => box.current?.setSelectionRange(mention.start, mention.start));
-    void mentionThread(t._id, t.title);
+    option.choose();
   }
 
   function attach(files: File[]) {
@@ -226,7 +256,7 @@ export default function Composer({
     const sent = { text, attached };
     const shown: SentAttachments = {
       images: attached.flatMap((a) => (a.kind === "image" && a.image ? [a.preview] : [])),
-      documents: attached.flatMap((a) => (a.kind === "document" && a.doc ? [{ name: a.name, tokens: a.doc.tokens, fromThreadId: a.thread }] : [])),
+      documents: attached.flatMap((a) => (a.kind === "document" && a.doc ? [{ name: a.name, tokens: a.doc.tokens, fromThreadId: a.thread, fromSkillId: a.skill }] : [])),
     };
     setText("");
     setAttached([]);
@@ -291,7 +321,13 @@ export default function Composer({
                     // eslint-disable-next-line @next/next/no-img-element -- a local blob preview
                     <img src={a.preview} alt="" />
                   ) : a.kind === "document" && a.doc ? (
-                    a.thread ? <IconMessages size={16} stroke={1.5} /> : <IconFileText size={16} stroke={1.5} />
+                    a.thread ? (
+                      <IconMessages size={16} stroke={1.5} />
+                    ) : a.skill ? (
+                      <IconBook size={16} stroke={1.5} />
+                    ) : (
+                      <IconFileText size={16} stroke={1.5} />
+                    )
                   ) : (
                     <Spinner size={14} label={a.kind === "image" ? "Uploading" : "Reading"} />
                   )}
@@ -323,10 +359,10 @@ export default function Composer({
         )}
         {attachNote && attached.length > 0 && <p className="tc-composer-note">{attachNote}</p>}
         {matches.length > 0 && (
-          <div id="mention-list" role="listbox" aria-label="Mention a thread" className="tc-float tc-menu tc-mention tc-pop">
+          <div id="mention-list" role="listbox" aria-label={mention?.kind === "skill" ? "Use a skill" : "Mention a thread"} className="tc-float tc-menu tc-mention tc-pop">
             {matches.map((t, i) => (
               <div
-                key={t._id}
+                key={t.id}
                 id={`mention-${i}`}
                 role="option"
                 aria-selected={i === Math.min(pick, matches.length - 1)}
@@ -339,8 +375,13 @@ export default function Composer({
                 }}
                 onMouseEnter={() => setPick(i)}
               >
-                <IconMessages size={16} stroke={1.5} className="shrink-0 text-foreground-subtle" />
-                <span className="tc-menu-text truncate">{t.title}</span>
+                {mention?.kind === "skill" ? (
+                  <IconBook size={16} stroke={1.5} className="shrink-0 text-foreground-subtle" />
+                ) : (
+                  <IconMessages size={16} stroke={1.5} className="shrink-0 text-foreground-subtle" />
+                )}
+                <span className="tc-menu-text truncate">{t.label}</span>
+                {t.note && <small className="truncate text-foreground-subtle">{t.note}</small>}
               </div>
             ))}
           </div>

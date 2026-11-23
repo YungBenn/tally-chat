@@ -9,7 +9,7 @@ type SendArgs = Pick<FunctionArgs<typeof api.chat.send>, "content" | "images" | 
 /** What the composer shows of the attachments, which the send's ids alone can't: image previews and document names. */
 export type SentAttachments = {
   images: string[];
-  documents: { name: string; tokens: number; fromThreadId: Id<"threads"> | undefined }[]; // a mentioned thread: its id
+  documents: { name: string; tokens: number; fromThreadId: Id<"threads"> | undefined; fromSkillId: Id<"skills"> | undefined }[]; // a mentioned thread or invoked skill: its id
 };
 
 // Placeholder ids exist only in the local query result: never pass one to a query, mutation or action.

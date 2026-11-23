@@ -2,6 +2,7 @@
 
 import {
   IconArrowsExchange,
+  IconBook,
   IconFileText,
   IconMessages,
   IconPencil,
@@ -248,7 +249,13 @@ function UserMessage({
                 const body = (
                   <>
                     <span className="tc-attach-thumb">
-                      {d.fromThreadId ? <IconMessages size={16} stroke={1.5} /> : <IconFileText size={16} stroke={1.5} />}
+                      {d.fromThreadId ? (
+                        <IconMessages size={16} stroke={1.5} />
+                      ) : d.fromSkillId ? (
+                        <IconBook size={16} stroke={1.5} />
+                      ) : (
+                        <IconFileText size={16} stroke={1.5} />
+                      )}
                     </span>
                     <span className="min-w-0">
                       <span className="block max-w-48 truncate">{d.name}</span>
