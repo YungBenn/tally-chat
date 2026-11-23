@@ -10,31 +10,35 @@ import { Dialog } from "@/components/ui/overlay";
 import { toast } from "@/components/ui/toast";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { parseSkill, type SkillFile } from "@/convex/lib/skills";
+import { unzipSkill } from "@/lib/skillZip";
 
 type Skill = NonNullable<ReturnType<typeof useQuery<typeof api.skills.list>>>[number];
 
 const formatSize = (bytes: number) =>
   bytes < 1000 ? `${bytes} B` : bytes < 1e6 ? `${(bytes / 1000).toFixed(1)} KB` : `${(bytes / 1e6).toFixed(1)} MB`;
 
-/** Settings › Skills: upload a SKILL.md, then view, switch or delete each skill. */
+/** Settings › Skills: upload a SKILL.md or a zip of a skill folder, then view, switch or delete each skill. */
 export default function SkillsSettings() {
   const skills = useQuery(api.skills.list);
   const add = useMutation(api.skills.addFromFiles);
   const fileInput = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
-  const [replacing, setReplacing] = useState<{ name: string; text: string } | null>(null);
+  const [replacing, setReplacing] = useState<{ name: string; files: SkillFile[] } | null>(null);
   const [busy, setBusy] = useState(false);
   const [viewing, setViewing] = useState<Id<"skills"> | null>(null);
   const [deleting, setDeleting] = useState<Skill | null>(null);
 
-  async function upload(text: string, replace: boolean) {
-    setBusy(true);
+  async function upload(files: SkillFile[], replace: boolean) {
     setError(null);
-    // One .md file is the skill's SKILL.md, whatever the download was called.
-    const result = await add({ files: [{ path: "SKILL.md", text }], replace });
+    // Checked here too, so an oversized zip is refused before it is sent.
+    const parsed = parseSkill(files);
+    if (!parsed.ok) return setError(parsed.reason);
+    setBusy(true);
+    const result = await add({ files, replace });
     setBusy(false);
     if (result.status === "invalid") setError(result.reason);
-    else if (result.status === "exists") setReplacing({ name: result.name, text });
+    else if (result.status === "exists") setReplacing({ name: result.name, files });
     else toast({ title: replace ? "Skill replaced" : "Skill added", body: "New threads can read it." });
   }
 
@@ -56,18 +60,28 @@ export default function SkillsSettings() {
           with.
         </p>
         <Button variant="primary" icon={<IconUpload />} loading={busy} onClick={() => fileInput.current?.click()}>
-          Upload SKILL.md
+          Upload skill
         </Button>
         <input
           ref={fileInput}
           type="file"
-          accept=".md,text/markdown"
+          accept=".md,text/markdown,.zip,application/zip"
           hidden
-          aria-label="SKILL.md file"
+          aria-label="SKILL.md or zip file"
           onChange={async (e) => {
             const file = e.target.files?.[0];
             e.target.value = ""; // picking the same file again still fires
-            if (file) await upload(await file.text(), false);
+            if (!file) return;
+            if (!file.name.toLowerCase().endsWith(".zip"))
+              // One .md file is the skill's SKILL.md, whatever the download was called.
+              return upload([{ path: "SKILL.md", text: await file.text() }], false);
+            let files: SkillFile[];
+            try {
+              files = unzipSkill(new Uint8Array(await file.arrayBuffer()));
+            } catch {
+              return setError("The file is not a readable zip.");
+            }
+            await upload(files, false);
           }}
         />
       </div>
@@ -82,7 +96,7 @@ export default function SkillsSettings() {
       {skills.length === 0 ? (
         <EmptyState
           title="No skills yet"
-          description="Upload a SKILL.md: a name and description in YAML frontmatter, then the instructions."
+          description="Upload a SKILL.md, or a zip of a skill folder with one inside: a name and description in YAML frontmatter, then the instructions."
         />
       ) : (
         <div className="tc-models">
@@ -103,9 +117,9 @@ export default function SkillsSettings() {
             <Button
               variant="primary"
               onClick={() => {
-                const text = replacing!.text;
+                const files = replacing!.files;
                 setReplacing(null);
-                void upload(text, true);
+                void upload(files, true);
               }}
             >
               Replace skill

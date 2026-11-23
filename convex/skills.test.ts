@@ -1,6 +1,8 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import { strToU8, zipSync } from "fflate";
 import { describe, expect, test } from "vitest";
+import { unzipSkill } from "../lib/skillZip";
 import { api } from "./_generated/api";
 import schema from "./schema";
 
@@ -89,6 +91,42 @@ describe("adding a skill from files", () => {
     expect(result.status).toBe("invalid");
     expect(result.status === "invalid" && result.reason).toContain(reason);
     expect(await owner.query(api.skills.list, {})).toEqual([]);
+  });
+});
+
+describe("adding a skill from a zip", () => {
+  test("a folder zipped by the OS keeps its reference files; binary, directory and __MACOSX entries are dropped", async () => {
+    const { owner } = await setup();
+    const zip = zipSync({
+      "pdf-tools/": new Uint8Array(),
+      "pdf-tools/SKILL.md": strToU8(skillMd("pdf-tools", "Work with PDFs.")),
+      "pdf-tools/reference/forms.md": strToU8("# Forms\n"),
+      "pdf-tools/scripts/fill.py": strToU8("print('hi')\n"),
+      "pdf-tools/logo.png": new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0xff, 0xfe, 0x00]),
+      "__MACOSX/pdf-tools/._SKILL.md": new Uint8Array([0, 5, 22, 7, 0, 2, 0, 0]),
+    });
+    const files = unzipSkill(zip);
+    expect(files.map((f) => f.path).sort()).toEqual([
+      "pdf-tools/SKILL.md",
+      "pdf-tools/reference/forms.md",
+      "pdf-tools/scripts/fill.py",
+    ]);
+
+    expect(await owner.mutation(api.skills.addFromFiles, { files })).toMatchObject({ status: "added" });
+    const [{ _id }] = await owner.query(api.skills.list, {});
+    expect((await owner.query(api.skills.get, { skillId: _id }))?.files).toEqual([
+      { path: "reference/forms.md", size: 8 },
+      { path: "scripts/fill.py", size: 12 },
+    ]);
+  });
+
+  test("a zip with no SKILL.md is rejected with the single-file reason", async () => {
+    const { owner } = await setup();
+    const files = unzipSkill(zipSync({ "notes/README.md": strToU8("hi") }));
+    expect(await owner.mutation(api.skills.addFromFiles, { files })).toEqual({
+      status: "invalid",
+      reason: "No SKILL.md found at the top of the skill.",
+    });
   });
 });
 
