@@ -69,6 +69,9 @@ export const RESULT_NOTE: Record<Exclude<ToolStatus, "ok">, string> = {
   timedOut: "Error: the call timed out after 60 seconds.",
 };
 
+// A built-in tool's failed run, as the model sees it.
+export const toolError = (text: string) => ({ text: `Error: ${text}`, status: "error" as const });
+
 // The reply as request messages: for each step, the assistant's blocks (thinking, text, tool
 // calls) then the results, in the order they happened. A step whose calls don't all have a
 // result (the reply was stopped or cut mid-step) is sent as its text alone, so a history never

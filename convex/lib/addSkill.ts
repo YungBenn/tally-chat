@@ -2,6 +2,7 @@ import { internal } from "../_generated/api";
 import type { BuiltinTool } from "./builtinTools";
 import { fetchGithubSkill } from "./github";
 import { parseSkill, skillHash, type ParsedSkill, type SkillSource } from "./skills";
+import { toolError as error } from "./toolParts";
 import type { GuardOptions } from "./urlGuard";
 
 // add_skill (ADR 0005): adds a skill from chat. The call is resolved before the owner is asked,
@@ -20,8 +21,6 @@ const INPUT_SCHEMA = JSON.stringify({
   },
   required: ["source"],
 });
-
-const error = (text: string) => ({ text: `Error: ${text}`, status: "error" as const });
 
 // Text starting with frontmatter is a SKILL.md; anything else is a GitHub URL.
 async function resolve(

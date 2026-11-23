@@ -1,5 +1,6 @@
 import { internal } from "../_generated/api";
 import type { BuiltinTool } from "./builtinTools";
+import { toolError as error } from "./toolParts";
 
 // read_skill (ADR 0005): its description is the thread's skill catalog, frozen at the first send.
 const MAX_CATALOG = 100;
@@ -15,8 +16,6 @@ const INPUT_SCHEMA = JSON.stringify({
   },
   required: ["name"],
 });
-
-const error = (text: string) => ({ text: `Error: ${text}`, status: "error" as const });
 
 export const readSkill: BuiltinTool = {
   name: "read_skill",
