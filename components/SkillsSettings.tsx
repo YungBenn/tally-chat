@@ -10,6 +10,8 @@ import { Dialog } from "@/components/ui/overlay";
 import { toast } from "@/components/ui/toast";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { parseSkill, type SkillFile } from "@/convex/lib/skills";
+import { unzipSkill } from "@/lib/skillZip";
 
 type Skill = NonNullable<ReturnType<typeof useQuery<typeof api.skills.list>>>[number];
 type AddResult = Awaited<ReturnType<ReturnType<typeof useMutation<typeof api.skills.addFromFiles>>>>;
@@ -18,7 +20,7 @@ type Send = (replace: boolean) => Promise<AddResult>;
 const formatSize = (bytes: number) =>
   bytes < 1000 ? `${bytes} B` : bytes < 1e6 ? `${(bytes / 1000).toFixed(1)} KB` : `${(bytes / 1e6).toFixed(1)} MB`;
 
-/** Settings › Skills: upload a SKILL.md or add one from GitHub, then view, switch, refresh or delete each skill. */
+/** Settings › Skills: upload a SKILL.md or a zip, or add one from GitHub; then view, switch, refresh or delete each skill. */
 export default function SkillsSettings() {
   const skills = useQuery(api.skills.list);
   const add = useMutation(api.skills.addFromFiles);
@@ -41,9 +43,13 @@ export default function SkillsSettings() {
     return result.status === "added";
   }
 
-  // One .md file is the skill's SKILL.md, whatever the download was called.
-  const upload = (text: string, replace: boolean) =>
-    submit((r) => add({ files: [{ path: "SKILL.md", text }], replace: r }), replace);
+  function upload(files: SkillFile[]) {
+    setError(null);
+    // Checked here too, so an oversized zip is refused before it is sent.
+    const parsed = parseSkill(files);
+    if (!parsed.ok) return setError(parsed.reason);
+    return submit((replace) => add({ files, replace }), false);
+  }
 
   if (!skills) return null;
   return (
@@ -63,18 +69,28 @@ export default function SkillsSettings() {
           with.
         </p>
         <Button variant="primary" icon={<IconUpload />} loading={busy} onClick={() => fileInput.current?.click()}>
-          Upload SKILL.md
+          Upload skill
         </Button>
         <input
           ref={fileInput}
           type="file"
-          accept=".md,text/markdown"
+          accept=".md,text/markdown,.zip,application/zip"
           hidden
-          aria-label="SKILL.md file"
+          aria-label="SKILL.md or zip file"
           onChange={async (e) => {
             const file = e.target.files?.[0];
             e.target.value = ""; // picking the same file again still fires
-            if (file) await upload(await file.text(), false);
+            if (!file) return;
+            if (!file.name.toLowerCase().endsWith(".zip"))
+              // One .md file is the skill's SKILL.md, whatever the download was called.
+              return upload([{ path: "SKILL.md", text: await file.text() }]);
+            let files: SkillFile[];
+            try {
+              files = unzipSkill(new Uint8Array(await file.arrayBuffer()));
+            } catch {
+              return setError("The file is not a readable zip.");
+            }
+            await upload(files);
           }}
         />
       </div>
@@ -112,7 +128,7 @@ export default function SkillsSettings() {
       {skills.length === 0 ? (
         <EmptyState
           title="No skills yet"
-          description="Upload a SKILL.md: a name and description in YAML frontmatter, then the instructions."
+          description="Upload a SKILL.md, or a zip of a skill folder with one inside: a name and description in YAML frontmatter, then the instructions."
         />
       ) : (
         <div className="tc-models">
