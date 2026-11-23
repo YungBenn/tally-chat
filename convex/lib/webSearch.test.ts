@@ -1,5 +1,8 @@
-import { expect, test } from "vitest";
-import { parseExa } from "./webSearch";
+import { afterEach, expect, test, vi } from "vitest";
+import { fakeFetch } from "../../test/fakeFetch";
+import { parseExa, searchExa } from "./webSearch";
+
+afterEach(() => vi.restoreAllMocks());
 
 test("results without a host are skipped, and the next good ones fill their places", () => {
   const result = (url: string) => ({ title: url, url, highlights: [] });
@@ -44,4 +47,24 @@ test("a missing or empty title falls back to the URL, and no highlights is an em
     { title: "https://a.example/", url: "https://a.example/", snippet: "" },
     { title: "https://b.example/", url: "https://b.example/", snippet: "" },
   ]);
+});
+
+test("Exa not answering within 15 seconds is a search error", async () => {
+  const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(
+    AbortSignal.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError")),
+  );
+  // Exa accepts the request and never answers; only the signal ends the wait.
+  const hang = (init?: RequestInit) =>
+    new Promise<Response>((_, reject) => {
+      const signal = init!.signal!;
+      if (signal.aborted) reject(signal.reason);
+      signal.addEventListener("abort", () => reject(signal.reason));
+    });
+  const fake = fakeFetch({ "POST https://api.exa.ai/search": { respond: hang as unknown as () => Response } });
+  try {
+    expect(await searchExa("key", "Hi")).toEqual({ query: "Hi", results: [], error: "Exa didn't answer within 15 seconds" });
+    expect(timeout).toHaveBeenCalledWith(15_000);
+  } finally {
+    fake.restore();
+  }
 });

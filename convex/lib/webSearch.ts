@@ -51,6 +51,8 @@ export async function searchExa(apiKey: string, query: string): Promise<StoredSe
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": apiKey },
       body: JSON.stringify({ query, type: "auto", numResults: MAX_RESULTS, contents: { highlights: true } }),
+      // The reply waits on the search, so a stalled Exa can't hold it for long.
+      signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) {
       // Exa's error body is { error: "Invalid API key" } and the like.
@@ -65,6 +67,8 @@ export async function searchExa(apiKey: string, query: string): Promise<StoredSe
       ...(typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? { costMicroUsd: Math.round(cost * 1e6) } : {}),
     };
   } catch (err) {
+    if (err instanceof DOMException && err.name === "TimeoutError")
+      return { query, results: [], error: "Exa didn't answer within 15 seconds" };
     return { query, results: [], error: err instanceof Error && err.message ? err.message : "Could not reach Exa" };
   }
 }
