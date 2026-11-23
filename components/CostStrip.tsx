@@ -12,7 +12,7 @@ import { nextSendMicroUsd } from "@/lib/nextSend";
 import { rollCells } from "@/lib/rolling";
 import { useThreadCache } from "@/lib/useCacheState";
 import { useWebSearch } from "@/components/WebSearch";
-import { SEARCH_TOKENS_ESTIMATE } from "@/convex/lib/webSearch";
+import { SEARCH_FEE_MICRO_USD_ESTIMATE, SEARCH_TOKENS_ESTIMATE } from "@/convex/lib/webSearch";
 
 const NO_CACHE = { expiresAt: null, keepaliveScheduled: false, lastActiveAt: null };
 
@@ -140,7 +140,7 @@ export default function CostStrip({
     expectedOutputTokens:
       next.expectedOutputTokens === null ? null : Math.min(next.expectedOutputTokens, MODE_MAX_TOKENS[mode]),
   });
-  return <Strip cost={cost} cache={<CacheLabel cache={{ ...timing, managed: cache.managed }} />} hit={thread.hitRate} onOpen={onOpen} />;
+  return <Strip cost={withSearchFee(cost, search)} cache={<CacheLabel cache={{ ...timing, managed: cache.managed }} />} hit={thread.hitRate} onOpen={onOpen} />;
 }
 
 // On a new thread there's no history yet: the system prompt and the draft go out as fresh input.
@@ -170,5 +170,9 @@ export function NewThreadCostStrip({
       data.systemTokens + estimateTokens(draft) + imagesTokens(draftImages) + draftDocTokens + draftToolTokens + (search ? SEARCH_TOKENS_ESTIMATE : 0),
     expectedOutputTokens: null,
   });
-  return <Strip cost={cost} cache={<span>new thread</span>} />;
+  return <Strip cost={withSearchFee(cost, search)} cache={<span>new thread</span>} />;
 }
+
+// Exa's fee for the search, on top of the tokens its results add. null stays unknown.
+const withSearchFee = (cost: number | null, search: boolean) =>
+  cost === null || !search ? cost : cost + SEARCH_FEE_MICRO_USD_ESTIMATE;

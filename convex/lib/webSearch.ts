@@ -21,6 +21,11 @@ const MAX_RESULTS = 6;
 // about 870 tokens.
 // ponytail: a fixed guess for unsent and unmeasured turns; measured usage replaces it after.
 export const SEARCH_TOKENS_ESTIMATE = 900;
+// What Exa charges for a search before it reports the cost: $0.007 for an auto search with
+// highlights, as measured.
+// ponytail: a fixed guess; Exa's prices or a deep search can cost more, so read it from the
+// last stored searches if the estimate drifts.
+export const SEARCH_FEE_MICRO_USD_ESTIMATE = 7000;
 const MAX_SNIPPET = 300;
 const clip = (s: string) => (s.length > MAX_SNIPPET ? `${s.slice(0, MAX_SNIPPET - 1)}…` : s);
 
