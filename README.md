@@ -99,7 +99,7 @@ What's in the context window, what's cached, and what every reply cost, down to 
 - **Import your history** from a ChatGPT or Claude data export, branches and dates included. Imported messages never count as spend.
 - **Export any thread** as Markdown or JSON, with each reply's model, tokens and cost.
 - **Custom instructions** for every new thread. Each thread keeps the ones it started with, so editing them never breaks a warm cache.
-- **Web search on your own SearXNG**: toggle Search and the message is searched before the reply, with its sources shown under it. Results are stored once, so a retry or a later turn sends the same bytes.
+- **Web search on Exa**: toggle Search and the message is searched before the reply, with its sources shown under it. Results are stored once, so a retry or a later turn sends the same bytes. Each search's cost counts toward spend.
 - **Math and diagrams**: LaTeX renders with KaTeX and Mermaid blocks draw as diagrams.
 - **Documents**: attach PDFs and text files (Markdown, CSV, JSON, code), priced in tokens before you send. The text is read once and sent the same way every turn, so it stays cached.
 - **Tools over MCP**: connect MCP servers and let a reply call tools in a loop, with approvals, and a tool set frozen per thread so the cache keeps hitting.
@@ -151,7 +151,7 @@ The first run builds the app, starts a pinned Convex backend and generates every
 > [!IMPORTANT]
 > Back up `selfhost/secrets/` along with your data: it holds the key that encrypts your provider keys. `./selfhost/backup.sh` saves both.
 
-For web search, start the bundled SearXNG with `docker compose --profile search up -d` and set its URL in Settings to `http://searxng:8080`.
+For web search, paste an [Exa API key](https://dashboard.exa.ai/api-keys) in Settings → Web search.
 
 The [self-hosting guide](docs/self-hosting.md) covers local models (Ollama, LM Studio), web search, HTTPS behind a reverse proxy or over Tailscale, backups (including nightly ones) and restores, upgrades and the smoke check.
 
@@ -170,7 +170,7 @@ The [self-hosting guide](docs/self-hosting.md) covers local models (Ollama, LM S
 | 6 | Background condenser, vetoed when it would break the cache | ✅ |
 | 7 | Cheaper replies, model suggestions, full-text search, chat import | ✅ |
 | 8 | Redesign on the tally.chat design system: holo lines, motion, mobile | ✅ |
-| 9 | Custom instructions, export, web search on SearXNG, math and Mermaid, documents, thread pin and rename | ✅ |
+| 9 | Custom instructions, export, web search on Exa, math and Mermaid, documents, thread pin and rename | ✅ |
 | 10 | Tool loop with MCP servers, approvals and cache-safe tool sets | ✅ |
 | 11 | Gemini | next |
 | 12 | Performance: stream split, faster rendering, instant send, thread cache, self-hosting over Tailscale | ✅ |

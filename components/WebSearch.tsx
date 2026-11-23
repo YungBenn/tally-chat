@@ -4,16 +4,17 @@ import { IconWorld, IconWorldOff } from "@tabler/icons-react";
 import { useQuery } from "convex/react";
 import { Tooltip } from "@/components/ui/overlay";
 import { api } from "@/convex/_generated/api";
+import { usd } from "@/lib/format";
 import { useStoredFlag } from "@/lib/storedFlag";
 
 /**
- * Whether the next message searches the web first. Offered only once a SearXNG URL is set;
+ * Whether the next message searches the web first. Offered only once an Exa API key is saved;
  * the choice is remembered in this browser.
  */
 export function useWebSearch() {
   const settings = useQuery(api.settings.get);
   const [on, setOn] = useStoredFlag("tally.webSearch", false);
-  const available = !!settings?.searchUrl;
+  const available = !!settings?.searchKeySet;
   return { available, on: available && on, setOn };
 }
 
@@ -49,6 +50,7 @@ export function SearchSources({
     status: "pending" | "done" | "failed";
     results: { title: string; url: string }[];
     error?: string;
+    costMicroUsd?: number;
   };
 }) {
   if (search.status === "pending")
@@ -78,6 +80,7 @@ export function SearchSources({
               </a>
             </Tooltip>
           ))}
+      {search.costMicroUsd !== undefined && <span>· {usd(search.costMicroUsd)}</span>}
     </div>
   );
 }

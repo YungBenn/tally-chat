@@ -107,14 +107,7 @@ function UsageBody({ data, days: n }: { data: Summary; days: 7 | 30 }) {
   const upkeep = days.reduce((s, d) => s + d.upkeepMicroUsd, 0);
   const unpriced = days.reduce((s, d) => s + d.unpricedCalls, 0);
   const calls = days.reduce((s, d) => s + d.calls, 0);
-  const replied = days.filter((d) => d.hitRate !== null);
-  // Weighted by calls, like the summary's own 30-day rate.
-  const hitRate =
-    n === 30
-      ? data.hitRate30
-      : replied.length
-        ? replied.reduce((s, d) => s + d.hitRate! * d.calls, 0) / replied.reduce((s, d) => s + d.calls, 0)
-        : null;
+  const hitRate = n === 7 ? data.hitRate7 : data.hitRate30;
   const saved = n === 7 ? data.savedMicroUsd7 : data.savedMicroUsd30;
   const active = days.filter((d) => d.calls > 0).reverse();
   const totalModels = data.models.reduce((s, m) => s + m.costMicroUsd, 0) || 1;

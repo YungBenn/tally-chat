@@ -11,7 +11,7 @@ import {
   IconWorldSearch,
   IconX,
 } from "@tabler/icons-react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import Link from "next/link";
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";
@@ -484,32 +484,72 @@ function Condensing() {
 
 function WebSearch() {
   const settings = useQuery(api.settings.get);
-  const setSearchUrl = useMutation(api.settings.setSearchUrl);
+  const setSearchKey = useAction(api.settings.setSearchKey);
   const [error, run] = useSave();
+  const field = useRef<HTMLInputElement>(null);
   if (!settings) return null;
-  const commit = (text: string) => {
-    if (text.trim() !== settings.searchUrl) run(setSearchUrl({ url: text }));
+  // The key never comes back, so the field stays empty: typed text saves, empty text does nothing.
+  // It empties before the save, so Enter then blur saves once; a failed save puts the text back.
+  const commit = (input: HTMLInputElement) => {
+    const apiKey = input.value;
+    if (!apiKey.trim()) return;
+    input.value = "";
+    run(
+      setSearchKey({ apiKey }).catch((err: unknown) => {
+        if (!input.value) input.value = apiKey;
+        throw err;
+      }),
+    );
   };
   return (
     <SettingsRow
-      title="SearXNG URL"
+      title="Exa API key"
       control={
-        <Input
-          key={settings.searchUrl}
-          aria-label="SearXNG URL"
-          mono
-          placeholder="http://searxng:8080"
-          defaultValue={settings.searchUrl}
-          error={error ?? undefined}
-          onBlur={(e) => commit(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && commit(e.currentTarget.value)}
-        />
+        <div className="flex items-start gap-2">
+          <Input
+            ref={field}
+            aria-label="Exa API key"
+            mono
+            type="password"
+            autoComplete="off"
+            placeholder={
+              settings.searchKeySet
+                ? "Key saved - paste a new one to replace"
+                : "Paste your Exa API key"
+            }
+            error={error ?? undefined}
+            fieldClassName="flex-1"
+            onBlur={(e) => commit(e.target)}
+            onKeyDown={(e) => e.key === "Enter" && commit(e.currentTarget)}
+          />
+          {settings.searchKeySet && (
+            <Button
+              variant="ghost"
+              // Keeps focus in the field, so its blur can't save the typed text first.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                if (field.current) field.current.value = "";
+                run(setSearchKey({ apiKey: "" }), "Key removed");
+              }}
+            >
+              Remove
+            </Button>
+          )}
+        </div>
       }
     >
-      With it set, the composer gets a Search toggle: the message is searched
-      before the reply, and the results are sent with it. Run the bundled one
-      with <code className="tc-mono">docker compose --profile search up -d</code>
-      .
+      With a key saved, the composer gets a Search toggle: the message is
+      searched on Exa before the reply, and the results are sent with it. Get a
+      key from{" "}
+      <a
+        className="text-accent underline underline-offset-2"
+        href="https://dashboard.exa.ai/api-keys"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Exa&apos;s dashboard
+      </a>
+      . Each search costs about a cent and counts toward spend.
     </SettingsRow>
   );
 }
@@ -650,7 +690,7 @@ const SECTIONS = [
     label: "Web search",
     icon: IconWorldSearch,
     group: 1,
-    terms: "searxng url internet",
+    terms: "exa api key internet",
     Content: WebSearch,
   },
   {

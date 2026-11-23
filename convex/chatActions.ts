@@ -20,9 +20,34 @@ import { streamOpenAICompatible } from "./lib/openaiCompatible";
 import { RESULT_NOTE, type ToolStatus } from "./lib/toolParts";
 import type { NormalizedUsage } from "./lib/usage";
 import { decryptSecret } from "./lib/vault";
-import { searchSearxng } from "./lib/webSearch";
+import { searchExa, type StoredSearch } from "./lib/webSearch";
 
 const FLUSH_MS = 100;
+
+// Every failure becomes the search's error, so the reply still runs and says why.
+async function runSearch(
+  query: string,
+  keyEncrypted: string | null,
+): Promise<StoredSearch> {
+  if (!keyEncrypted) return { query, results: [], error: "web search is off" };
+  let apiKey: string;
+  try {
+    apiKey = await decryptSecret(keyEncrypted);
+  } catch (err) {
+    return {
+      query,
+      results: [],
+      // A ConvexError is the key mismatch; anything else (a bad master key) keeps its reason.
+      error:
+        err instanceof ConvexError
+          ? "the Exa API key can't be decrypted: TALLY_MASTER_KEY isn't the key it was saved with; paste it again in Settings"
+          : err instanceof Error
+            ? err.message
+            : String(err),
+    };
+  }
+  return searchExa(apiKey, query);
+}
 // Loads each user message's stored images as base64 for the request (spec phase 4). The stored
 // bytes never change, so a retry or keepalive sends identical blocks.
 async function loadImages(
@@ -67,12 +92,9 @@ export const generate = internalAction({
     if (search)
       await ctx.runMutation(internal.webSearch.save, {
         messageId: search.messageId,
-        ...(search.url
-          ? await searchSearxng(search.url, search.query, {
-              allowlist: search.allowlist,
-              resolve: systemResolve,
-            })
-          : { query: search.query, results: [], error: "web search is off" }),
+        ownerId: search.ownerId,
+        threadId: search.threadId,
+        ...(await runSearch(search.query, search.keyEncrypted)),
       });
     const inputStart = Date.now();
     const input = await ctx.runQuery(internal.chat.generationInput, {

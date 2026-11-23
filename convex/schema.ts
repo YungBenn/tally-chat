@@ -210,6 +210,7 @@ export default defineSchema({
     query: v.string(),
     results: v.array(searchResultValidator),
     error: v.optional(v.string()),
+    costMicroUsd: v.optional(v.number()), // what Exa reported; absent when it reported none
   }).index("by_messageId", ["messageId"]),
   // A summary standing in for every message up to coversUpToId on any branch containing it
   // (ADR 0001). Stored outside the tree so condensing never rewrites messages.
@@ -284,7 +285,8 @@ export default defineSchema({
   settings: defineTable({
     ownerId: v.id("users"),
     customInstructions: v.optional(v.string()), // copied onto each new thread; absent = none
-    searchUrl: v.optional(v.string()), // the owner's SearXNG, e.g. http://searxng:8080; absent = no web search
+    searchKeyEncrypted: v.optional(v.string()), // the owner's Exa API key, vault-encrypted; absent = no web search
+    searchUrl: v.optional(v.string()), // legacy: the old SearXNG URL, kept so saved settings validate; unused
     allowlistedHosts: v.array(v.string()), // private hosts the URL guard lets through, e.g. "192.168.1.20:11434"
     // Model for work the user didn't ask for directly (titles now, condensing later).
     // Unset: the cheapest priced model of the thread's own provider.

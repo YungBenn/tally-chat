@@ -1,6 +1,9 @@
 import { ConvexError, v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
+  action,
+  internalMutation,
   internalQuery,
   mutation,
   query,
@@ -11,6 +14,7 @@ import { condenseSettings } from "./lib/condense";
 import { effortValidator } from "./lib/effort";
 import { dayIn } from "./lib/rollups";
 import { MAX_INSTRUCTIONS_LENGTH } from "./lib/systemPrompts";
+import { encryptSecret } from "./lib/vault";
 import { requireOwner } from "./owner";
 
 const settingsFor = (ctx: QueryCtx, ownerId: Id<"users">) =>
@@ -43,7 +47,7 @@ export const get = query({
   args: {},
   returns: v.object({
     customInstructions: v.string(),
-    searchUrl: v.string(),
+    searchKeySet: v.boolean(),
     allowlistedHosts: v.array(v.string()),
     sideJobModel: v.union(v.null(), sideJobModelValidator),
     defaultModel: v.union(v.null(), sideJobModelValidator),
@@ -62,7 +66,7 @@ export const get = query({
     const settings = await settingsFor(ctx, await requireOwner(ctx));
     return {
       customInstructions: settings?.customInstructions ?? "",
-      searchUrl: settings?.searchUrl ?? "",
+      searchKeySet: !!settings?.searchKeyEncrypted,
       allowlistedHosts: settings?.allowlistedHosts ?? [],
       sideJobModel: settings?.sideJobModel ?? null,
       defaultModel: settings?.defaultModel ?? null,
@@ -146,37 +150,29 @@ export const setCustomInstructions = mutation({
   },
 });
 
-// The owner's SearXNG for web search (empty text turns search off). Naming it trusts its host,
-// so searches reach it even on a private address without a separate allowlist entry.
-export const setSearchUrl = mutation({
-  args: { url: v.string() },
+// The owner's Exa API key for web search (empty text turns search off). An action, because
+// encrypting needs a fresh random IV; the key is stored like a provider key and never tested,
+// since a test search would cost money.
+export const setSearchKey = action({
+  args: { apiKey: v.string() },
   returns: v.null(),
-  handler: async (ctx, { url }) => {
+  handler: async (ctx, { apiKey }) => {
     const ownerId = await requireOwner(ctx);
-    let searchUrl: string | undefined;
-    if (url.trim()) {
-      let parsed: URL;
-      try {
-        parsed = new URL(url.trim());
-      } catch {
-        throw new ConvexError("Enter a URL like http://searxng:8080");
-      }
-      if (
-        !["http:", "https:"].includes(parsed.protocol) ||
-        parsed.username ||
-        parsed.password
-      )
-        throw new ConvexError("Enter a URL like http://searxng:8080");
-      searchUrl = `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, "");
-    }
-    const settings = await settingsFor(ctx, ownerId);
-    if (settings) await ctx.db.patch("settings", settings._id, { searchUrl });
-    else
-      await ctx.db.insert("settings", {
-        ownerId,
-        allowlistedHosts: [],
-        searchUrl,
-      });
+    const key = apiKey.trim();
+    // Same-file call: the annotation keeps TypeScript from inferring it circularly.
+    const saved: null = await ctx.runMutation(internal.settings.writeSearchKey, {
+      ownerId,
+      searchKeyEncrypted: key ? await encryptSecret(key) : undefined,
+    });
+    return saved;
+  },
+});
+
+export const writeSearchKey = internalMutation({
+  args: { ownerId: v.id("users"), searchKeyEncrypted: v.optional(v.string()) },
+  returns: v.null(),
+  handler: async (ctx, { ownerId, searchKeyEncrypted }) => {
+    await patchSettings(ctx, ownerId, { searchKeyEncrypted });
     return null;
   },
 });
