@@ -31,7 +31,7 @@ import {
   usageValidator,
   type Usage,
 } from "./lib/usage";
-import { freezeTools, supportsTools, toDefinition } from "./lib/toolSet";
+import { freezeTools, supportsTools, toDefinition, toolPickValidator } from "./lib/toolSet";
 import { requireOwner } from "./owner";
 import { SEARCH_TOKENS_ESTIMATE } from "./lib/webSearch";
 
@@ -602,7 +602,7 @@ export const toolChange = query({
   args: {
     threadId: v.id("threads"),
     now: v.number(),
-    tools: v.array(v.object({ serverId: v.id("toolServers"), tool: v.string() })),
+    tools: v.array(toolPickValidator),
   },
   returns: v.object({
     newToolTokens: v.number(),
@@ -621,7 +621,7 @@ export const toolChange = query({
       .query("toolServers")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
       .take(100);
-    const frozen = freezeTools(servers, tools);
+    const frozen = await freezeTools(ctx, ownerId, servers, tools);
     const newToolTokens = frozen.length
       ? estimateTokens(JSON.stringify(frozen.map(toDefinition)))
       : 0;

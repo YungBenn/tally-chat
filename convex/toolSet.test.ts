@@ -90,7 +90,7 @@ describe("freezing a tool set", () => {
     const threadId = await s.thread(s.anthropicId, "claude-sonnet-5-5");
     await s.send(threadId, "Hi");
     const row = await s.t.run((ctx) => ctx.db.get("threads", threadId));
-    expect(row!.toolSet!.map((x) => [x.name, x.tool])).toEqual([["docs__search", "search"], ["docs__read_file", "read.file"]]);
+    expect(row!.toolSet!.map((x) => [x.name, "tool" in x && x.tool])).toEqual([["docs__search", "search"], ["docs__read_file", "read.file"]]);
     expect(row!.toolSet![0].inputSchema).toBe(search.inputSchema);
   });
 

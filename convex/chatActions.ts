@@ -15,9 +15,11 @@ import {
   SUMMARY_MAX_TOKENS,
   SUMMARY_PROMPTS,
 } from "./lib/condense";
+import { findBuiltin } from "./lib/builtinTools";
 import { callMcpTool } from "./lib/mcp";
 import { streamOpenAICompatible } from "./lib/openaiCompatible";
 import { RESULT_NOTE, type ToolStatus } from "./lib/toolParts";
+import { resultText } from "./lib/toolResult";
 import type { NormalizedUsage } from "./lib/usage";
 import { decryptSecret } from "./lib/vault";
 import { searchExa, type StoredSearch } from "./lib/webSearch";
@@ -265,6 +267,10 @@ export const runTools = internalAction({
         if (declined.includes(call.id)) return { id: call.id, text: RESULT_NOTE.declined, status: "declined" };
         if (call.problem) return fail(call.problem);
         try {
+          if (call.builtin) {
+            const result = await findBuiltin(call.builtin)!.run(ctx, { ownerId: input.ownerId, input: call.input });
+            return { id: call.id, text: resultText([{ type: "text", text: result.text }]), status: result.status };
+          }
           const headers = call.headersEncrypted
             ? (JSON.parse(await decryptSecret(call.headersEncrypted)) as Record<string, string>)
             : {};
