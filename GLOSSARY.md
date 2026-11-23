@@ -50,6 +50,10 @@ _Avoid_: Starred, saved
 A remote MCP server the owner has added, offering tools the model can call.
 _Avoid_: Plugin, integration, connector, MCP
 
+**Built-in tool**:
+A tool tally.chat provides itself rather than a tool server, such as reading or adding a skill.
+_Avoid_: Native tool, internal tool, system tool
+
 **Tool set**:
 The tools a thread was created with. Fixed for the life of the thread unless the owner explicitly changes it, which breaks the cache like editing an old message.
 _Avoid_: Toolbox, enabled tools
@@ -73,6 +77,16 @@ _Avoid_: Iteration, round, hop
 **Tool loop**:
 A reply that alternates between the model's text, tool calls and tool results until the model answers or hits the limit. The whole loop is one reply, so a turn is still one user message plus one reply.
 _Avoid_: Agent, agent loop, chain
+
+## Skills
+
+**Skill**:
+A named set of written instructions, with optional files, that the owner has added and the model reads only when a task calls for it. Never executed.
+_Avoid_: Plugin, prompt, template, command
+
+**Skill catalog**:
+The names and descriptions of the skills a thread was created with. Fixed for the life of the thread, like its tool set.
+_Avoid_: Skill list, enabled skills
 
 ## Context
 
