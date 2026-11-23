@@ -3,6 +3,7 @@
 import {
   IconAdjustmentsHorizontal,
   IconArrowUpRight,
+  IconBook,
   IconCoin,
   IconCpu,
   IconSearch,
@@ -19,6 +20,7 @@ import { Fragment, useRef, useState, useSyncExternalStore } from "react";
 import { Button, IconButton } from "@/components/ui/button";
 import { Input, Select, Switch, Textarea } from "@/components/ui/fields";
 import { toast } from "@/components/ui/toast";
+import SkillsSettings from "@/components/SkillsSettings";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -684,6 +686,14 @@ const SECTIONS = [
         <Condensing />
       </>
     ),
+  },
+  {
+    id: "skills",
+    label: "Skills",
+    icon: IconBook,
+    group: 1,
+    terms: "skill skills SKILL.md agent upload instructions",
+    Content: SkillsSettings,
   },
   {
     id: "search",

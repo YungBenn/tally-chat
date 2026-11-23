@@ -10,6 +10,7 @@ import { searchResultValidator } from "./lib/webSearch";
 import { documentRefValidator } from "./lib/documents";
 import { frozenToolValidator } from "./lib/toolSet";
 import { partValidator } from "./lib/toolParts";
+import { skillFileValidator } from "./lib/skills";
 
 export const importSourceValidator = v.union(
   v.literal("chatgpt"),
@@ -69,6 +70,18 @@ export default defineSchema({
       v.object({ at: v.number(), ok: v.boolean(), error: v.optional(v.string()) }),
     ),
   }).index("by_ownerId", ["ownerId"]),
+  // An Agent Skill (docs/specs/skills.md): text the model reads through the read_skill tool.
+  // name is unique per owner, enforced by the add mutation. size is UTF-8 bytes, at most 1 MB.
+  skills: defineTable({
+    ownerId: v.id("users"),
+    name: v.string(),
+    description: v.string(),
+    body: v.string(), // SKILL.md after its frontmatter
+    files: v.array(skillFileValidator), // every other text file
+    size: v.number(),
+    source: v.literal("upload"),
+    onForNewThreads: v.boolean(),
+  }).index("by_ownerId_and_name", ["ownerId", "name"]), // also serves owner-only lookups
   threads: defineTable({
     ownerId: v.id("users"),
     title: v.string(),
