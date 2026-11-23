@@ -195,6 +195,20 @@ describe("adding a skill through chat", () => {
     expect(await s.owner.query(api.skills.list, {})).toEqual([]);
   });
 
+  test("a same-named skill added after a preview that said it doesn't replace is not overwritten", async () => {
+    const s = await setup([addSkillCall(PDF_URL), { text: "Okay." }]);
+    const threadId = await s.newThread();
+    await s.send(threadId);
+    const waiting = await s.reply(threadId);
+    expect(waiting.items![0]).toMatchObject({ preview: { replaces: false } });
+    const mine = skillMd("pdf", "My own PDF skill.");
+    await s.owner.mutation(api.skills.addFromFiles, { files: [{ path: "SKILL.md", text: mine }] });
+    await s.owner.mutation(api.chat.approveTools, { messageId: waiting._id, declined: [] });
+    await s.settle();
+    expect(String(s.toolResult(s.replyRequests()[1]).content)).toMatch(/^Error: a skill named pdf was added after/);
+    expect(await s.owner.query(api.skills.list, {})).toEqual([expect.objectContaining({ name: "pdf", description: "My own PDF skill." })]);
+  });
+
   test("always asks, even next to a tool server tool called add_skill that is always allowed", async () => {
     const s = await setup([addSkillCall(PDF_URL), { text: "Added." }]);
     await s.t.run(async (ctx) => {

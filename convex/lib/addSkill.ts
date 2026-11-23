@@ -64,7 +64,17 @@ export const addSkill: BuiltinTool = {
     const { name } = got.skill;
     if (!preview.hash || (await skillHash(got.skill)) !== preview.hash)
       return error("the skill changed after it was shown for approval, so it was not added. Call add_skill again to show the new version.");
-    await ctx.runMutation(internal.skills.save, { ownerId, skill: got.skill, replace: true, source: got.source });
+    // Only replaces when the approved preview said so.
+    const saved = await ctx.runMutation(internal.skills.save, {
+      ownerId,
+      skill: got.skill,
+      replace: preview.replaces === true,
+      source: got.source,
+    });
+    if (saved.status !== "added")
+      return error(
+        `a skill named ${name} was added after this was shown for approval, so it was not replaced. Call add_skill again to replace it.`,
+      );
     return { text: `Added the skill ${name}. It is available from the next thread, not this one.`, status: "ok" };
   },
 };
