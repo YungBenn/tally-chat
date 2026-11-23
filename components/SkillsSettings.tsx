@@ -147,7 +147,8 @@ export default function SkillsSettings() {
             <Button
               variant="primary"
               onClick={() => {
-                const send = replacing!.send;
+                if (!replacing) return;
+                const send = replacing.send;
                 setReplacing(null);
                 void submit(send, true);
               }}
