@@ -486,11 +486,20 @@ function WebSearch() {
   const settings = useQuery(api.settings.get);
   const setSearchKey = useAction(api.settings.setSearchKey);
   const [error, run] = useSave();
+  const field = useRef<HTMLInputElement>(null);
   if (!settings) return null;
   // The key never comes back, so the field stays empty: typed text saves, empty text does nothing.
+  // It empties before the save, so Enter then blur saves once; a failed save puts the text back.
   const commit = (input: HTMLInputElement) => {
-    if (!input.value.trim()) return;
-    run(setSearchKey({ apiKey: input.value }).then(() => (input.value = "")));
+    const apiKey = input.value;
+    if (!apiKey.trim()) return;
+    input.value = "";
+    run(
+      setSearchKey({ apiKey }).catch((err: unknown) => {
+        if (!input.value) input.value = apiKey;
+        throw err;
+      }),
+    );
   };
   return (
     <SettingsRow
@@ -498,6 +507,7 @@ function WebSearch() {
       control={
         <div className="flex items-start gap-2">
           <Input
+            ref={field}
             aria-label="Exa API key"
             mono
             type="password"
@@ -515,7 +525,12 @@ function WebSearch() {
           {settings.searchKeySet && (
             <Button
               variant="ghost"
-              onClick={() => run(setSearchKey({ apiKey: "" }), "Key removed")}
+              // Keeps focus in the field, so its blur can't save the typed text first.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                if (field.current) field.current.value = "";
+                run(setSearchKey({ apiKey: "" }), "Key removed");
+              }}
             >
               Remove
             </Button>
