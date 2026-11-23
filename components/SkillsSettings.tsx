@@ -1,42 +1,49 @@
 "use client";
 
-import { IconAlertTriangle, IconEye, IconRefresh, IconTrash, IconUpload } from "@tabler/icons-react";
-import { useMutation, useQuery } from "convex/react";
+import { IconAlertTriangle, IconBrandGithub, IconEye, IconRefresh, IconTrash, IconUpload } from "@tabler/icons-react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { useRef, useState } from "react";
 import { Button, IconButton } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/feedback";
-import { Switch } from "@/components/ui/fields";
+import { Input, Switch } from "@/components/ui/fields";
 import { Dialog } from "@/components/ui/overlay";
 import { toast } from "@/components/ui/toast";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
 type Skill = NonNullable<ReturnType<typeof useQuery<typeof api.skills.list>>>[number];
+type AddResult = Awaited<ReturnType<ReturnType<typeof useMutation<typeof api.skills.addFromFiles>>>>;
+type Send = (replace: boolean) => Promise<AddResult>;
 
 const formatSize = (bytes: number) =>
   bytes < 1000 ? `${bytes} B` : bytes < 1e6 ? `${(bytes / 1000).toFixed(1)} KB` : `${(bytes / 1e6).toFixed(1)} MB`;
 
-/** Settings › Skills: upload a SKILL.md, then view, switch or delete each skill. */
+/** Settings › Skills: upload a SKILL.md or add one from GitHub, then view, switch, refresh or delete each skill. */
 export default function SkillsSettings() {
   const skills = useQuery(api.skills.list);
   const add = useMutation(api.skills.addFromFiles);
+  const addGithub = useAction(api.skillActions.addFromGithub);
   const fileInput = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
-  const [replacing, setReplacing] = useState<{ name: string; text: string } | null>(null);
+  const [replacing, setReplacing] = useState<{ name: string; send: Send } | null>(null);
   const [busy, setBusy] = useState(false);
   const [viewing, setViewing] = useState<Id<"skills"> | null>(null);
   const [deleting, setDeleting] = useState<Skill | null>(null);
 
-  async function upload(text: string, replace: boolean) {
+  // Every way of adding answers added, exists (confirm, then send again with replace) or invalid.
+  async function submit(send: Send, replace: boolean) {
     setBusy(true);
     setError(null);
-    // One .md file is the skill's SKILL.md, whatever the download was called.
-    const result = await add({ files: [{ path: "SKILL.md", text }], replace });
-    setBusy(false);
+    const result = await send(replace).finally(() => setBusy(false));
     if (result.status === "invalid") setError(result.reason);
-    else if (result.status === "exists") setReplacing({ name: result.name, text });
+    else if (result.status === "exists") setReplacing({ name: result.name, send });
     else toast({ title: replace ? "Skill replaced" : "Skill added", body: "New threads can read it." });
+    return result.status === "added";
   }
+
+  // One .md file is the skill's SKILL.md, whatever the download was called.
+  const upload = (text: string, replace: boolean) =>
+    submit((r) => add({ files: [{ path: "SKILL.md", text }], replace: r }), replace);
 
   if (!skills) return null;
   return (
@@ -71,6 +78,29 @@ export default function SkillsSettings() {
           }}
         />
       </div>
+      <form
+        className="flex items-start gap-2"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const form = e.currentTarget;
+          const url = String(new FormData(form).get("url"));
+          if (await submit((replace) => addGithub({ url, replace }), false)) form.reset();
+        }}
+      >
+        <Input
+          mono
+          name="url"
+          type="url"
+          required
+          placeholder="https://github.com/anthropics/skills/tree/main/skills/pdf"
+          aria-label="GitHub URL"
+          help="A public GitHub folder holding a SKILL.md, the SKILL.md itself, or a repo."
+          fieldClassName="flex-1"
+        />
+        <Button type="submit" icon={<IconBrandGithub />} loading={busy}>
+          Add from GitHub
+        </Button>
+      </form>
       {error && (
         <div role="alert" className="tc-fade-in tc-inline-error">
           <IconAlertTriangle size={16} stroke={1.5} className="mt-0.5 shrink-0" />
@@ -103,9 +133,9 @@ export default function SkillsSettings() {
             <Button
               variant="primary"
               onClick={() => {
-                const text = replacing!.text;
+                const send = replacing!.send;
                 setReplacing(null);
-                void upload(text, true);
+                void submit(send, true);
               }}
             >
               Replace skill
@@ -129,13 +159,22 @@ export default function SkillsSettings() {
 
 function SkillRow({ skill, onView, onDelete }: { skill: Skill; onView: () => void; onDelete: () => void }) {
   const setOn = useMutation(api.skills.setOnForNewThreads);
+  const refresh = useAction(api.skillActions.refresh);
+  const [refreshing, setRefreshing] = useState(false);
   return (
     <div className="tc-tools-row">
       <div className="min-w-0">
         <p className="tc-mono truncate text-mono-sm">{skill.name}</p>
         <p className="line-clamp-2 text-body-sm text-foreground-muted">{skill.description}</p>
         <p className="tc-mono mt-0.5 text-mono-sm text-foreground-subtle">
-          {formatSize(skill.size)} · uploaded
+          {formatSize(skill.size)} ·{" "}
+          {skill.source === "upload" ? (
+            "uploaded"
+          ) : (
+            <a className="underline underline-offset-2" href={skill.source.github} target="_blank" rel="noopener noreferrer">
+              {skill.source.github.replace("https://", "")}
+            </a>
+          )}
         </p>
       </div>
       <div className="flex items-center gap-1">
@@ -145,6 +184,21 @@ function SkillRow({ skill, onView, onDelete }: { skill: Skill; onView: () => voi
           onCheckedChange={(on) => void setOn({ skillId: skill._id, on })}
           className="mr-2"
         />
+        {skill.source !== "upload" && (
+          <IconButton
+            icon={<IconRefresh />}
+            label={`Refresh ${skill.name} from GitHub`}
+            size="sm"
+            loading={refreshing}
+            onClick={async () => {
+              setRefreshing(true);
+              const result = await refresh({ skillId: skill._id }).finally(() => setRefreshing(false));
+              if (result.status === "invalid")
+                toast({ title: `Could not refresh ${skill.name}`, body: result.reason, tone: "danger" });
+              else toast({ title: `${skill.name} refreshed` });
+            }}
+          />
+        )}
         <IconButton icon={<IconEye />} label={`View ${skill.name}`} size="sm" onClick={onView} />
         <IconButton icon={<IconTrash />} label={`Delete ${skill.name}`} size="sm" onClick={onDelete} />
       </div>
