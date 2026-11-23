@@ -33,12 +33,17 @@ async function runSearch(
   let apiKey: string;
   try {
     apiKey = await decryptSecret(keyEncrypted);
-  } catch {
+  } catch (err) {
     return {
       query,
       results: [],
+      // A ConvexError is the key mismatch; anything else (a bad master key) keeps its reason.
       error:
-        "the Exa API key can't be decrypted: TALLY_MASTER_KEY isn't the key it was saved with; paste it again in Settings",
+        err instanceof ConvexError
+          ? "the Exa API key can't be decrypted: TALLY_MASTER_KEY isn't the key it was saved with; paste it again in Settings"
+          : err instanceof Error
+            ? err.message
+            : String(err),
     };
   }
   return searchExa(apiKey, query);
@@ -87,6 +92,8 @@ export const generate = internalAction({
     if (search)
       await ctx.runMutation(internal.webSearch.save, {
         messageId: search.messageId,
+        ownerId: search.ownerId,
+        threadId: search.threadId,
         ...(await runSearch(search.query, search.keyEncrypted)),
       });
     const inputStart = Date.now();

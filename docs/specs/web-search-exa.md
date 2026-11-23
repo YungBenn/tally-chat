@@ -40,7 +40,7 @@ Each search's cost, as Exa reports it, is metered: it shows on the sources line,
 17. As a user, I want a result without a title shown by its URL, so that every source is still identifiable.
 18. As a user, I want results with broken links (no host) skipped and the next good ones used, so that every source is clickable.
 19. As a user, I want the results stored once and sent with the same bytes on every later request, so that retries and later turns keep the cache.
-20. As a user, I want a retry or a later turn to reuse the stored search rather than search again, so that I'm not charged twice.
+20. As a user, I want a retry or a later turn to reuse the stored search rather than search again, so that I'm not charged twice. A failed search, which cost nothing, runs again on retry, so that fixing the key helps.
 21. As a user, I want editing a searched message to search again for the new text, so that results match what I asked.
 22. As a user, I want the "Searching the web…" state while the search runs, so that I know why the reply hasn't started.
 23. As a user, I want the sources under my message, numbered and linked, so that I can check what the model read.

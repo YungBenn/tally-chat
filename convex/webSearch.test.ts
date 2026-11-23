@@ -4,7 +4,7 @@ import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch, type Recorded } from "../test/fakeFetch";
 import { messageDelta, messageStart, messageStop, sse, textDelta } from "../test/sse";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { decryptSecret, encryptSecret } from "./lib/vault";
 import schema from "./schema";
 
@@ -246,6 +246,51 @@ describe("searching before a reply", () => {
     expect(reply.status).toBe("done");
   });
 
+  test("a master key that isn't 32 bytes fails the search with that reason, not a key mismatch", async () => {
+    const s = await setup();
+    await s.saveKey();
+    vi.stubEnv("TALLY_MASTER_KEY", btoa("sixteen byte key"));
+    try {
+      fake = fakeFetch(fixtures());
+      await s.send("Hi");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    expect((await s.thread()).messages[0].search).toMatchObject({
+      status: "failed",
+      error: "TALLY_MASTER_KEY must be 32 bytes, base64-encoded",
+    });
+  });
+
+  test("a failed search runs again on retry, and its results replace the failure", async () => {
+    const s = await setup();
+    await s.saveKey("exa-typo");
+    let calls = 0;
+    fake = fakeFetch(
+      fixtures({
+        Hi: {
+          respond: () =>
+            ++calls === 1
+              ? new Response(JSON.stringify({ error: "Invalid API key" }), { status: 401 })
+              : new Response(JSON.stringify(RESULTS)),
+        },
+      }),
+    );
+    await s.send("Hi");
+    expect((await s.thread()).messages[0].search).toMatchObject({ status: "failed" });
+
+    await s.saveKey();
+    await s.owner.mutation(api.chat.retry, { messageId: (await s.thread()).messages[1]._id });
+    await s.settle();
+
+    expect(s.searchRequests()).toHaveLength(2);
+    expect(s.searchRequests()[1].headers["x-api-key"]).toBe(EXA_KEY);
+    expect(firstUserText(s.modelRequests()[1])).toContain("[1] Convex | All gas");
+    expect((await s.thread()).messages[0].search).toMatchObject({ status: "done" });
+    expect(await s.t.run((ctx) => ctx.db.query("searches").collect())).toHaveLength(1);
+  });
+
   test("removing the key before the search runs fails it as off", async () => {
     const s = await setup();
     await s.saveKey();
@@ -328,6 +373,22 @@ describe("metering searches", () => {
     const summary = await s.owner.query(api.usage.summary, { today: today() });
     expect(summary.days.find((d) => d.day === today())).toMatchObject({ costMicroUsd: 7000 });
     expect(await exaLine(s)).toEqual({ model: "exa-search", costMicroUsd: 7000, calls: 1, unpricedCalls: 0 });
+  });
+
+  test("still counts when the thread is deleted while the search runs", async () => {
+    const s = await setup();
+    await s.saveKey();
+    // The delete lands while Exa is answering: the purge removes the user message at once.
+    const deleteDuringSearch = async () => {
+      await s.owner.mutation(api.chat.deleteThread, { threadId: s.threadId });
+      await s.t.mutation(internal.chat.purgeThread, { threadId: s.threadId });
+      return new Response(JSON.stringify(PRICED));
+    };
+    fake = fakeFetch(fixtures({ Hi: { respond: deleteDuringSearch as unknown as () => Response } }));
+    await s.send("Hi");
+
+    expect(await exaLine(s)).toEqual({ model: "exa-search", costMicroUsd: 7000, calls: 1, unpricedCalls: 0 });
+    expect(await s.t.run((ctx) => ctx.db.query("searches").collect())).toHaveLength(0);
   });
 
   test("counts toward the daily budget", async () => {
