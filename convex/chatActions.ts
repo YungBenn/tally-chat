@@ -1,6 +1,5 @@
 "use node";
 
-import { lookup } from "node:dns/promises";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, type ActionCtx } from "./_generated/server";
@@ -21,6 +20,7 @@ import { streamOpenAICompatible } from "./lib/openaiCompatible";
 import { RESULT_NOTE, type ToolStatus } from "./lib/toolParts";
 import { resultText } from "./lib/toolResult";
 import type { SkillPreview } from "./lib/skills";
+import { systemResolve } from "./lib/systemResolve";
 import type { NormalizedUsage } from "./lib/usage";
 import { decryptSecret } from "./lib/vault";
 import { searchExa, type StoredSearch } from "./lib/webSearch";
@@ -75,9 +75,6 @@ async function loadImages(
     }),
   );
 }
-
-const systemResolve = async (host: string) =>
-  (await lookup(host, { all: true })).map((a) => a.address);
 
 // One step of a reply (spec phase 10): a single model request. A step that asks for tools ends
 // in chat.finalize, which schedules runTools; its results schedule the next step. A reply with

@@ -1,17 +1,15 @@
 "use node";
 
-import { lookup } from "node:dns/promises";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { action, type ActionCtx } from "./_generated/server";
 import { fetchGithubSkill } from "./lib/github";
+import { systemResolve } from "./lib/systemResolve";
 import { requireOwner } from "./owner";
 import { addResult } from "./skills";
 
 type AddResult = typeof addResult.type;
-
-const systemResolve = async (host: string) => (await lookup(host, { all: true })).map((a) => a.address);
 
 async function fetchSkill(ctx: ActionCtx, ownerId: Id<"users">, url: string) {
   const allowlist: string[] = await ctx.runQuery(internal.settings.allowlist, { ownerId });

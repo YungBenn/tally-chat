@@ -42,6 +42,7 @@ import type * as lib_rollups from "../lib/rollups.js";
 import type * as lib_search from "../lib/search.js";
 import type * as lib_skills from "../lib/skills.js";
 import type * as lib_systemPrompts from "../lib/systemPrompts.js";
+import type * as lib_systemResolve from "../lib/systemResolve.js";
 import type * as lib_textStream from "../lib/textStream.js";
 import type * as lib_toolParts from "../lib/toolParts.js";
 import type * as lib_toolResult from "../lib/toolResult.js";
@@ -105,6 +106,7 @@ declare const fullApi: ApiFromModules<{
   "lib/search": typeof lib_search;
   "lib/skills": typeof lib_skills;
   "lib/systemPrompts": typeof lib_systemPrompts;
+  "lib/systemResolve": typeof lib_systemResolve;
   "lib/textStream": typeof lib_textStream;
   "lib/toolParts": typeof lib_toolParts;
   "lib/toolResult": typeof lib_toolResult;
