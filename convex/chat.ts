@@ -28,7 +28,7 @@ import {
   MAX_IMAGES_PER_MESSAGE,
   type MessageImage,
 } from "./lib/images";
-import { DEFAULT_EFFORT, effortValidator, type Effort } from "./lib/effort";
+import { DEFAULT_EFFORT, defaultEffortFor, effortValidator, type Effort } from "./lib/effort";
 import { meterCall } from "./lib/metering";
 import {
   appendStream,
@@ -250,7 +250,7 @@ async function insertThread(
     // Only Anthropic-style threads send effort (spec phase 4).
     effort:
       provider.apiStyle === "anthropic"
-        ? (effort ?? DEFAULT_EFFORT)
+        ? (effort ?? settings?.defaultEffort ?? defaultEffortFor(modelId))
         : undefined,
   });
   return (await ctx.db.get("threads", id))!;

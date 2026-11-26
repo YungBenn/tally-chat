@@ -57,6 +57,45 @@ async function setup() {
   return { t, owner, anthropicId, openaiId, chat, anthropicBodies };
 }
 
+describe("per-model default effort", () => {
+  const stored = async (s: Awaited<ReturnType<typeof setup>>, modelId: string) => {
+    const providerId = await s.t.run(async (ctx) => {
+      const p = (await ctx.db.get("providers", s.anthropicId))!;
+      await ctx.db.patch("providers", s.anthropicId, { models: [...p.models, { id: modelId, displayName: modelId, hidden: false }] });
+      return s.anthropicId;
+    });
+    const thread = await s.owner.mutation(api.chat.createThread, { providerId, modelId });
+    await s.chat(thread);
+    return s.anthropicBodies().filter((b) => b.max_tokens !== 30).at(-1)!.output_config;
+  };
+
+  test.each([
+    ["claude-opus-5-5", "medium"],
+    ["cc/claude-opus-5-5", "medium"],
+    ["claude-fable-5-2", "medium"],
+    ["claude-sonnet-5-5", "low"],
+    ["claude-haiku-5-5", "low"],
+    ["mystery-model", "low"],
+  ])("new thread on %s sends %s", async (modelId, effort) => {
+    const s = await setup();
+    expect(await stored(s, modelId)).toEqual({ effort });
+  });
+
+  test("a saved default effort wins over the model default", async () => {
+    const s = await setup();
+    await s.owner.mutation(api.settings.setDefaultEffort, { effort: "high" });
+    expect(await stored(s, "claude-opus-5-5")).toEqual({ effort: "high" });
+  });
+
+  test("existing threads keep their stored effort when the model default changes", async () => {
+    const s = await setup();
+    const thread = await s.owner.mutation(api.chat.createThread, { providerId: s.anthropicId, modelId: "claude-sonnet-5-5" });
+    await s.owner.mutation(api.settings.setDefaultEffort, { effort: "max" });
+    await s.chat(thread);
+    expect(s.anthropicBodies().find((b) => b.max_tokens !== 30)!.output_config).toEqual({ effort: "low" });
+  });
+});
+
 describe("thread effort", () => {
   test("new Anthropic threads default to low, sent on every reply with no thinking parameter", async () => {
     const s = await setup();
