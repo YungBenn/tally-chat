@@ -309,6 +309,43 @@ describe("the tool loop on Anthropic", () => {
     expect(third[3].content).toBe("Done.");
   });
 
+  describe("thinking after a checkpoint", () => {
+    const old = { thinking: "old reasoning", signature: "sig-old" };
+    const fresh = { thinking: "fresh reasoning", signature: "sig-new" };
+    // Turn 1 is covered by a checkpoint; turn 2 is a kept tool-loop reply with thinking.
+    async function withCheckpoint(steps: Step[]) {
+      const s = await setup({ steps: [{ text: "Hi." }, { thinking: old, text: "Looking.", calls: [call("t", "search")] }, { text: "Done." }, ...steps] });
+      await s.send("First");
+      await s.send("Go");
+      const [first] = await s.replies();
+      await s.t.run((ctx) =>
+        ctx.db.insert("checkpoints", { ownerId: s.ownerId, threadId: s.threadId, coversUpToId: first._id, summary: "S", tokens: 10 }),
+      );
+      return s;
+    }
+
+    test("kept tool-loop replies are sent without thinking; text, calls and results unchanged", async () => {
+      const s = await withCheckpoint([{ text: "Next answer." }]);
+      await s.send("And then?");
+      const sent = s.replyRequests()[3].messages;
+      expect(sent.map((m) => m.role)).toEqual(["user", "user", "assistant", "user", "assistant", "user"]);
+      expect(sent[2].content).toEqual([
+        { type: "text", text: "Looking." },
+        { type: "tool_use", id: "t", name: "docs__search", input: {} },
+      ]);
+      expect(sent[3].content).toEqual([{ type: "tool_result", tool_use_id: "t", content: "result of search" }]);
+      expect(JSON.stringify(sent)).not.toMatch(/thinking/);
+    });
+
+    test("the current step of an in-progress loop keeps its thinking", async () => {
+      const s = await withCheckpoint([{ thinking: fresh, text: "Again.", calls: [call("u", "search")] }, { text: "Fine." }]);
+      await s.send("More");
+      const sent = JSON.stringify(s.replyRequests()[4].messages);
+      expect(sent).toContain("fresh reasoning");
+      expect(sent).not.toContain("old reasoning");
+    });
+  });
+
   test("a stopped reply leaves no call without its result in the next request", async () => {
     const hang = gate();
     const s = await setup({

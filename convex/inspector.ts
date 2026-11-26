@@ -535,7 +535,7 @@ async function threadFigures(
       all[f] -
         upkeep[f] -
         sideJobs
-          .filter((j) => j.kind === "title" || j.kind === "condense")
+          .filter((j) => j.kind !== "keepalive")
           .reduce((s, j) => s + j.usage[f], 0),
     ]),
   ) as Usage;

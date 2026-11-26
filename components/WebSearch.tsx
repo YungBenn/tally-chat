@@ -51,6 +51,8 @@ export function SearchSources({
     results: { title: string; url: string }[];
     error?: string;
     costMicroUsd?: number;
+    queries?: string[];
+    rewriteCostMicroUsd?: number;
   };
 }) {
   if (search.status === "pending")
@@ -67,6 +69,11 @@ export function SearchSources({
         Web search failed: {search.error}
       </div>
     );
+  // Exa's fee and the rewrite's, as one amount; either alone when only one was priced.
+  const fee =
+    search.costMicroUsd === undefined && search.rewriteCostMicroUsd === undefined
+      ? undefined
+      : (search.costMicroUsd ?? 0) + (search.rewriteCostMicroUsd ?? 0);
   return (
     <div className="tc-sources">
       <IconWorld size={14} stroke={1.75} />
@@ -80,7 +87,8 @@ export function SearchSources({
               </a>
             </Tooltip>
           ))}
-      {search.costMicroUsd !== undefined && <span>· {usd(search.costMicroUsd)}</span>}
+      {search.queries && <span className="tc-source-queries">for {search.queries.map((q) => `"${q}"`).join(", ")}</span>}
+      {fee !== undefined && <span>· {usd(fee)}</span>}
     </div>
   );
 }

@@ -9,6 +9,9 @@ import { searchBlock } from "./webSearch";
 // Prefix for the summary message. Changing it changes every request's bytes after the
 // system prompt, so treat it like a system prompt: version it if it ever changes.
 export const SUMMARY_PREFIX = "Summary of the earlier conversation:\n\n";
+const summaryText = (c: { summary: string; promptVersion?: number }) =>
+  SUMMARY_PREFIX +
+  ((c.promptVersion ?? 1) >= 2 ? `<summary>\n${c.summary}\n</summary>` : c.summary);
 
 // The latest checkpoint on a branch (message ids, root first), or null. Checkpoints roll, so the
 // one covering the most of the branch is the latest. A fork made before a checkpoint doesn't
@@ -98,9 +101,10 @@ export async function assembleHistory(
   // Per-message effort and images ride along on user messages; the adapter turns them into
   // their own blocks, so request bytes depend only on stored data.
   const toChat = (m: Doc<"messages">): ChatMessage[] =>
-    // A reply that used tools goes back as its steps, results word for word (ADR 0003).
+    // A reply that used tools goes back as its steps, results word for word (ADR 0003). With a
+    // checkpoint, kept replies lose their thinking: it is about messages the summary replaced.
     m.role === "assistant" && usedTools(m.parts)
-      ? expandParts(m.parts!)
+      ? expandParts(m.parts!, !latest)
       : [
           {
             role: m.role,
@@ -116,7 +120,7 @@ export async function assembleHistory(
     return { messages: verbatim(branch), layerEnd: 0, checkpoint: null };
   const cut = position.get(latest.coversUpToId)! + 1;
   const layer: ChatMessage[] = [
-    { role: "user", content: SUMMARY_PREFIX + latest.summary },
+    { role: "user", content: summaryText(latest) },
     ...verbatim(branch.slice(0, cut).filter((m) => m.pinned)),
   ];
   return {

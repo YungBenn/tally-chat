@@ -3,6 +3,7 @@
 import { lookup } from "node:dns/promises";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import type { ChatMessage } from "./lib/anthropic";
 import {
@@ -20,15 +21,25 @@ import { streamOpenAICompatible } from "./lib/openaiCompatible";
 import { RESULT_NOTE, type ToolStatus } from "./lib/toolParts";
 import type { NormalizedUsage } from "./lib/usage";
 import { decryptSecret } from "./lib/vault";
-import { searchExa, type StoredSearch } from "./lib/webSearch";
+import {
+  mergeResults,
+  parseQueries,
+  REWRITE_MAX_TOKENS,
+  REWRITE_SYSTEM,
+  REWRITE_TIMEOUT_MS,
+  rewritePrompt,
+  searchExa,
+  type StoredSearch,
+} from "./lib/webSearch";
 
 const FLUSH_MS = 100;
 
 // Every failure becomes the search's error, so the reply still runs and says why.
 async function runSearch(
-  query: string,
+  queries: string[],
   keyEncrypted: string | null,
 ): Promise<StoredSearch> {
+  const [query] = queries;
   if (!keyEncrypted) return { query, results: [], error: "web search is off" };
   let apiKey: string;
   try {
@@ -46,8 +57,69 @@ async function runSearch(
             : String(err),
     };
   }
-  return searchExa(apiKey, query);
+  const searches = await Promise.all(queries.map((q) => searchExa(apiKey, q)));
+  // Failed only when every query failed; one that answered still gives results.
+  const ok = searches.filter((s) => !s.error);
+  if (ok.length === 0) return { query, queries, results: [], error: searches[0].error };
+  const costs = ok.flatMap((s) => (s.costMicroUsd === undefined ? [] : [s.costMicroUsd]));
+  return {
+    query,
+    queries,
+    results: mergeResults(ok.map((s) => s.results)),
+    ...(costs.length ? { costMicroUsd: costs.reduce((a, b) => a + b, 0) } : {}),
+  };
 }
+
+// Side job: turns the message into one to three standalone queries from the recent turns. Any
+// failure, timeout, empty output or unparseable output gives the raw message, so the search
+// always runs. Whatever usage arrived is metered.
+async function rewriteQueries(
+  ctx: ActionCtx,
+  search: NonNullable<Awaited<ReturnType<typeof getPending>>>,
+): Promise<{ queries: string[]; rewriteCostMicroUsd?: number }> {
+  const { rewrite } = search;
+  if (!rewrite) return { queries: [search.query] };
+  let text = "";
+  let usage: NormalizedUsage | undefined;
+  try {
+    const stream =
+      rewrite.provider.apiStyle === "anthropic" ? streamAnthropicMessage : streamOpenAICompatible;
+    const events = stream(
+      {
+        baseUrl: rewrite.provider.baseUrl,
+        apiKey: await decryptSecret(rewrite.provider.apiKeyEncrypted),
+        model: rewrite.model,
+        system: REWRITE_SYSTEM,
+        messages: [{ role: "user", content: rewritePrompt(rewrite.turns, rewrite.message) }],
+        maxTokens: REWRITE_MAX_TOKENS,
+        effort: rewrite.provider.apiStyle === "anthropic" ? "low" : undefined,
+      },
+      { allowlist: rewrite.allowlist, resolve: systemResolve },
+      AbortSignal.timeout(REWRITE_TIMEOUT_MS),
+    );
+    for await (const event of events) {
+      if (event.type === "text") text += event.text;
+      else if (event.type === "usage")
+        usage = { usage: event.usage, reports: event.reports, reportedCostMicroUsd: event.reportedCostMicroUsd };
+    }
+  } catch {
+    text = "";
+  }
+  const cost = usage
+    ? await ctx.runMutation(internal.webSearch.saveRewrite, {
+        threadId: search.threadId,
+        providerId: rewrite.providerId,
+        model: rewrite.model,
+        ...usage,
+      })
+    : null;
+  return {
+    queries: parseQueries(text) ?? [search.query],
+    ...(cost === null ? {} : { rewriteCostMicroUsd: cost }),
+  };
+}
+const getPending = (ctx: ActionCtx, replyId: Id<"messages">) =>
+  ctx.runQuery(internal.webSearch.pending, { replyId });
 // Loads each user message's stored images as base64 for the request (spec phase 4). The stored
 // bytes never change, so a retry or keepalive sends identical blocks.
 async function loadImages(
@@ -86,16 +158,20 @@ export const generate = internalAction({
     // Reply timing log (spec phase 12): one line per step, times from the action's start.
     const startedAt = Date.now();
     // Web search first (lib/webSearch): the reply's request carries the stored results.
-    const search = await ctx.runQuery(internal.webSearch.pending, {
-      replyId: messageId,
-    });
-    if (search)
+    const search = await getPending(ctx, messageId);
+    if (search) {
+      // Without a key there is nothing to search with, so don't pay for a rewrite.
+      const { queries, rewriteCostMicroUsd } = search.keyEncrypted
+        ? await rewriteQueries(ctx, search)
+        : { queries: [search.query], rewriteCostMicroUsd: undefined };
       await ctx.runMutation(internal.webSearch.save, {
         messageId: search.messageId,
         ownerId: search.ownerId,
         threadId: search.threadId,
-        ...(await runSearch(search.query, search.keyEncrypted)),
+        ...(await runSearch(queries, search.keyEncrypted)),
+        rewriteCostMicroUsd,
       });
+    }
     const inputStart = Date.now();
     const input = await ctx.runQuery(internal.chat.generationInput, {
       messageId,
@@ -352,7 +428,7 @@ export const generateTitle = internalAction({
   },
 });
 
-// Condense job (spec phase 6): summarizes the turns condense.input picked on the side-job model
+// Condense job (spec phase 6): summarizes the turns condense.input picked on the thread's own model
 // and saves the summary as a checkpoint. A failed, empty or cut-off summary saves nothing; the
 // next reply tries again.
 export const condense = internalAction({
@@ -382,7 +458,6 @@ export const condense = internalAction({
           system: SUMMARY_PROMPTS[CURRENT_SUMMARY_PROMPT_VERSION],
           messages: [{ role: "user", content: input.request }],
           maxTokens: SUMMARY_MAX_TOKENS,
-          effort: input.provider.apiStyle === "anthropic" ? "low" : undefined,
         },
         { allowlist: input.allowlist, resolve: systemResolve },
         new AbortController().signal,
@@ -411,6 +486,7 @@ export const condense = internalAction({
       coversUpToId: input.coversUpToId,
       providerId: input.providerId,
       model: input.model,
+      promptVersion: CURRENT_SUMMARY_PROMPT_VERSION,
       summary: failure ? undefined : summary,
       failure,
       ...usage,
