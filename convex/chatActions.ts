@@ -286,6 +286,7 @@ export const runTools = internalAction({
 
 const TITLE_SYSTEM =
   "Write a title of at most six words for this conversation. Reply with the title only, no quotes.";
+const TITLE_MAX_TOKENS = 512; // thinking models spend tokens before the title; 30 left them empty
 const TITLE_EXCERPT = 2000; // characters of each message sent to the title model
 
 // Side job: titles a thread from its first exchange. Any failure leaves the fallback title
@@ -319,7 +320,7 @@ export const generateTitle = internalAction({
               content: `User: ${input.question.slice(0, TITLE_EXCERPT)}\n\nAssistant: ${input.answer.slice(0, TITLE_EXCERPT)}`,
             },
           ],
-          maxTokens: 30,
+          maxTokens: TITLE_MAX_TOKENS,
           effort: input.provider.apiStyle === "anthropic" ? "low" : undefined, // titles need no deep thought
         },
         { allowlist: input.allowlist, resolve: systemResolve },

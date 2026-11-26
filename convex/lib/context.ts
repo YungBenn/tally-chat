@@ -90,6 +90,7 @@ export async function assembleHistory(
         return doc ? [documentBlock(doc.name, doc.text)] : [];
       }),
       m.content,
+      ...(m.brevity ? [m.brevity] : []),
       ...(searches.get(m._id) ? [searchBlock(searches.get(m._id)!)] : []),
     ].join("\n\n");
 

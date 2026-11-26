@@ -162,7 +162,7 @@ describe("starting a thread in one step", () => {
     expect(thread.messages[1].effort).toBe("low");
     await t.finishAllScheduledFunctions(() => {});
     expect(await lastAssistant(owner, threadId)).toMatchObject({ status: "done", text: "Hi" });
-    expect((fake.requests[0].body as { max_tokens: number }).max_tokens).toBe(2048);
+    expect((fake.requests[0].body as { max_tokens: number }).max_tokens).toBe(8192);
   });
 
   test("validates like creating and sending; a refused start leaves no thread", async () => {
