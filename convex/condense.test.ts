@@ -77,6 +77,10 @@ function provider(summary: () => string | "fail" | "truncate", { caching = true 
   };
 }
 
+// A version 2 summary layer with the date of the folded turns after it, whatever the date.
+const summaryWithDate = (summary: string) =>
+  new RegExp(`^${SUMMARY_PREFIX}<summary>\\n${summary}\\n</summary>\\n\\n<current_date>[^<]+</current_date>$`);
+
 const LONG = "x".repeat(400); // ~100 tokens per user message
 
 async function setup(condense: Partial<Doc<"settings">> = {}, { modelId = "claude-sonnet-5-5", free = false } = {}) {
@@ -153,9 +157,18 @@ describe("condensing after a reply", () => {
 
     await s.chat("Turn 7");
     const next = s.replyCalls().at(-1)!;
+    // The only dated message (turn 1) is folded away, so its date rides on the summary.
+    const date = (await s.t.run((ctx) => ctx.db.query("messages").first()))!.date;
+    expect(date).toBeTruthy();
     expect(next.messages[0]).toEqual({
       role: "user",
-      content: [{ type: "text", text: `${SUMMARY_PREFIX}<summary>\nSummary one\n</summary>`, cache_control: { type: "ephemeral", ttl: "5m" } }],
+      content: [
+        {
+          type: "text",
+          text: `${SUMMARY_PREFIX}<summary>\nSummary one\n</summary>\n\n<current_date>${date}</current_date>`,
+          cache_control: { type: "ephemeral", ttl: "5m" },
+        },
+      ],
     });
     // Summary, then turns 5 and 6 verbatim, then the new message.
     expect(next.messages.slice(1).map((m) => text(m.content).slice(0, 6))).toEqual(["Turn 5", "Answer", "Turn 6", "Answer", "Turn 7"]);
@@ -217,7 +230,7 @@ describe("condensing after a reply", () => {
 
     await s.chat("Turn 12");
     const next = s.replyCalls().at(-1)!;
-    expect(text(next.messages[0].content)).toBe(`${SUMMARY_PREFIX}<summary>\nSummary 2\n</summary>`);
+    expect(text(next.messages[0].content)).toMatch(summaryWithDate("Summary 2"));
     expect(next.messages.filter((m) => text(m.content).startsWith(SUMMARY_PREFIX))).toHaveLength(1);
   });
 
@@ -348,7 +361,7 @@ describe("after a checkpoint lands", () => {
     const warm = s.keepaliveCalls().at(-1)!;
     expect(warm.messages[0]).toEqual({
       role: "user",
-      content: [{ type: "text", text: `${SUMMARY_PREFIX}<summary>\nSummary one\n</summary>`, cache_control: { type: "ephemeral", ttl: "5m" } }],
+      content: [{ type: "text", text: expect.stringMatching(summaryWithDate("Summary one")), cache_control: { type: "ephemeral", ttl: "5m" } }],
     });
     // The kept turns, the latest reply marked as the breakpoint the next turn will share, then the nudge.
     expect(warm.messages.slice(1).map((m) => text(m.content).slice(0, 6))).toEqual(["Turn 5", "Answer", "Turn 6", "Answer", "."]);
