@@ -8,6 +8,9 @@ import { searchBlock } from "./webSearch";
 // Prefix for the summary message. Changing it changes every request's bytes after the
 // system prompt, so treat it like a system prompt: version it if it ever changes.
 export const SUMMARY_PREFIX = "Summary of the earlier conversation:\n\n";
+const summaryText = (c: { summary: string; promptVersion?: number }) =>
+  SUMMARY_PREFIX +
+  ((c.promptVersion ?? 1) >= 2 ? `<summary>\n${c.summary}\n</summary>` : c.summary);
 
 // The latest checkpoint on a branch (message ids, root first), or null. Checkpoints roll, so the
 // one covering the most of the branch is the latest. A fork made before a checkpoint doesn't
@@ -114,7 +117,7 @@ export async function assembleHistory(
     return { messages: verbatim(branch), layerEnd: 0, checkpoint: null };
   const cut = position.get(latest.coversUpToId)! + 1;
   const layer: ChatMessage[] = [
-    { role: "user", content: SUMMARY_PREFIX + latest.summary },
+    { role: "user", content: summaryText(latest) },
     ...verbatim(branch.slice(0, cut).filter((m) => m.pinned)),
   ];
   return {

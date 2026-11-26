@@ -8,6 +8,7 @@ import { api } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { paybackTurns, planFold } from "./lib/condense";
 import { SUMMARY_PREFIX } from "./lib/context";
+import { SUMMARY_MAX_TOKENS, SUMMARY_PROMPTS } from "./lib/condense";
 import { encryptSecret } from "./lib/vault";
 import { threadState } from "./threadState";
 import schema from "./schema";
@@ -33,6 +34,7 @@ type Block = { type: string; text: string; cache_control?: object };
 type Body = {
   model: string;
   max_tokens: number;
+  output_config?: unknown;
   system: string | Block[];
   messages: { role: string; content: string | Block[] }[];
 };
@@ -130,7 +132,11 @@ describe("condensing after a reply", () => {
 
     await s.chat(`Turn 6 ${LONG}`); // 6 turns, keep 2: turns 1 to 4 fold
     const [call] = s.summaryCalls();
-    expect(call.model).toBe("claude-haiku-5-5"); // the side-job model, not the thread's
+    expect(call.model).toBe("claude-sonnet-5-5"); // the thread's own model, not the side-job one
+    expect(call.output_config).toBeUndefined(); // the model's API default effort
+    expect(call.max_tokens).toBe(6000);
+    expect(systemText(call)).toBe(SUMMARY_PROMPTS[2]);
+    expect(SUMMARY_MAX_TOKENS).toBe(6000);
     const request = text(call.messages[0].content);
     expect(request).toContain("User: Turn 1");
     expect(request).toContain("Assistant: Answer 4");
@@ -140,12 +146,13 @@ describe("condensing after a reply", () => {
     const [checkpoint] = await s.checkpoints();
     expect(checkpoint.summary).toBe("Summary one");
     expect(checkpoint.tokens).toBe(40); // the summary's measured output tokens
+    expect(checkpoint.promptVersion).toBe(2);
 
     await s.chat("Turn 7");
     const next = s.replyCalls().at(-1)!;
     expect(next.messages[0]).toEqual({
       role: "user",
-      content: [{ type: "text", text: `${SUMMARY_PREFIX}Summary one`, cache_control: { type: "ephemeral", ttl: "5m" } }],
+      content: [{ type: "text", text: `${SUMMARY_PREFIX}<summary>\nSummary one\n</summary>`, cache_control: { type: "ephemeral", ttl: "5m" } }],
     });
     // Summary, then turns 5 and 6 verbatim, then the new message.
     expect(next.messages.slice(1).map((m) => text(m.content).slice(0, 6))).toEqual(["Turn 5", "Answer", "Turn 6", "Answer", "Turn 7"]);
@@ -159,10 +166,24 @@ describe("condensing after a reply", () => {
     expect(inspector!.layers.find((l) => l.kind === "checkpoint")!.label).toBe("summary of turns\u00a01\u2060–\u20604");
   });
 
+  test("a version 1 checkpoint keeps its bytes: the summary is sent bare, without tags", async () => {
+    const s = await setup();
+    fake = fakeFetch({ [ANTHROPIC]: provider(() => "unused") });
+    await longThread(s, 5);
+    await s.setCondense({ condenseEnabled: false });
+    await s.chat("Turn 6");
+    const last = await s.t.run((ctx) => ctx.db.query("messages").order("desc").first());
+    await s.t.run((ctx) =>
+      ctx.db.insert("checkpoints", { ownerId: s.ownerId, threadId: s.threadId, coversUpToId: last!._id, summary: "Old summary", tokens: 3 }),
+    );
+    await s.chat("Turn 7");
+    expect(text(s.replyCalls().at(-1)!.messages[0].content)).toBe(`${SUMMARY_PREFIX}Old summary`);
+  });
+
   test("short threads, threads under the threshold and threads with only the kept turns don't condense", async () => {
     const tiny = await setup({ condenseAtTokens: undefined, condenseMinThreadTokens: undefined, condenseKeepTurns: undefined });
     fake = fakeFetch({ [ANTHROPIC]: provider(() => "unused") });
-    for (let i = 1; i <= 4; i++) await tiny.chat(`Turn ${i} ${LONG}`); // defaults: 30k threshold, 10k minimum
+    for (let i = 1; i <= 4; i++) await tiny.chat(`Turn ${i} ${LONG}`); // defaults: 80k threshold, 10k minimum
     expect(tiny.summaryCalls()).toHaveLength(0);
     const status = (await tiny.inspector())!.condense;
     expect(status.state).toBe("waiting");
@@ -193,7 +214,7 @@ describe("condensing after a reply", () => {
 
     await s.chat("Turn 12");
     const next = s.replyCalls().at(-1)!;
-    expect(text(next.messages[0].content)).toBe(`${SUMMARY_PREFIX}Summary 2`);
+    expect(text(next.messages[0].content)).toBe(`${SUMMARY_PREFIX}<summary>\nSummary 2\n</summary>`);
     expect(next.messages.filter((m) => text(m.content).startsWith(SUMMARY_PREFIX))).toHaveLength(1);
   });
 
@@ -245,7 +266,7 @@ describe("condensing after a reply", () => {
     const jobs = await s.t.run((ctx) => ctx.db.query("sideJobs").collect());
     const condense = jobs.filter((j) => j.kind === "condense");
     expect(condense).toHaveLength(1);
-    expect(condense[0]).toMatchObject({ model: "claude-haiku-5-5", usage: { outputTokens: 40 } });
+    expect(condense[0]).toMatchObject({ model: "claude-sonnet-5-5", usage: { outputTokens: 40 } });
     const reply = (await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!.messages.at(-1)!;
     const after = (await s.inspector())!.thread;
     expect(after.costMicroUsd - before.costMicroUsd).toBe((reply.costMicroUsd ?? 0) + condense[0].costMicroUsd!);
@@ -324,7 +345,7 @@ describe("after a checkpoint lands", () => {
     const warm = s.keepaliveCalls().at(-1)!;
     expect(warm.messages[0]).toEqual({
       role: "user",
-      content: [{ type: "text", text: `${SUMMARY_PREFIX}Summary one`, cache_control: { type: "ephemeral", ttl: "5m" } }],
+      content: [{ type: "text", text: `${SUMMARY_PREFIX}<summary>\nSummary one\n</summary>`, cache_control: { type: "ephemeral", ttl: "5m" } }],
     });
     // The kept turns, the latest reply marked as the breakpoint the next turn will share, then the nudge.
     expect(warm.messages.slice(1).map((m) => text(m.content).slice(0, 6))).toEqual(["Turn 5", "Answer", "Turn 6", "Answer", "."]);
@@ -480,7 +501,7 @@ describe("the cache veto", () => {
   });
 
   test("lets it through on a provider that doesn't cache", async () => {
-    const s = await setup({ condensePaybackTurns: 1 });
+    const s = await setup({ condensePaybackTurns: 5 }); // the summary is priced on the thread's model
     fake = fakeFetch({ [ANTHROPIC]: provider(() => "Summary one", { caching: false }) });
     await longThread(s, 5);
     await s.chat(`Turn 6 ${LONG}`);
@@ -507,7 +528,7 @@ describe("the cache veto", () => {
 describe("condense settings", () => {
   test("the owner turns condensing off and changes the threshold and kept turns, within limits", async () => {
     const s = await setup({ condenseAtTokens: undefined, condenseKeepTurns: undefined, condenseEnabled: undefined });
-    expect((await s.owner.query(api.settings.get, {})).condense).toEqual({ enabled: true, atTokens: 30_000, keepTurns: 6 });
+    expect((await s.owner.query(api.settings.get, {})).condense).toEqual({ enabled: true, atTokens: 80_000, keepTurns: 6 });
 
     await s.owner.mutation(api.settings.setCondense, { enabled: false });
     expect((await s.inspector())!.condense.state).toBe("off");

@@ -445,7 +445,7 @@ function Condensing() {
         }
       >
         When recent turns grow past the threshold, older turns fold into a
-        summary by your side-job model. A condense that wouldn&apos;t pay for
+        summary by the thread&apos;s own model. A condense that wouldn&apos;t pay for
         itself through the cache waits.
       </SettingsRow>
       <SettingsRow
@@ -461,7 +461,7 @@ function Condensing() {
           />
         }
       >
-        Tokens of recent turns before older ones are condensed.
+        Tokens of recent turns before older ones are condensed. Default 80,000.
       </SettingsRow>
       <SettingsRow
         title="Keep last"
