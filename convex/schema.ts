@@ -36,6 +36,7 @@ export default defineSchema({
         hidden: v.boolean(),
         vision: v.optional(v.boolean()), // accepts images; absent = no
         tools: v.optional(v.boolean()), // can call tools (spec phase 10); see lib/toolSet supportsTools
+        reasoning: v.optional(v.boolean()), // owner says it reasons, so effort is sent (answer quality ticket 13)
         favorite: v.optional(v.boolean()), // starred in the model picker; absent = no
       }),
     ),

@@ -28,7 +28,7 @@ import {
   MAX_IMAGES_PER_MESSAGE,
   type MessageImage,
 } from "./lib/images";
-import { DEFAULT_EFFORT, effortValidator, type Effort } from "./lib/effort";
+import { DEFAULT_EFFORT, effortValidator, supportsEffort, type Effort } from "./lib/effort";
 import { meterCall } from "./lib/metering";
 import {
   appendStream,
@@ -247,11 +247,10 @@ async function insertThread(
     systemPromptVersion: CURRENT_SYSTEM_PROMPT_VERSION,
     instructions: settings?.customInstructions,
     startedAt: Date.now(),
-    // Only Anthropic-style threads send effort (spec phase 4).
-    effort:
-      provider.apiStyle === "anthropic"
-        ? (effort ?? DEFAULT_EFFORT)
-        : undefined,
+    // Only models that take an effort store one (spec phase 4, answer quality ticket 13).
+    effort: supportsEffort(provider, modelId)
+      ? (effort ?? DEFAULT_EFFORT)
+      : undefined,
   });
   return (await ctx.db.get("threads", id))!;
 }
@@ -628,13 +627,14 @@ async function appendUserMessage(
   return (await ctx.db.get("messages", id))!;
 }
 
-// The effort a thread's requests send (spec phase 4): Anthropic-style threads only; threads from
-// before phase 4 run at the default.
+// The effort a request to `modelId` sends (spec phase 4): Anthropic-style models and compatible
+// ones the owner flagged as reasoning; threads from before phase 4 run at the default.
 export const effortFor = (
   thread: Doc<"threads">,
   provider: Doc<"providers"> | null,
+  modelId: string = thread.modelId,
 ) =>
-  provider?.apiStyle === "anthropic"
+  supportsEffort(provider, modelId)
     ? (thread.effort ?? DEFAULT_EFFORT)
     : undefined;
 
@@ -646,8 +646,9 @@ async function effortInForce(
   thread: Doc<"threads">,
   user: Doc<"messages">,
   provider: Doc<"providers"> | null,
+  modelId: string,
 ) {
-  const base = effortFor(thread, provider);
+  const base = effortFor(thread, provider, modelId);
   if (!base) return undefined;
   if (user.effort) return user.effort;
   const ancestors = await Promise.all(
@@ -775,7 +776,7 @@ async function startReply(
       model: modelId,
       providerId: provider?._id ?? thread.providerId,
       outputMode,
-      effort: await effortInForce(ctx, thread, user, provider),
+      effort: await effortInForce(ctx, thread, user, provider, modelId),
     },
     [...(await ancestorIds(ctx, user)), user._id],
   );
@@ -1043,8 +1044,10 @@ export const setThreadEffort = mutation({
     const ownerId = await requireOwner(ctx);
     const thread = await ownedThread(ctx, ownerId, threadId);
     if (
-      (await ctx.db.get("providers", thread.providerId))?.apiStyle !==
-      "anthropic"
+      !supportsEffort(
+        await ctx.db.get("providers", thread.providerId),
+        thread.modelId,
+      )
     ) {
       throw new ConvexError("This provider has no effort setting");
     }
@@ -1296,7 +1299,7 @@ export const generationInput = internalQuery({
           ? thread.toolSet.map(toDefinition)
           : undefined,
       maxTokens: MODE_MAX_TOKENS[message.outputMode ?? "normal"],
-      effort: oneOff ? message.effort : effortFor(thread, provider),
+      effort: oneOff ? message.effort : effortFor(thread, provider, model),
       cacheTtl: requestCacheTtl(settings?.keepaliveEnabled, ancestors.length),
     };
   },

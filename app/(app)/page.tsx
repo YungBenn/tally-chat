@@ -170,13 +170,16 @@ export default function NewThread() {
     choice ??
     options.find((o) => o.value === defaultModel)?.value ??
     options[0]?.value;
-  // Effort is an Anthropic-style setting (spec phase 4); other providers get no control.
-  const anthropic =
-    providers?.find((p) => p._id === selected?.split("|")[0])?.apiStyle ===
-    "anthropic";
-  const selectedModel = providers
-    ?.find((p) => p._id === selected?.split("|")[0])
-    ?.models.find((m) => m.id === selected?.split("|")[1]);
+  const selectedProvider = providers?.find(
+    (p) => p._id === selected?.split("|")[0],
+  );
+  const selectedModel = selectedProvider?.models.find(
+    (m) => m.id === selected?.split("|")[1],
+  );
+  // Effort is for Anthropic models and compatible models flagged as reasoning (spec phase 4).
+  const hasEffort =
+    selectedProvider?.apiStyle === "anthropic" ||
+    selectedModel?.reasoning === true;
   const vision = selectedModel?.vision === true;
   const toolPicker = useToolPicker(selectedModel?.tools === true);
 
@@ -221,7 +224,7 @@ export default function NewThread() {
                     selected={selected}
                     onPick={setChoice}
                   />
-                  {anthropic && (
+                  {hasEffort && (
                     <EffortControl value={effort} onChange={setEffort} />
                   )}
                   <ModeControl value={mode} onChange={setMode} />
@@ -270,7 +273,7 @@ export default function NewThread() {
               const threadId = await startThread({
                 providerId: providerId as Id<"providers">,
                 modelId,
-                effort: anthropic ? effort : undefined,
+                effort: hasEffort ? effort : undefined,
                 content: text,
                 mode,
                 images: images.length ? images : undefined,
