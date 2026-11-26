@@ -35,6 +35,7 @@ import {
   defaultEffortFor,
   effortValidator,
   higherEffort,
+  lowerEffort,
   supportsEffort,
   type Effort,
 } from "./lib/effort";
@@ -320,8 +321,11 @@ const messageView = v.object({
   usage: v.optional(usageValidator),
   costMicroUsd: v.optional(v.number()),
   truncated: v.optional(v.boolean()),
+  truncatedThinking: v.optional(v.boolean()),
+  outputMode: v.optional(outputModeValidator),
   effort: v.optional(effortValidator),
   retryEffort: v.optional(effortValidator), // what "Retry at higher effort" would run at
+  retryLowerEffort: v.optional(effortValidator), // what "Retry at lower effort" would run at
   images: v.optional(
     v.array(
       v.object({
@@ -439,6 +443,8 @@ export const getThread = query({
         usage: m.usage,
         costMicroUsd: m.costMicroUsd,
         truncated: m.truncated,
+        truncatedThinking: m.truncatedThinking,
+        outputMode: m.outputMode,
         effort: m.effort,
         // What "Retry at higher effort" would run at; absent when it can't (max, or a model
         // that doesn't take per-message effort).
@@ -448,6 +454,13 @@ export const getThread = query({
           !isCheaperReply(m, thread) &&
           supportsPerMessageEffort(thread.modelId)
             ? higherEffort(m.effort)
+            : undefined,
+        retryLowerEffort:
+          m.role === "assistant" &&
+          m.effort &&
+          !isCheaperReply(m, thread) &&
+          supportsPerMessageEffort(thread.modelId)
+            ? lowerEffort(m.effort)
             : undefined,
         images: m.images
           ? await Promise.all(
@@ -980,9 +993,13 @@ export const retry = mutation({
     mode: v.optional(outputModeValidator),
     model: v.optional(replyModelValidator), // retry with this model (spec phase 7)
     higherEffort: v.optional(v.boolean()), // one effort level above this reply's, for the retry alone
+    lowerEffort: v.optional(v.boolean()), // one level below, for the retry alone
   },
   returns: v.null(),
-  handler: async (ctx, { messageId, mode, model, higherEffort: higher }) => {
+  handler: async (
+    ctx,
+    { messageId, mode, model, higherEffort: higher, lowerEffort: lower },
+  ) => {
     const ownerId = await requireOwner(ctx);
     const reply = await ownedMessage(ctx, ownerId, messageId);
     if (reply.role !== "assistant" || !reply.parentId)
@@ -990,15 +1007,21 @@ export const retry = mutation({
     const thread = await ownedThread(ctx, ownerId, reply.threadId);
     await assertNotStreaming(ctx, thread);
     let retryEffort: Effort | undefined;
-    if (higher) {
+    if (higher || lower) {
       if (model)
         throw new ConvexError(
           "Change effort on a reply from the thread's own model",
         );
       await assertPerMessageEffort(ctx, thread);
-      retryEffort = reply.effort && higherEffort(reply.effort);
+      retryEffort =
+        reply.effort &&
+        (higher ? higherEffort(reply.effort) : lowerEffort(reply.effort));
       if (!retryEffort)
-        throw new ConvexError("This reply is already at max effort");
+        throw new ConvexError(
+          higher
+            ? "This reply is already at max effort"
+            : "This reply is already at low effort",
+        );
     }
     await startReply(
       ctx,
@@ -1569,10 +1592,13 @@ export const finalize = internalMutation({
           declined: [],
         });
     } else {
+      const text = parts ? joinText(parts) : content;
       await ctx.db.patch("messages", messageId, {
         ...metered,
         status: end.status,
-        content: parts ? joinText(parts) : content,
+        content: text,
+        truncatedThinking:
+          end.truncated && !end.hitStepLimit && !text.trim() ? true : undefined,
         error: end.error,
         truncated: end.truncated,
         hitStepLimit: end.hitStepLimit,

@@ -459,7 +459,13 @@ function AssistantMessage({ m, highlighted, isLast }: { m: ThreadMessage; highli
           {m.status === "stopped" && <Badge>Stopped</Badge>}
           {m.truncated && (
             <Badge tone="warning" dot>
-              {m.hitStepLimit ? "Stopped after 10 steps" : m.approvalExpired ? "Approval timed out" : "Hit the output limit"}
+              {m.hitStepLimit
+                ? "Stopped after 10 steps"
+                : m.approvalExpired
+                  ? "Approval timed out"
+                  : m.truncatedThinking
+                    ? "Cut off while thinking"
+                    : "Hit the output limit"}
             </Badge>
           )}
           {m.pinned && <Badge tone="accent">Pinned</Badge>}
@@ -483,7 +489,26 @@ function AssistantMessage({ m, highlighted, isLast }: { m: ThreadMessage; highli
           </MessageActions>
         </div>
       )}
-      {m.truncated && isLast && (
+      {m.truncatedThinking && (
+        <div className="flex flex-wrap items-center gap-2.5">
+          {m.retryLowerEffort && (
+            <UiButton
+              variant="outline"
+              size="sm"
+              icon={<IconRefresh />}
+              onClick={() => void retry({ messageId: m._id, mode, lowerEffort: true })}
+            >
+              Retry at lower effort
+            </UiButton>
+          )}
+          {m.outputMode !== "long" && (
+            <UiButton variant="outline" size="sm" icon={<IconRefresh />} onClick={() => void retry({ messageId: m._id, mode: "long" })}>
+              Retry in long mode
+            </UiButton>
+          )}
+        </div>
+      )}
+      {m.truncated && !m.truncatedThinking && isLast && (
         <div className="flex items-center gap-2.5">
           <UiButton variant="outline" size="sm" icon={<IconPlayerPlay />} onClick={onContinue}>
             Continue

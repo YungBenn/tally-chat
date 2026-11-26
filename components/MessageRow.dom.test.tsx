@@ -91,6 +91,23 @@ test("Retry at higher effort shows only when the reply has a next level, and pri
   delete (reply as { retryEffort?: string }).retryEffort;
 });
 
+test("a reply cut off while thinking offers the two retries and no Continue", () => {
+  const cut = { ...reply, truncated: true, truncatedThinking: true, retryLowerEffort: "medium" } as unknown as ThreadMessage;
+  mount(cut);
+  const text = () => document.body.textContent;
+  expect(text()).toContain("Cut off while thinking");
+  expect(text()).toContain("Retry at lower effort");
+  expect(text()).toContain("Retry in long mode");
+  expect(text()).not.toContain("Continue");
+  unmount();
+  mount({ ...cut, retryLowerEffort: undefined, outputMode: "long" } as ThreadMessage);
+  expect(text()).not.toContain("Retry at lower effort");
+  expect(text()).not.toContain("Retry in long mode");
+  unmount();
+  mount({ ...reply, truncated: true } as ThreadMessage);
+  expect(text()).toContain("Continue");
+});
+
 test("a stored thinking summary is collapsed above the answer and expands on press", async () => {
   mount({ ...reply, thinking: "Weighing the options." });
   const head = document.querySelector<HTMLButtonElement>(".tc-thinking-summary-head")!;
