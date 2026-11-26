@@ -81,7 +81,7 @@ async function setup(opts: { steps: Step[] | ((body: Body, n: number) => Step); 
         if (body.max_tokens === 512) return new Response(sse(messageStart({ input_tokens: 1 }), textDelta("Title"), messageDelta({ output_tokens: 1 }), messageStop)); // title job
         n += 1;
         const step = typeof opts.steps === "function" ? opts.steps(body, n) : (opts.steps[n - 1] ?? { text: "done" });
-        const events: (string | Gate)[] = [messageStart({ input_tokens: 100 * n, cache_read_input_tokens: 0 })];
+        const events: (string | Gate)[] = [messageStart({ input_tokens: 1000 * n, cache_read_input_tokens: 0 })];
         if (step.gate) events.push(step.gate); // holds the step before its text
         let index = 0;
         if (step.thinking) {
@@ -186,16 +186,16 @@ describe("the tool loop on Anthropic", () => {
     await s.send("Go");
     const [reply] = await s.replies();
     expect(reply.steps).toHaveLength(3);
-    expect(reply.steps!.map((x) => x.usage.inputTokens)).toEqual([100, 200, 300]);
-    expect(reply.usage).toMatchObject({ inputTokens: 600, outputTokens: 30 });
+    expect(reply.steps!.map((x) => x.usage.inputTokens)).toEqual([1000, 2000, 3000]);
+    expect(reply.usage).toMatchObject({ inputTokens: 6000, outputTokens: 30 });
     expect(reply.costMicroUsd).toBe(reply.steps!.reduce((sum, x) => sum + x.costMicroUsd!, 0));
     const turn = (await s.owner.query(api.inspector.turn, { messageId: reply._id }))!;
-    expect(turn.steps.map((x) => x.usage.inputTokens)).toEqual([100, 200, 300]);
+    expect(turn.steps.map((x) => x.usage.inputTokens)).toEqual([1000, 2000, 3000]);
     // The inspector measures the next request from the last step: it holds every earlier one.
     const view = (await s.owner.query(api.inspector.get, { threadId: s.threadId }))!;
     const [tools, system, turns] = view.layers;
     expect([tools.kind, system.kind, turns.kind]).toEqual(["tools", "system", "turns"]);
-    expect(turns.tokens).toBe(300 + 10 - tools.tokens - system.tokens);
+    expect(turns.tokens).toBe(3000 + 10 - tools.tokens - system.tokens);
     // The usage rollups saw every step too.
     const rollup = await s.t.run(async (ctx) => (await ctx.db.query("dailyUsage").collect()).find((r) => r.dimension === "thread")!);
     expect(rollup.calls).toBe(4); // three steps and the title

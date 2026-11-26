@@ -450,11 +450,11 @@ describe("one turn", () => {
 });
 
 describe("edit hints", () => {
-  // Three turns whose replies report requests of 5,000, 10,000 and 15,000 tokens, 100 out each.
+  // Three turns whose replies report requests of 6,000, 11,000 and 16,000 tokens, 100 out each.
   const seedTurns = (s: Awaited<ReturnType<typeof setup>>) =>
     s.t.run(async (ctx) => {
       const ids: Id<"messages">[] = [];
-      for (const size of [5000, 10_000, 15_000]) {
+      for (const size of [6000, 11_000, 16_000]) {
         for (const role of ["user", "assistant"] as const) {
           ids.push(
             await ctx.db.insert("messages", {
@@ -489,14 +489,14 @@ describe("edit hints", () => {
   test("editing further back rewrites more of the cache, so the extra cost grows; the first message is free to edit", async () => {
     const s = await setup([]);
     const ids = await seedTurns(s);
-    // Continuing reads 15,100 tokens at $0.10/MTok. Editing U2 writes everything after the system
-    // prompt up to it (5,100 - system) at $2.50/MTok; editing U3, 10,100 - system.
-    const continuing = 15_100 * 0.1;
+    // Continuing reads 16,100 tokens at $0.10/MTok. Editing U2 writes everything after the system
+    // prompt up to it (6,100 - system) at $2.50/MTok; editing U3, 11,100 - system.
+    const continuing = 16_100 * 0.1;
     const extra = (before: number) =>
       Math.round(SYSTEM * 0.1 + (before - SYSTEM) * 2.5 - continuing);
     expect((await s.inspect()).editHints).toEqual([
-      { messageId: ids[2], extraMicroUsd: extra(5_100) },
-      { messageId: ids[4], extraMicroUsd: extra(10_100) },
+      { messageId: ids[2], extraMicroUsd: extra(6_100) },
+      { messageId: ids[4], extraMicroUsd: extra(11_100) },
     ]);
   });
 

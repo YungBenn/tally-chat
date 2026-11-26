@@ -292,7 +292,7 @@ describe("output ceilings by effort", () => {
 });
 
 describe("the concise system prompt", () => {
-  test("new threads use version 2; a thread started on version 1 keeps it", async () => {
+  test("new threads use version 3; threads started on versions 1 and 2 keep their own bytes", async () => {
     const s = await setup();
     await s.owner.mutation(api.chat.send, {
       threadId: s.anthropicThread,
@@ -307,11 +307,20 @@ describe("the concise system prompt", () => {
       ctx.db.patch("threads", older, { systemPromptVersion: 1 }),
     );
     await s.owner.mutation(api.chat.send, { threadId: older, content: "Hi" });
+    const mid = await s.thread(
+      (await s.t.run((ctx) => ctx.db.query("providers").first()))!._id,
+      "claude-sonnet-5-5",
+    );
+    await s.t.run((ctx) =>
+      ctx.db.patch("threads", mid, { systemPromptVersion: 2 }),
+    );
+    await s.owner.mutation(api.chat.send, { threadId: mid, content: "Hi" });
     await s.settle();
-    const [newer, old] = s
+    const [newer, old, middle] = s
       .replies()
       .map((b) => (b.system as { text: string }[])[0].text);
-    expect(newer).toBe(SYSTEM_PROMPTS[2]);
+    expect(newer).toBe(SYSTEM_PROMPTS[3]);
     expect(old).toBe(SYSTEM_PROMPTS[1]);
+    expect(middle).toBe(SYSTEM_PROMPTS[2]);
   });
 });
