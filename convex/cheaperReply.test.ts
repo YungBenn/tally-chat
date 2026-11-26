@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
+import { tagged } from "../test/untagged";
 import { messageDelta, messageStart, messageStop, oaiDelta, oaiDone, oaiFinish, sse, textDelta } from "../test/sse";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -76,7 +77,7 @@ describe("reply with another model, once", () => {
     await s.send("Quick one", { providerId: s.openaiId, modelId: "gpt-5" });
     const oai = fake!.requests.find((r) => r.url === "https://api.openai.com/v1/chat/completions")!.body as Body;
     expect(oai.model).toBe("gpt-5");
-    expect(oai.messages.map((m) => m.content)).toEqual(expect.arrayContaining(["First", "ok", "Quick one"]));
+    expect(oai.messages.map((m) => m.content)).toEqual(expect.arrayContaining([tagged("First"), "ok", "Quick one"]));
     expect(JSON.stringify(oai)).not.toContain("effort"); // no effort outside Anthropic style
 
     const after = (await s.thread())!;

@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
+import { tagged } from "../test/untagged";
 import { gate, gatedStream, messageDelta, messageStart, messageStop, sse, streamError, textDelta } from "../test/sse";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -94,7 +95,7 @@ describe("sending a message", () => {
       model: "claude-sonnet-5-5",
       stream: true,
       system: [{ type: "text", text: SYSTEM_PROMPTS[CURRENT_SYSTEM_PROMPT_VERSION] }],
-      messages: [{ role: "user", content: "Hi" }],
+      messages: [{ role: "user", content: tagged("Hi") }],
     });
   });
 
@@ -108,7 +109,7 @@ describe("sending a message", () => {
 
     expect(fake.requests[1].body).toMatchObject({
       messages: [
-        { role: "user", content: "First" },
+        { role: "user", content: tagged("First") },
         { role: "assistant", content: "One" },
         { role: "user", content: "Second" },
       ],

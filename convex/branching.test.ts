@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
+import { untagged } from "../test/untagged";
 import { messageStop, sse, textDelta } from "../test/sse";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -35,7 +36,7 @@ async function setup() {
     [MESSAGES_URL]: {
       respond: (init) => {
         const { messages } = JSON.parse(String(init?.body)) as { messages: { content: string }[] };
-        return new Response(sse(textDelta(`re: ${messages.at(-1)!.content} #${++n}`), messageStop));
+        return new Response(sse(textDelta(`re: ${untagged(messages.at(-1)!.content)} #${++n}`), messageStop));
       },
     },
   });
@@ -46,7 +47,7 @@ async function setup() {
   };
   const branch = async () => (await owner.query(api.chat.getThread, { threadId }))!.messages;
   const texts = async () => (await branch()).map((m) => m.text);
-  const sentHistories = () => fake!.requests.map((r) => (r.body as { messages: { content: string }[] }).messages.map((m) => m.content));
+  const sentHistories = () => fake!.requests.map((r) => (r.body as { messages: { content: string }[] }).messages.map((m) => untagged(m.content)));
   return { t, owner, threadId, run, branch, texts, sentHistories };
 }
 

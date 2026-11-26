@@ -30,6 +30,7 @@ import { estimateTokens, tokens, usd } from "@/lib/format";
 import { transition } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { useWebSearch } from "@/components/WebSearch";
+import { DATE_TAG_TOKENS_ESTIMATE } from "@/convex/lib/dateTag";
 import { SEARCH_TOKENS_ESTIMATE } from "@/convex/lib/webSearch";
 
 type State = "cached" | "write" | "provider" | "fresh";
@@ -305,6 +306,7 @@ function InspectorBody({
     estimateTokens(draft) +
     (draftImages ?? []).reduce((sum, i) => sum + imageTokens(i), 0) +
     draftDocTokens +
+    DATE_TAG_TOKENS_ESTIMATE +
     (search ? SEARCH_TOKENS_ESTIMATE : 0);
   const rows: Layer[] = [
     ...layers.map((l) => ({

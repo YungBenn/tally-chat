@@ -1,6 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import type { ChatMessage } from "./anthropic";
+import { dateBlock } from "./dateTag";
 import { documentBlock } from "./documents";
 import { expandParts, usedTools } from "./toolParts";
 import { searchBlock } from "./webSearch";
@@ -85,6 +86,7 @@ export async function assembleHistory(
   );
   const withAttachments = (m: Doc<"messages">) =>
     [
+      ...(m.date ? [dateBlock(m.date)] : []),
       ...(m.documents ?? []).flatMap((ref) => {
         const doc = documents.get(ref.id);
         return doc ? [documentBlock(doc.name, doc.text)] : [];

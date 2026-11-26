@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch, type Recorded } from "../test/fakeFetch";
+import { untagged } from "../test/untagged";
 import { messageDelta, messageStart, messageStop, sse, textDelta } from "../test/sse";
 import { api, internal } from "./_generated/api";
 import { decryptSecret, encryptSecret } from "./lib/vault";
@@ -66,7 +67,7 @@ const fixtures = (byQuery: Record<string, Recorded> = {}) => ({
 });
 const firstUserText = (body: { messages: { role: string; content: unknown }[] }) => {
   const c = body.messages[0].content;
-  return typeof c === "string" ? c : (c as { type: string; text?: string }[]).filter((b) => b.type === "text").map((b) => b.text).join("");
+  return untagged(typeof c === "string" ? c : (c as { type: string; text?: string }[]).filter((b) => b.type === "text").map((b) => b.text).join(""));
 };
 const failedBlock = (query: string, error: string) =>
   `${query}\n\n<web_search query=${JSON.stringify(query)}>\nThe web search failed (${error}), so there are no results.\n</web_search>`;
@@ -182,7 +183,7 @@ describe("searching before a reply", () => {
     fake = fakeFetch(fixtures({ Hi: { body: RESULTS } }));
     await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Hi", search: true });
     const view = await s.owner.query(api.inspector.get, { threadId: s.threadId });
-    expect(view!.layers.find((l) => l.kind === "turns")).toMatchObject({ tokens: 1 + 900, estimated: true });
+    expect(view!.layers.find((l) => l.kind === "turns")).toMatchObject({ tokens: 1 + 900 + 15, estimated: true });
     await s.settle();
   });
 

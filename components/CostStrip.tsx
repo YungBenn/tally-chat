@@ -12,6 +12,7 @@ import { nextSendMicroUsd } from "@/lib/nextSend";
 import { rollCells } from "@/lib/rolling";
 import { useThreadCache } from "@/lib/useCacheState";
 import { useWebSearch } from "@/components/WebSearch";
+import { DATE_TAG_TOKENS_ESTIMATE } from "@/convex/lib/dateTag";
 import { SEARCH_FEE_MICRO_USD_ESTIMATE, SEARCH_TOKENS_ESTIMATE } from "@/convex/lib/webSearch";
 
 const NO_CACHE = { expiresAt: null, keepaliveScheduled: false, lastActiveAt: null };
@@ -135,7 +136,7 @@ export default function CostStrip({
     prices: next.prices,
     history: !cache.managed ? "provider" : temp === "cold" ? "cold" : "warm",
     prefixTokens: next.prefixTokens,
-    draftTokens: estimateTokens(draft) + imagesTokens(draftImages) + draftDocTokens + (search ? SEARCH_TOKENS_ESTIMATE : 0),
+    draftTokens: estimateTokens(draft) + imagesTokens(draftImages) + draftDocTokens + DATE_TAG_TOKENS_ESTIMATE + (search ? SEARCH_TOKENS_ESTIMATE : 0),
     // A reply can't run past the chosen mode's limit.
     expectedOutputTokens:
       next.expectedOutputTokens === null ? null : Math.min(next.expectedOutputTokens, MODE_MAX_TOKENS[mode]),

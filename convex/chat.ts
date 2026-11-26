@@ -16,6 +16,7 @@ import { patchThreadState, threadState } from "./threadState";
 import { coveredIds, scheduleCondense } from "./condense";
 import { assertWithinBudget, BUDGET_REACHED, budgetReached } from "./lib/budget";
 import { ancestorIds, insertMessage } from "./lib/ancestors";
+import { dateLine } from "./lib/dateTag";
 import { assembleHistory, latestCheckpoint } from "./lib/context";
 import {
   MODE_MAX_TOKENS,
@@ -609,6 +610,16 @@ async function appendUserMessage(
   if (effort) await assertPerMessageEffort(ctx, thread);
   if (images?.length)
     await assertImagesAllowed(ctx, thread, images, replyModel);
+  const path = parent ? [...(await ancestorIds(ctx, parent)), parent._id] : [];
+  // The date line goes on the branch's first message and whenever the local day changes from the
+  // latest one stored on the branch; decided here, once, from the clock and the setting as they are now.
+  const settings = await ctx.db
+    .query("settings")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", thread.ownerId))
+    .unique();
+  const today = dateLine(Date.now(), settings?.timeZone);
+  const earlier = await Promise.all(path.map((id) => ctx.db.get("messages", id)));
+  const lastDate = earlier.findLast((m) => m?.date)?.date;
   const id = await insertMessage(
     ctx,
     {
@@ -622,8 +633,9 @@ async function appendUserMessage(
       images: images?.length ? images : undefined,
       search: search || undefined,
       documents: documents?.length ? documents : undefined,
+      date: today === lastDate ? undefined : today,
     },
-    parent ? [...(await ancestorIds(ctx, parent)), parent._id] : [],
+    path,
   );
   return (await ctx.db.get("messages", id))!;
 }

@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
+import { tagged } from "../test/untagged";
 import {
   messageDelta,
   messageStart,
@@ -157,7 +158,7 @@ describe("images in Anthropic threads", () => {
     const [first] = s.replies();
     expect(first.messages[0]).toEqual({
       role: "user",
-      content: [imageBlock, { type: "text", text: "What is this?" }],
+      content: [imageBlock, { type: "text", text: tagged("What is this?") }],
     });
 
     const [user, reply] = (await s.owner.query(api.chat.getThread, {
@@ -199,7 +200,7 @@ describe("images in Anthropic threads", () => {
     await s.t.finishAllScheduledFunctions(() => {});
     expect(s.replies().at(-1)!.messages[0]).toEqual({
       role: "user",
-      content: [imageBlock, { type: "text", text: "Describe it" }],
+      content: [imageBlock, { type: "text", text: tagged("Describe it") }],
     });
   });
 
@@ -246,7 +247,7 @@ describe("images in Anthropic threads", () => {
     await s.t.finishAllScheduledFunctions(() => {});
     expect(s.replies()[0].messages[0]).toEqual({
       role: "user",
-      content: [imageBlock, { type: "text", text: "What is this?" }],
+      content: [imageBlock, { type: "text", text: tagged("What is this?") }],
     });
     await expect(
       s.owner.mutation(api.chat.startThread, {
@@ -335,7 +336,7 @@ describe("images on OpenAI-compatible providers", () => {
     const user = body.messages.find((m) => m.role === "user")!;
     expect(user.content).toEqual([
       { type: "image_url", image_url: { url: `data:image/png;base64,${PNG_BASE64}` } },
-      { type: "text", text: "What is this?" },
+      { type: "text", text: tagged("What is this?") },
     ]);
   });
 
