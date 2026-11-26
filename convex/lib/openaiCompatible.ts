@@ -119,6 +119,10 @@ export async function* streamOpenAICompatible(
         }
       : {}),
     maxOutputTokens: req.maxTokens,
+    // Flagged models only: the API tops out at high, so xhigh and max send as high.
+    ...(req.effort
+      ? { providerOptions: { tally: { reasoningEffort: req.effort === "xhigh" || req.effort === "max" ? "high" : req.effort } } }
+      : {}),
     maxRetries: 0, // a silent retry is a second bill the user never sees
     abortSignal: signal,
   });
