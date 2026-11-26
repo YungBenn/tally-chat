@@ -159,6 +159,7 @@ export default defineSchema({
     ),
     outputMode: v.optional(outputModeValidator), // replies: the length limit asked for; absent = normal
     truncated: v.optional(v.boolean()), // replies that stopped at that limit
+    truncatedThinking: v.optional(v.boolean()), // stopped at the limit before any answer text
     // Replies that called a tool (spec phase 10): the ordered text, thinking, tool calls and results
     // of every step. content is then the text parts joined. Absent on replies without tools.
     parts: v.optional(v.array(partValidator)),

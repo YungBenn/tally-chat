@@ -169,6 +169,70 @@ describe("output modes", () => {
     });
   });
 
+  describe("cut off while thinking", () => {
+    // Every reply stops at the limit; `answer` says whether any text came out first.
+    const cutOff = async (answer: boolean) => {
+      const s = await setup();
+      fake!.restore();
+      fake = fakeFetch({
+        [ANTHROPIC]: {
+          body: sse(
+            messageStart({ input_tokens: 5, cache_read_input_tokens: 0, output_tokens: 1 }),
+            ...(answer ? [textDelta("Half an")] : []),
+            anthropicStop("max_tokens"),
+            messageStop,
+          ),
+        },
+      });
+      await s.owner.mutation(api.chat.send, {
+        threadId: s.anthropicThread,
+        content: "Hard",
+        effort: "high",
+      });
+      await s.settle();
+      return s;
+    };
+
+    test("a truncated reply with no text is marked; one with some text is not", async () => {
+      const thinking = await cutOff(false);
+      expect(await thinking.last(thinking.anthropicThread)).toMatchObject({
+        truncated: true,
+        truncatedThinking: true,
+      });
+      const answering = await cutOff(true);
+      const reply = await answering.last(answering.anthropicThread);
+      expect(reply.truncated).toBe(true);
+      expect(reply.truncatedThinking).toBeUndefined();
+    });
+
+    test("retry at lower effort and in long mode are sibling replies with their own request", async () => {
+      const s = await cutOff(false);
+      const reply = await s.last(s.anthropicThread);
+      expect(reply.retryLowerEffort).toBe("medium");
+      await s.owner.mutation(api.chat.retry, { messageId: reply._id, lowerEffort: true });
+      await s.settle();
+      const lower = s.replies().at(-1) as { max_tokens: number; messages: { output_config?: unknown }[] };
+      expect(lower.messages.at(-1)).toMatchObject({ output_config: { effort: "medium" } });
+      expect((await s.last(s.anthropicThread)).effort).toBe("medium");
+
+      await s.owner.mutation(api.chat.retry, { messageId: reply._id, mode: "long" });
+      await s.settle();
+      const long = await s.last(s.anthropicThread);
+      expect(long).toMatchObject({ outputMode: "long", effort: "high" });
+    });
+
+    test("there is no lower retry at low", async () => {
+      const s = await setup();
+      await s.owner.mutation(api.chat.send, { threadId: s.anthropicThread, content: "Hi" });
+      await s.settle();
+      const reply = await s.last(s.anthropicThread);
+      expect(reply.retryLowerEffort).toBeUndefined();
+      await expect(
+        s.owner.mutation(api.chat.retry, { messageId: reply._id, lowerEffort: true }),
+      ).rejects.toThrow("already at low");
+    });
+  });
+
   test("Continue is an ordinary next turn after a cut-off reply", async () => {
     const s = await setup("max_tokens");
     await s.owner.mutation(api.chat.send, {

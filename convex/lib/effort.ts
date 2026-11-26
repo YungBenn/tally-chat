@@ -25,6 +25,10 @@ export const DEFAULT_EFFORT: Effort = "low";
 export const higherEffort = (effort: Effort): Effort | undefined =>
   EFFORT_LEVELS[EFFORT_LEVELS.indexOf(effort) + 1];
 
+// One step down, or undefined at the bottom.
+export const lowerEffort = (effort: Effort): Effort | undefined =>
+  EFFORT_LEVELS[EFFORT_LEVELS.indexOf(effort) - 1];
+
 const MEDIUM_MODELS = new Set(["claude-opus-5-5", "claude-fable-5-2"]);
 // A new thread's starting effort. Proxies prefix ids ("cc/claude-opus-5-5"); match the last segment.
 export const defaultEffortFor = (modelId: string): Effort =>
