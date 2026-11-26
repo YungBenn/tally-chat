@@ -1,8 +1,12 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
+import { sideJobModelFor } from "./chat";
+import { ancestorIds } from "./lib/ancestors";
+import { budgetReached } from "./lib/budget";
+import { meterCall } from "./lib/metering";
 import { recordDailyUsage } from "./lib/rollups";
-import { USAGE_FIELDS, type Usage } from "./lib/usage";
-import { searchQuery, searchResultValidator } from "./lib/webSearch";
+import { USAGE_FIELDS, usageValidator, type Usage } from "./lib/usage";
+import { REWRITE_TURNS, searchQuery, searchResultValidator } from "./lib/webSearch";
 
 // The search a reply waits for: its user message asked to search and has no successful search
 // stored. A retry or a later turn reuses a successful one, so its bytes never change; a failed
@@ -18,6 +22,23 @@ export const pending = internalQuery({
       query: v.string(),
       // The Exa key's ciphertext; null: the key was removed after the message.
       keyEncrypted: v.union(v.null(), v.string()),
+      // What the query rewrite reads; null: no side-job model, or the budget is reached, so the
+      // raw message is the query.
+      rewrite: v.union(
+        v.null(),
+        v.object({
+          turns: v.array(v.object({ role: v.union(v.literal("user"), v.literal("assistant")), text: v.string() })),
+          message: v.string(),
+          providerId: v.id("providers"),
+          provider: v.object({
+            apiStyle: v.union(v.literal("anthropic"), v.literal("openai-compatible")),
+            baseUrl: v.string(),
+            apiKeyEncrypted: v.string(),
+          }),
+          model: v.string(),
+          allowlist: v.array(v.string()),
+        }),
+      ),
     }),
   ),
   handler: async (ctx, { replyId }) => {
@@ -35,13 +56,70 @@ export const pending = internalQuery({
       .query("settings")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", user.ownerId))
       .unique();
+    const thread = await ctx.db.get("threads", user.threadId);
+    const sideJob = thread && (await sideJobModelFor(ctx, thread));
+    let rewrite = null;
+    // Side jobs pause while over budget, like titles.
+    if (sideJob && !(await budgetReached(ctx, settings, Date.now()))) {
+      const before = (await ancestorIds(ctx, user)).slice(-REWRITE_TURNS);
+      const turns = [];
+      for (const id of before) {
+        const m = await ctx.db.get("messages", id);
+        if (m && m.content && (m.role === "user" || m.role === "assistant")) turns.push({ role: m.role, text: m.content });
+      }
+      const { apiStyle, baseUrl, apiKeyEncrypted } = sideJob.provider;
+      rewrite = {
+        turns,
+        message: user.content,
+        providerId: sideJob.provider._id,
+        provider: { apiStyle, baseUrl, apiKeyEncrypted },
+        model: sideJob.model,
+        allowlist: settings?.allowlistedHosts ?? [],
+      };
+    }
     return {
       messageId: user._id,
       ownerId: user.ownerId,
       threadId: user.threadId,
       query: searchQuery(user.content),
       keyEncrypted: settings?.searchKeyEncrypted ?? null,
+      rewrite,
     };
+  },
+});
+
+// Meters the query rewrite as a side job and returns its cost. A deleted thread has nothing left
+// to bill against, like a title.
+export const saveRewrite = internalMutation({
+  args: {
+    threadId: v.id("threads"),
+    providerId: v.id("providers"),
+    model: v.string(),
+    usage: usageValidator,
+    reports: v.optional(v.object({ caching: v.boolean(), reasoning: v.boolean() })),
+    reportedCostMicroUsd: v.optional(v.number()),
+  },
+  returns: v.union(v.null(), v.number()),
+  handler: async (ctx, { threadId, providerId, model, usage, reports, reportedCostMicroUsd }) => {
+    const thread = await ctx.db.get("threads", threadId);
+    if (!thread) return null;
+    const cost = await meterCall(ctx, {
+      ownerId: thread.ownerId,
+      threadId,
+      providerId,
+      model,
+      normalized: { usage, reports, reportedCostMicroUsd },
+    });
+    await ctx.db.insert("sideJobs", {
+      ownerId: thread.ownerId,
+      threadId,
+      kind: "rewrite",
+      providerId,
+      model,
+      usage,
+      costMicroUsd: cost ?? undefined,
+    });
+    return cost;
   },
 });
 
@@ -52,9 +130,11 @@ export const save = internalMutation({
     ownerId: v.id("users"),
     threadId: v.id("threads"),
     query: v.string(),
+    queries: v.optional(v.array(v.string())),
     results: v.array(searchResultValidator),
     error: v.optional(v.string()),
     costMicroUsd: v.optional(v.number()),
+    rewriteCostMicroUsd: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, { messageId, ownerId, threadId, ...search }) => {

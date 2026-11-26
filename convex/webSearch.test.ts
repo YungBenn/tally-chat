@@ -5,6 +5,8 @@ import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch, type Recorded } from "../test/fakeFetch";
 import { messageDelta, messageStart, messageStop, sse, textDelta } from "../test/sse";
 import { api, internal } from "./_generated/api";
+import { recordDailyUsage } from "./lib/rollups";
+import { USAGE_FIELDS, type Usage } from "./lib/usage";
 import { decryptSecret, encryptSecret } from "./lib/vault";
 import schema from "./schema";
 
@@ -54,10 +56,13 @@ async function setup() {
     await settle();
   };
   const thread = async () => (await owner.query(api.chat.getThread, { threadId }))!;
-  const modelRequests = () =>
-    fake!.requests.filter((r) => `${r.method} ${r.url}` === MESSAGES_URL).map((r) => r.body as { messages: { role: string; content: unknown }[] });
+  const messageRequests = () =>
+    fake!.requests.filter((r) => `${r.method} ${r.url}` === MESSAGES_URL).map((r) => r.body as { system?: unknown; messages: { role: string; content: unknown }[] });
+  const isRewrite = (b: { system?: unknown }) => JSON.stringify(b.system ?? "").includes("You write web search queries");
+  const modelRequests = () => messageRequests().filter((b) => !isRewrite(b));
+  const rewriteRequests = () => messageRequests().filter(isRewrite);
   const searchRequests = () => fake!.requests.filter((r) => `${r.method} ${r.url}` === EXA_URL);
-  return { t, ownerId, owner, threadId, saveKey, send, settle, thread, modelRequests, searchRequests };
+  return { t, ownerId, owner, threadId, saveKey, send, settle, thread, modelRequests, rewriteRequests, searchRequests };
 }
 
 const fixtures = (byQuery: Record<string, Recorded> = {}) => ({
@@ -151,6 +156,7 @@ describe("searching before a reply", () => {
     expect(user.text).toBe("What is Convex?");
     expect(user.search).toEqual({
       status: "done",
+      queries: ["What is Convex?"],
       results: [
         { title: "Convex | All gas", url: "https://www.convex.dev/" },
         { title: "Convex docs", url: "https://docs.convex.dev/" },
@@ -205,7 +211,7 @@ describe("searching before a reply", () => {
 
     expect(firstUserText(s.modelRequests()[0])).toBe(failedBlock("Hi", "HTTP 401: Invalid API key"));
     const [user, reply] = (await s.thread()).messages;
-    expect(user.search).toEqual({ status: "failed", results: [], error: "HTTP 401: Invalid API key" });
+    expect(user.search).toEqual({ status: "failed", queries: ["Hi"], results: [], error: "HTTP 401: Invalid API key" });
     expect(reply.status).toBe("done");
   });
 
@@ -225,7 +231,7 @@ describe("searching before a reply", () => {
     await s.send("Hi");
 
     const [user, reply] = (await s.thread()).messages;
-    expect(user.search).toEqual({ status: "failed", results: [], error: "fetch failed" });
+    expect(user.search).toEqual({ status: "failed", queries: ["Hi"], results: [], error: "fetch failed" });
     expect(reply.status).toBe("done");
   });
 
@@ -336,7 +342,15 @@ describe("metering searches", () => {
       const s = await setup();
       await s.saveKey();
       fake = fakeFetch({
-        [MESSAGES_URL]: { body: sse(messageStart(usage), textDelta("ok"), messageDelta({}), messageStop) },
+        // The query rewrite is metered as a side job of its own, so it answers without usage here.
+        [MESSAGES_URL]: {
+          respond: (init) =>
+            new Response(
+              JSON.stringify((JSON.parse(String(init?.body)) as { system?: unknown }).system ?? "").includes("You write web search queries")
+                ? sse(textDelta("[]"), messageStop)
+                : sse(messageStart(usage), textDelta("ok"), messageDelta({}), messageStop),
+            ),
+        },
         [EXA_URL]: exa({ Hi: { body: PRICED } }),
       });
       await s.send("Hi", search);
@@ -420,5 +434,149 @@ describe("metering searches", () => {
 
     expect((await s.thread()).messages[0].search).toMatchObject({ status: "failed" });
     expect(await exaLine(s)).toBeUndefined();
+  });
+});
+
+describe("search query rewriting", () => {
+  const rewriteTo = (reply: string | (() => Response), usage = { input_tokens: 100, output_tokens: 20 }): Recorded => ({
+    respond: (init) => {
+      const body = JSON.parse(String(init?.body)) as { system?: unknown };
+      if (!JSON.stringify(body.system ?? "").includes("You write web search queries")) return new Response(sse(textDelta("ok"), messageStop));
+      if (typeof reply === "function") return reply();
+      return new Response(sse(messageStart(usage), textDelta(reply), messageDelta({ output_tokens: usage.output_tokens }), messageStop));
+    },
+  });
+  const run = (reply: string | (() => Response), byQuery: Record<string, Recorded>) => {
+    fake = fakeFetch({ [MESSAGES_URL]: rewriteTo(reply), [EXA_URL]: exa(byQuery) });
+  };
+  const result = (url: string) => ({ title: url, url, highlights: ["h"] });
+  const stored = (s: Awaited<ReturnType<typeof setup>>) => s.t.run((ctx) => ctx.db.query("searches").collect());
+
+  test("a searched follow-up sends the rewrite the recent turns, and Exa gets the rewritten queries", async () => {
+    const s = await setup();
+    await s.saveKey();
+    run('["convex pricing plans"]', { "What is Convex?": { body: RESULTS }, "convex pricing plans": { body: RESULTS } });
+    await s.send("What is Convex?", false);
+    await s.send("What does it cost?");
+
+    const [followUp] = s.rewriteRequests();
+    expect(followUp).toBeDefined();
+    const prompt = followUp.messages[0].content as string;
+    expect(prompt).toContain("User: What is Convex?");
+    expect(prompt).toContain("Assistant: ok");
+    expect(prompt).toContain("New message: What does it cost?");
+    expect(s.searchRequests().map((r) => (r.body as { query: string }).query)).toEqual(["convex pricing plans"]);
+    const [row] = await stored(s);
+    expect(row).toMatchObject({ query: "convex pricing plans", queries: ["convex pricing plans"] });
+  });
+
+  test("reads only the last six messages before the new one", async () => {
+    const s = await setup();
+    await s.saveKey();
+    run("[]", { "msg 4": { body: RESULTS } });
+    for (let i = 0; i < 4; i++) await s.send(`msg ${i}`, false);
+    await s.send("msg 4");
+
+    const prompt = s.rewriteRequests().at(-1)!.messages[0].content as string;
+    expect(prompt.match(/^(User|Assistant): /gm)).toHaveLength(6);
+    expect(prompt).not.toContain("User: msg 0");
+    expect(prompt).toContain("User: msg 3");
+  });
+
+  test("a message with two parts runs two queries; results merge in query order, de-duplicated, capped at six", async () => {
+    const s = await setup();
+    await s.saveKey();
+    const a = ["a1", "a2", "dup", "a3"].map((n) => result(`https://x.test/${n}`));
+    const b = ["dup", "b1", "b2", "b3"].map((n) => result(`https://x.test/${n}`));
+    run('["first", "second", "third", "fourth"]', {
+      first: { body: { results: a } },
+      second: { body: { results: b } },
+      third: { body: { results: [] } },
+    });
+    await s.send("two things");
+
+    expect(s.searchRequests().map((r) => (r.body as { query: string }).query)).toEqual(["first", "second", "third"]);
+    const [row] = await stored(s);
+    expect(row.queries).toEqual(["first", "second", "third"]);
+    expect(row.query).toBe("first");
+    expect(row.results.map((r) => r.url.slice(-2))).toEqual(["a1", "a2", "up", "a3", "b1", "b2"]);
+  });
+
+  test.each([
+    ["not JSON", "I would search for convex"],
+    ["an empty array", "[]"],
+    ["an empty reply", ""],
+    ["a non-string array", "[1, 2]"],
+  ])("%s falls back to the raw message", async (_name, reply) => {
+    const s = await setup();
+    await s.saveKey();
+    run(reply, { "What is Convex?": { body: RESULTS } });
+    await s.send("What is Convex?");
+
+    expect(s.searchRequests().map((r) => (r.body as { query: string }).query)).toEqual(["What is Convex?"]);
+    expect((await stored(s))[0].queries).toEqual(["What is Convex?"]);
+  });
+
+  test("a failed rewrite call falls back to the raw message, clipped to 300 characters", async () => {
+    const s = await setup();
+    await s.saveKey();
+    const long = "q".repeat(400);
+    run(() => new Response("boom", { status: 500 }), { [long.slice(0, 300)]: { body: RESULTS } });
+    await s.send(long);
+
+    expect(s.searchRequests()).toHaveLength(1);
+    expect((await s.thread()).messages[0].search).toMatchObject({ status: "done" });
+  });
+
+  test("a rewrite is metered as a side job, counts toward the budget and shows with Exa's fee", async () => {
+    const s = await setup();
+    await s.saveKey();
+    run('["better"]', { better: { body: { ...RESULTS, costDollars: { total: 0.007 } } } });
+    await s.send("Hi");
+
+    const jobs = await s.t.run((ctx) => ctx.db.query("sideJobs").collect());
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatchObject({ kind: "rewrite", model: "claude-sonnet-5-5", usage: { inputTokens: 100, outputTokens: 20 } });
+    expect(jobs[0].costMicroUsd).toBeGreaterThan(0);
+    const search = (await s.thread()).messages[0].search!;
+    expect(search).toMatchObject({ queries: ["better"], costMicroUsd: 7000, rewriteCostMicroUsd: jobs[0].costMicroUsd });
+    const summary = await s.owner.query(api.usage.summary, { today: new Date().toISOString().slice(0, 10) });
+    expect(summary.models.find((m) => m.model === "claude-sonnet-5-5")!.costMicroUsd).toBeGreaterThanOrEqual(jobs[0].costMicroUsd!);
+  });
+
+  test("over budget, the rewrite is skipped and the raw message is searched", async () => {
+    const s = await setup();
+    await s.saveKey();
+    run('["better"]', { Hi: { body: RESULTS } });
+    await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Hi", search: true });
+    // The budget is reached after the send, while the search is still waiting to run.
+    await s.owner.mutation(api.settings.setDailyBudget, { microUsd: 1 });
+    await s.t.run((ctx) =>
+      recordDailyUsage(ctx, {
+        ownerId: s.ownerId, at: Date.now(), timeZone: undefined, model: "m", providerId: "p", threadId: s.threadId, upkeep: false,
+        usage: Object.fromEntries(USAGE_FIELDS.map((f) => [f, 0])) as Usage, costMicroUsd: 5000, savedMicroUsd: 0,
+      }),
+    );
+    await s.settle();
+
+    expect(s.rewriteRequests()).toHaveLength(0);
+    expect(s.searchRequests().map((r) => (r.body as { query: string }).query)).toEqual(["Hi"]);
+  });
+
+  test("a retry and a later turn reuse the stored search, rewrite and queries included", async () => {
+    const s = await setup();
+    await s.saveKey();
+    run('["better"]', { better: { body: RESULTS } });
+    await s.send("Hi");
+    const before = await stored(s);
+    await s.owner.mutation(api.chat.retry, { messageId: (await s.thread()).messages[1]._id });
+    await s.settle();
+    await s.send("Thanks", false);
+
+    expect(s.rewriteRequests()).toHaveLength(1);
+    expect(s.searchRequests()).toHaveLength(1);
+    expect(await stored(s)).toEqual(before);
+    const [first, retry] = s.modelRequests();
+    expect(firstUserText(retry)).toBe(firstUserText(first));
   });
 });
