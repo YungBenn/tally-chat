@@ -336,6 +336,26 @@ describe("output ceilings by effort", () => {
     expect(text(second.messages.at(-1))).not.toContain("Answer briefly");
   });
 
+  test("a retry's mode decides the brevity line, for it and for later turns on its branch", async () => {
+    const s = await setup();
+    const brief = "Answer briefly";
+    const lastUser = () => JSON.stringify(s.replies().at(-1)!.messages.findLast((m) => (m as { role: string }).role === "user"));
+    await s.owner.mutation(api.chat.send, { threadId: s.anthropicThread, content: "Quick one", mode: "quick" });
+    await s.settle();
+    await s.owner.mutation(api.chat.retry, { messageId: (await s.last(s.anthropicThread))._id, mode: "long" });
+    await s.settle();
+    expect(lastUser()).not.toContain(brief);
+    await s.owner.mutation(api.chat.send, { threadId: s.anthropicThread, content: "Next" });
+    await s.settle();
+    expect(JSON.stringify(s.replies().at(-1)!.messages)).not.toContain(brief);
+    // And the other way: a normal message retried in quick mode gets the line.
+    await s.owner.mutation(api.chat.send, { threadId: s.anthropicThread, content: "Normal one" });
+    await s.settle();
+    await s.owner.mutation(api.chat.retry, { messageId: (await s.last(s.anthropicThread))._id, mode: "quick" });
+    await s.settle();
+    expect(lastUser()).toContain(`Normal one\\n\\n${brief}`);
+  });
+
   test("messages sent before the brevity line render byte for byte as before", async () => {
     const s = await setup();
     await s.owner.mutation(api.chat.send, {

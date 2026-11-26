@@ -817,6 +817,7 @@ async function startReply(
   outputMode?: OutputMode,
   replyModel?: ReplyModel,
   retryEffort?: Effort, // a retry at higher effort: this reply alone runs at it
+  retry?: boolean, // made by Retry
 ) {
   await assertWithinBudget(ctx, thread.ownerId);
   const { provider, modelId } = await replyProvider(
@@ -837,6 +838,7 @@ async function startReply(
       model: modelId,
       providerId: provider?._id ?? thread.providerId,
       outputMode,
+      retry: retry || undefined,
       effort:
         retryEffort ??
         (await effortInForce(ctx, thread, user, provider, modelId)),
@@ -1036,6 +1038,7 @@ export const retry = mutation({
       mode,
       model,
       retryEffort,
+      true,
     );
     return null;
   },
@@ -1358,7 +1361,7 @@ export const generationInput = internalQuery({
       .withIndex("by_ownerId", (q) => q.eq("ownerId", message.ownerId))
       .unique();
     const ancestors = await ancestorIds(ctx, message);
-    const history = await assembleHistory(ctx, message.threadId, ancestors);
+    const history = await assembleHistory(ctx, message.threadId, ancestors, message);
     // A retry at higher effort: its question carries the reply's effort as a per-message change.
     const sent =
       history.messages.findLast((m) => m.effort)?.effort ??

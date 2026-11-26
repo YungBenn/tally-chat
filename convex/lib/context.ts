@@ -3,6 +3,7 @@ import type { QueryCtx } from "../_generated/server";
 import type { ChatMessage } from "./anthropic";
 import { dateBlock } from "./dateTag";
 import { documentBlock } from "./documents";
+import { QUICK_BREVITY } from "./outputModes";
 import { expandParts, usedTools } from "./toolParts";
 import { searchBlock } from "./webSearch";
 
@@ -48,10 +49,12 @@ export type History = {
   layerEnd: number;
   checkpoint: Doc<"checkpoints"> | null;
 };
+// pendingReply: the reply the history is being built for, which is not on the branch yet.
 export async function assembleHistory(
   ctx: QueryCtx,
   threadId: Id<"threads">,
   branchIds: Id<"messages">[],
+  pendingReply?: Doc<"messages">,
 ): Promise<History> {
   const branch = (
     await Promise.all(branchIds.map((id) => ctx.db.get("messages", id)))
@@ -87,8 +90,17 @@ export async function assembleHistory(
         .map(async (ref) => [ref.id, await ctx.db.get("documents", ref.id)] as const),
     ),
   );
+  // A retry's mode decides the brevity line of the message it answers, whatever mode that message
+  // was sent in; every request on a branch through the retry then renders the same bytes.
+  const brevityOf = (m: Doc<"messages">) => {
+    const reply = m._id === pendingReply?.parentId ? pendingReply : branch[(position.get(m._id) ?? -1) + 1];
+    return reply?.retry && reply.parentId === m._id && reply.outputMode
+      ? reply.outputMode === "quick" ? QUICK_BREVITY : undefined
+      : m.brevity;
+  };
   const withAttachments = (m: Doc<"messages">) => {
     const search = searches.get(m._id);
+    const brevity = brevityOf(m);
     // Format 2 puts the search block above the text; format 1 keeps it after.
     return [
       ...(m.date ? [dateBlock(m.date)] : []),
@@ -98,7 +110,7 @@ export async function assembleHistory(
       }),
       ...(search?.format ? [searchBlock(search)] : []),
       m.content,
-      ...(m.brevity ? [m.brevity] : []),
+      ...(brevity ? [brevity] : []),
       ...(search && !search.format ? [searchBlock(search)] : []),
     ].join("\n\n");
   };

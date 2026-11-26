@@ -158,6 +158,7 @@ export default defineSchema({
       ),
     ),
     outputMode: v.optional(outputModeValidator), // replies: the length limit asked for; absent = normal
+    retry: v.optional(v.boolean()), // replies made by Retry: their mode, not the user message's, decides its brevity line
     truncated: v.optional(v.boolean()), // replies that stopped at that limit
     truncatedThinking: v.optional(v.boolean()), // stopped at the limit before any answer text
     // Replies that called a tool (spec phase 10): the ordered text, thinking, tool calls and results
