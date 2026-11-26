@@ -4,7 +4,7 @@ import type { Doc } from "../_generated/dataModel";
 
 export const CONDENSE_DEFAULTS = {
   enabled: true,
-  atTokens: 30_000,
+  atTokens: 80_000,
   keepTurns: 6,
   minThreadTokens: 10_000,
   paybackTurns: 10,
@@ -24,7 +24,7 @@ export const condenseSettings = (
 });
 
 // The summary's output cap. A summary cut off at it is discarded, never saved.
-export const SUMMARY_MAX_TOKENS = 2048;
+export const SUMMARY_MAX_TOKENS = 6000;
 
 // Versioned like the system prompts: changing the wording changes every future summary.
 export const SUMMARY_PROMPTS: Record<number, string> = {
@@ -36,8 +36,18 @@ export const SUMMARY_PROMPTS: Record<number, string> = {
     "If an earlier summary is given, merge it with the new turns into one summary.",
     "Never call tools. Reply with the summary only.",
   ].join(" "),
+  2: [
+    "You condense a chat between a user and an assistant so it can continue without the full history.",
+    "Write the summary in plain text, no preamble, under these headings (skip one that has nothing):",
+    "Goals and constraints; Decisions and conclusions; Facts, names, numbers and code; Documents and sources;",
+    "Open questions and promises; Current state.",
+    "Keep exact values verbatim: numbers, names, identifiers, file paths, URLs, commands and code.",
+    "If an earlier summary is given, merge it with the new turns into one summary and do not drop any item that still holds.",
+    "Err on the side of including information: later turns may need any detail, so prefer recall over brevity.",
+    "Never call tools. Reply with the summary only.",
+  ].join(" "),
 };
-export const CURRENT_SUMMARY_PROMPT_VERSION = 1;
+export const CURRENT_SUMMARY_PROMPT_VERSION = 2;
 
 // The index (in branch) of the last message to fold, or null when nothing can be folded.
 // Folds whole turns from `cut` (the first message after the latest checkpoint), keeping the
