@@ -77,7 +77,7 @@ async function setup(
       respond: (init) => {
         const title =
           (JSON.parse(String(init?.body)) as { max_tokens: number })
-            .max_tokens === 30;
+            .max_tokens === 512;
         const usage = title
           ? { input_tokens: 20, cache_read_input_tokens: 0, output_tokens: 3 }
           : REPLY;
@@ -104,7 +104,7 @@ async function setup(
     (await owner.query(api.chat.getThread, { threadId }))!.messages;
   const titleCalls = () =>
     fake!.requests.filter(
-      (r) => (r.body as { max_tokens: number }).max_tokens === 30,
+      (r) => (r.body as { max_tokens: number }).max_tokens === 512,
     ).length;
   return { t, owner, providerId, threadId, send, messages, titleCalls };
 }

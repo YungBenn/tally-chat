@@ -79,7 +79,7 @@ async function setup() {
     await owner.mutation(api.chat.send, { threadId, content, tools });
     await t.finishAllScheduledFunctions(() => {});
   };
-  const anthropicBodies = () => fake!.requests.filter((r) => r.url.endsWith("/v1/messages") && (r.body as Body).stream && (r.body as Body).max_tokens !== 30).map((r) => r.body as Body); // title jobs (max_tokens 30) carry no tools
+  const anthropicBodies = () => fake!.requests.filter((r) => r.url.endsWith("/v1/messages") && (r.body as Body).stream && (r.body as Body).max_tokens !== 512).map((r) => r.body as Body); // title jobs (max_tokens 512) carry no tools
   return { t, owner, ownerId, anthropicId, openaiId, docsId, server, thread, send, anthropicBodies };
 }
 
@@ -177,7 +177,7 @@ describe("freezing a tool set", () => {
     await s.send(threadId, "Hi");
     await s.send(threadId, "Again");
     const sent = fake!.requests
-      .filter((r) => r.url.includes("chat/completions") && (r.body as { max_tokens?: number }).max_tokens !== 30) // not the title job
+      .filter((r) => r.url.includes("chat/completions") && (r.body as { max_tokens?: number }).max_tokens !== 512) // not the title job
       .map((r) => (r.body as { tools: unknown[] }).tools);
     expect(sent[0]).toEqual([
       { type: "function", function: { name: "docs__search", description: "Search the docs", parameters: JSON.parse(search.inputSchema) } },

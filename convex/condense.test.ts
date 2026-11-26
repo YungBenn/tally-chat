@@ -41,7 +41,7 @@ type Body = {
 const systemText = (b: Body) => (typeof b.system === "string" ? b.system : b.system.map((x) => x.text).join(""));
 const text = (c: string | Block[]) => (typeof c === "string" ? c : c.map((b) => b.text).join(""));
 const isSummaryCall = (b: Body) => systemText(b).startsWith("You condense a chat");
-const isTitleCall = (b: Body) => b.max_tokens === 30;
+const isTitleCall = (b: Body) => b.max_tokens === 512;
 
 // A fake Anthropic API whose usage grows with the request (characters / 4), so the inspector's
 // measured layer sizes behave like the real thing. Summary calls answer `summary` (or fail).

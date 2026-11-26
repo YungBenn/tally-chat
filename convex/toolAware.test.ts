@@ -53,7 +53,7 @@ async function setup() {
     [ANTHROPIC]: {
       respond: (init) => {
         const body = JSON.parse(String(init?.body)) as { max_tokens: number };
-        if (body.max_tokens === 30) return new Response(sse(messageStart({ input_tokens: 1 }), textDelta("T"), messageDelta({ output_tokens: 1 }), messageStop));
+        if (body.max_tokens === 512) return new Response(sse(messageStart({ input_tokens: 1 }), textDelta("T"), messageDelta({ output_tokens: 1 }), messageStop));
         n += 1;
         return new Response(
           n === 1

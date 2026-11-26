@@ -96,6 +96,7 @@ export async function assembleHistory(
       }),
       ...(search?.format ? [searchBlock(search)] : []),
       m.content,
+      ...(m.brevity ? [m.brevity] : []),
       ...(search && !search.format ? [searchBlock(search)] : []),
     ].join("\n\n");
   };

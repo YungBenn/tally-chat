@@ -92,7 +92,7 @@ export function normalizeOpenAIUsage(raw: OpenAIUsage): NormalizedUsage {
 }
 
 // USD per token, from the vendored LiteLLM table with priceOverrides.json winning field by field.
-type Price = { input?: number; output?: number; cacheRead?: number; cacheWrite5m?: number; cacheWrite1h?: number; contextWindow?: number };
+type Price = { input?: number; output?: number; cacheRead?: number; cacheWrite5m?: number; cacheWrite1h?: number; contextWindow?: number; maxOutput?: number };
 type PriceTable = { models: Record<string, Price> };
 
 // A router or proxy may prefix the upstream model id ("cc/claude-sonnet-5-5"); when the full id

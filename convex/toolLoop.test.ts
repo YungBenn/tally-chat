@@ -77,7 +77,7 @@ async function setup(opts: { steps: Step[] | ((body: Body, n: number) => Step); 
     [ANTHROPIC]: {
       respond: (init) => {
         const body = JSON.parse(String(init?.body)) as Body;
-        if (body.max_tokens === 30) return new Response(sse(messageStart({ input_tokens: 1 }), textDelta("Title"), messageDelta({ output_tokens: 1 }), messageStop)); // title job
+        if (body.max_tokens === 512) return new Response(sse(messageStart({ input_tokens: 1 }), textDelta("Title"), messageDelta({ output_tokens: 1 }), messageStop)); // title job
         n += 1;
         const step = typeof opts.steps === "function" ? opts.steps(body, n) : (opts.steps[n - 1] ?? { text: "done" });
         const events: (string | Gate)[] = [messageStart({ input_tokens: 100 * n, cache_read_input_tokens: 0 })];
@@ -105,7 +105,7 @@ async function setup(opts: { steps: Step[] | ((body: Body, n: number) => Step); 
     await settle();
   };
   const replyRequests = () =>
-    fake!.requests.filter((r) => r.url.endsWith("/v1/messages") && (r.body as Body).max_tokens !== 30).map((r) => r.body as Body);
+    fake!.requests.filter((r) => r.url.endsWith("/v1/messages") && (r.body as Body).max_tokens !== 512).map((r) => r.body as Body);
   const replies = () =>
     t.run(async (ctx) => (await ctx.db.query("messages").collect()).filter((m) => m.role === "assistant"));
   return { t, owner, ownerId, threadId, serverId, send, settle, replyRequests, replies, mcpCalls };
