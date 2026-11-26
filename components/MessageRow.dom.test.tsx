@@ -78,6 +78,19 @@ test("Retry with opens the model picker on the first press", async () => {
   expect(subscribed()).toBeGreaterThan(0);
 });
 
+test("Retry at higher effort shows only when the reply has a next level, and prices on open", async () => {
+  mount();
+  expect(button("Retry at higher effort")).toBeNull();
+  unmount();
+  (reply as { retryEffort?: string }).retryEffort = "high";
+  mount();
+  expect(subscribed()).toBe(0);
+  await act(async () => button("Retry at higher effort").click());
+  expect(document.body.textContent).toContain("Retry at high effort");
+  expect(subscribed()).toBeGreaterThan(0);
+  delete (reply as { retryEffort?: string }).retryEffort;
+});
+
 test("the reply details open on the first press", async () => {
   mount();
   await act(async () => button("Cost breakdown").click());

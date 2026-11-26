@@ -28,7 +28,12 @@ import {
   MAX_IMAGES_PER_MESSAGE,
   type MessageImage,
 } from "./lib/images";
-import { DEFAULT_EFFORT, effortValidator, type Effort } from "./lib/effort";
+import {
+  DEFAULT_EFFORT,
+  effortValidator,
+  higherEffort,
+  type Effort,
+} from "./lib/effort";
 import { meterCall } from "./lib/metering";
 import {
   appendStream,
@@ -310,6 +315,7 @@ const messageView = v.object({
   costMicroUsd: v.optional(v.number()),
   truncated: v.optional(v.boolean()),
   effort: v.optional(effortValidator),
+  retryEffort: v.optional(effortValidator), // what "Retry at higher effort" would run at
   images: v.optional(
     v.array(
       v.object({
@@ -424,6 +430,15 @@ export const getThread = query({
         costMicroUsd: m.costMicroUsd,
         truncated: m.truncated,
         effort: m.effort,
+        // What "Retry at higher effort" would run at; absent when it can't (max, or a model
+        // that doesn't take per-message effort).
+        retryEffort:
+          m.role === "assistant" &&
+          m.effort &&
+          !isCheaperReply(m, thread) &&
+          supportsPerMessageEffort(thread.modelId)
+            ? higherEffort(m.effort)
+            : undefined,
         images: m.images
           ? await Promise.all(
               m.images.map(async (i) => ({
@@ -755,6 +770,7 @@ async function startReply(
   user: Doc<"messages">,
   outputMode?: OutputMode,
   replyModel?: ReplyModel,
+  retryEffort?: Effort, // a retry at higher effort: this reply alone runs at it
 ) {
   await assertWithinBudget(ctx, thread.ownerId);
   const { provider, modelId } = await replyProvider(
@@ -775,7 +791,8 @@ async function startReply(
       model: modelId,
       providerId: provider?._id ?? thread.providerId,
       outputMode,
-      effort: await effortInForce(ctx, thread, user, provider),
+      effort:
+        retryEffort ?? (await effortInForce(ctx, thread, user, provider)),
     },
     [...(await ancestorIds(ctx, user)), user._id],
   );
@@ -933,21 +950,34 @@ export const retry = mutation({
     messageId: v.id("messages"),
     mode: v.optional(outputModeValidator),
     model: v.optional(replyModelValidator), // retry with this model (spec phase 7)
+    higherEffort: v.optional(v.boolean()), // one effort level above this reply's, for the retry alone
   },
   returns: v.null(),
-  handler: async (ctx, { messageId, mode, model }) => {
+  handler: async (ctx, { messageId, mode, model, higherEffort: higher }) => {
     const ownerId = await requireOwner(ctx);
     const reply = await ownedMessage(ctx, ownerId, messageId);
     if (reply.role !== "assistant" || !reply.parentId)
       throw new ConvexError("Only replies can be retried");
     const thread = await ownedThread(ctx, ownerId, reply.threadId);
     await assertNotStreaming(ctx, thread);
+    let retryEffort: Effort | undefined;
+    if (higher) {
+      if (model)
+        throw new ConvexError(
+          "Change effort on a reply from the thread's own model",
+        );
+      await assertPerMessageEffort(ctx, thread);
+      retryEffort = reply.effort && higherEffort(reply.effort);
+      if (!retryEffort)
+        throw new ConvexError("This reply is already at max effort");
+    }
     await startReply(
       ctx,
       thread,
       (await ctx.db.get("messages", reply.parentId))!,
       mode,
       model,
+      retryEffort,
     );
     return null;
   },
@@ -1268,6 +1298,12 @@ export const generationInput = internalQuery({
       .unique();
     const ancestors = await ancestorIds(ctx, message);
     const history = await assembleHistory(ctx, message.threadId, ancestors);
+    // A retry at higher effort: its question carries the reply's effort as a per-message change.
+    const sent =
+      history.messages.findLast((m) => m.effort)?.effort ??
+      effortFor(thread, provider);
+    if (!oneOff && message.effort && message.effort !== sent)
+      history.messages.at(-1)!.effort = message.effort;
     return {
       stopRequested: message.stopRequested === true,
       // When this step was queued, for the reply timing log: later steps set stepStartedAt.

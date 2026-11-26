@@ -37,6 +37,7 @@ export function withSentTurn(thread: Thread, args: SendArgs, shown: SentAttachme
     costMicroUsd: undefined,
     truncated: undefined,
     effort: undefined,
+    retryEffort: undefined,
     images: undefined,
     documents: undefined,
     search: undefined,

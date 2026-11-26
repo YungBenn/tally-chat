@@ -18,3 +18,7 @@ export const EFFORT_LEVELS: Effort[] = [
   "max",
 ];
 export const DEFAULT_EFFORT: Effort = "low";
+
+// One step up, or undefined at the top.
+export const higherEffort = (effort: Effort): Effort | undefined =>
+  EFFORT_LEVELS[EFFORT_LEVELS.indexOf(effort) + 1];

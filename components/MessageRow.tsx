@@ -2,6 +2,7 @@
 
 import {
   IconArrowsExchange,
+  IconBolt,
   IconFileText,
   IconMessages,
   IconPencil,
@@ -30,9 +31,10 @@ import { SearchSources } from "@/components/WebSearch";
 import { Button as UiButton, IconButton } from "@/components/ui/button";
 import { Badge, ErrorState } from "@/components/ui/feedback";
 import { Textarea as UiTextarea } from "@/components/ui/fields";
-import { MountOnOpen, Tooltip } from "@/components/ui/overlay";
+import { MountOnOpen, Popover, Tooltip } from "@/components/ui/overlay";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import type { Effort } from "@/convex/lib/effort";
 import { MODE_MAX_TOKENS, type OutputMode } from "@/convex/lib/outputModes";
 import { estimateTokens, tokens, usd } from "@/lib/format";
 import { isOptimistic } from "@/lib/optimisticSend";
@@ -130,6 +132,66 @@ function RetryWithMenu({ messageId }: { messageId: Id<"messages"> }) {
         trigger={trigger}
       />
     </MountOnOpen>
+  );
+}
+
+// "Retry at higher effort": one level up, for this reply alone. Mounts on first press and prices the
+// retry on the thread's own model only while open (the same estimate as "Retry with").
+function RetryHigherEffort({ messageId, effort }: { messageId: Id<"messages">; effort: Effort }) {
+  const { threadId, mode } = useThreadRow();
+  const retry = useMutation(api.chat.retry);
+  const trigger = (
+    <IdleButton
+      variant="ghost"
+      size="sm"
+      iconOnly
+      icon={<IconBolt />}
+      aria-label="Retry at higher effort"
+      title="Retry at higher effort"
+    />
+  );
+  return (
+    <MountOnOpen trigger={trigger}>
+      <Popover title="Retry at higher effort" side="top" defaultOpen trigger={trigger}>
+        <RetryHigherEstimate
+          threadId={threadId}
+          messageId={messageId}
+          effort={effort}
+          onRetry={() => void retry({ messageId, mode, higherEffort: true })}
+        />
+      </Popover>
+    </MountOnOpen>
+  );
+}
+
+function RetryHigherEstimate({
+  threadId,
+  messageId,
+  effort,
+  onRetry,
+}: {
+  threadId: Id<"threads">;
+  messageId: Id<"messages">;
+  effort: Effort;
+  onRetry: () => void;
+}) {
+  const { mode } = useThreadRow();
+  const [openedAt] = useState(() => Date.now());
+  const rows = useQuery(api.inspector.modelEstimates, {
+    threadId,
+    now: openedAt,
+    draftTokens: 0,
+    maxOutputTokens: MODE_MAX_TOKENS[mode],
+    retryOf: messageId,
+  });
+  const cost = rows?.find((r) => r.thread)?.costMicroUsd;
+  return (
+    <UiButton variant="outline" size="sm" icon={<IconBolt />} onClick={onRetry}>
+      Retry at {effort} effort
+      <span className="tc-mono text-mono-sm text-foreground-muted">
+        {rows === undefined ? "Pricing…" : cost == null ? "cost unknown" : `~${usd(cost)}`}
+      </span>
+    </UiButton>
   );
 }
 
@@ -394,6 +456,7 @@ function AssistantMessage({ m, highlighted, isLast }: { m: ThreadMessage; highli
               )}
             </Busy>
             <RetryWithMenu messageId={m._id} />
+            {m.retryEffort && <RetryHigherEffort messageId={m._id} effort={m.retryEffort} />}
             <PinButton id={m._id} pinned={m.pinned} locked={m.pinLocked} />
           </MessageActions>
         </div>
