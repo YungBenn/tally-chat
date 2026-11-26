@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
+import { tagged } from "../test/untagged";
 import {
   messageDelta,
   messageStart,
@@ -156,7 +157,7 @@ describe("per-message effort", () => {
     )!;
     expect(keepalive.headers["anthropic-beta"]).toBe(BETA);
     expect((keepalive.body as Body).messages.slice(0, 2)).toEqual([
-      { role: "user", content: "Hard question" },
+      { role: "user", content: tagged("Hard question") },
       effortMessage("high"),
     ]);
   });
@@ -173,7 +174,7 @@ describe("per-message effort", () => {
     await s.t.finishAllScheduledFunctions(() => {});
     const fork = s.replies().at(-1)!;
     expect(fork.beta).toBeUndefined();
-    expect(fork.body.messages).toEqual([{ role: "user", content: "Uno" }]);
+    expect(fork.body.messages).toEqual([{ role: "user", content: tagged("Uno") }]);
 
     await s.owner.mutation(api.chat.switchBranch, { messageId: hard._id });
     await s.owner.mutation(api.chat.edit, {

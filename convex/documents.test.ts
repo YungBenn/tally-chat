@@ -4,6 +4,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
+import { tagged } from "../test/untagged";
 import { messageStop, sse, textDelta } from "../test/sse";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -82,14 +83,14 @@ describe("sending with documents", () => {
     await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Who earns most?", documents: [doc.documentId] });
     await s.settle();
     const first = s.firstUserText();
-    expect(first).toBe('<document name="sales.csv">\nname,revenue\nacme,12\n</document>\n\nWho earns most?');
+    expect(first).toEqual(tagged('<document name="sales.csv">\nname,revenue\nacme,12\n</document>\n\nWho earns most?'));
 
     const [user, reply] = (await s.thread()).messages;
     expect(user.text).toBe("Who earns most?");
     expect(user.documents).toEqual([{ name: "sales.csv", tokens: 5 }]);
     await s.owner.mutation(api.chat.retry, { messageId: reply._id });
     await s.settle();
-    expect(s.firstUserText()).toBe(first);
+    expect(s.firstUserText()).toEqual(first);
   });
 
   test("before its reply is measured, the turn is estimated with the document", async () => {
@@ -98,7 +99,7 @@ describe("sending with documents", () => {
     const doc = await s.attach("notes.txt", "y".repeat(400));
     await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Hi", documents: [doc.documentId] });
     const view = await s.owner.query(api.inspector.get, { threadId: s.threadId });
-    expect(view!.layers.find((l) => l.kind === "turns")).toMatchObject({ tokens: 1 + 100, estimated: true });
+    expect(view!.layers.find((l) => l.kind === "turns")).toMatchObject({ tokens: 1 + 100 + 15, estimated: true });
     await s.settle();
   });
 
@@ -121,7 +122,7 @@ describe("sending with documents", () => {
     // An edit keeps the documents, like it keeps images.
     await s.owner.mutation(api.chat.edit, { messageId: (await s.thread()).messages[0]._id, content: "Read it twice" });
     await s.settle();
-    expect(s.firstUserText()).toBe('<document name="a.txt">\nalpha\n</document>\n\nRead it twice');
+    expect(s.firstUserText()).toEqual(tagged('<document name="a.txt">\nalpha\n</document>\n\nRead it twice'));
 
     await s.owner.mutation(api.chat.deleteThread, { threadId: s.threadId });
     await s.settle();
@@ -137,7 +138,7 @@ describe("starting a thread with documents", () => {
     const { providerId } = (await s.t.run((ctx) => ctx.db.get("threads", s.threadId)))!;
     const threadId = await s.owner.mutation(api.chat.startThread, { providerId, modelId: "claude-sonnet-5-5", content: "Read it", documents: [doc.documentId] });
     await s.settle();
-    expect(s.firstUserText()).toBe('<document name="a.txt">\nalpha\n</document>\n\nRead it');
+    expect(s.firstUserText()).toEqual(tagged('<document name="a.txt">\nalpha\n</document>\n\nRead it'));
     expect((await s.t.run((ctx) => ctx.db.get("documents", doc.documentId)))!.threadId).toBe(threadId);
   });
 });
@@ -169,9 +170,9 @@ describe("mentioning a thread", () => {
     expect(doc.name).toBe("Kyoto trip");
     await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Shorten it", documents: [doc.documentId] });
     await s.settle();
-    expect(s.firstUserText()).toBe(
-      '<document name="Kyoto trip">\nConversation from the thread "Kyoto trip", started 2026-11-01.\n\nUser:\nPlan Kyoto\n\n' +
-        "Assistant (claude-sonnet-5-5):\nDay 1: Fushimi Inari\n</document>\n\nShorten it",
+    expect(s.firstUserText()).toEqual(
+      tagged('<document name="Kyoto trip">\nConversation from the thread "Kyoto trip", started 2026-11-01.\n\nUser:\nPlan Kyoto\n\n' +
+        "Assistant (claude-sonnet-5-5):\nDay 1: Fushimi Inari\n</document>\n\nShorten it"),
     );
     expect((await s.thread()).messages[0].documents).toEqual([{ name: "Kyoto trip", tokens: doc.tokens, fromThreadId: source.id }]);
 

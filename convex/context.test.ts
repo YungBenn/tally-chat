@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
+import { untagged } from "../test/untagged";
 import { messageStop, sse, textDelta } from "../test/sse";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -21,7 +22,7 @@ afterEach(() => fake?.restore());
 
 type Block = { type: "text"; text: string };
 type Body = { system: Block[]; messages: { role: string; content: string | Block[] }[] };
-const text = (content: string | Block[]) => (typeof content === "string" ? content : content.map((b) => b.text).join(""));
+const text = (content: string | Block[]) => untagged(typeof content === "string" ? content : content.map((b) => b.text).join(""));
 
 async function setup() {
   const t = convexTest(schema, modules);

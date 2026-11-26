@@ -173,6 +173,7 @@ export default defineSchema({
     search: v.optional(v.boolean()), // user messages: searched the web before the reply (see searches)
     documents: v.optional(v.array(documentRefValidator)), // user messages: documents sent with it
     brevity: v.optional(v.string()), // user messages: instruction sent after the text (quick mode), frozen with it
+    date: v.optional(v.string()), // user messages: the local date line stored at send time (lib/dateTag), set on a branch's first message and when the day changes
   })
     .index("by_thread_parent", ["threadId", "parentId"])
     .index("by_status", ["status"])

@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
+import { tagged } from "../test/untagged";
 import { fakeMcp } from "../test/fakeMcp";
 import { oaiDelta, oaiDone, oaiFinish, oaiToolCall, oaiToolFinish } from "../test/sse";
 import { api } from "./_generated/api";
@@ -94,7 +95,7 @@ describe("the tool loop on OpenAI-compatible providers", () => {
     await s.owner.mutation(api.chat.approveTools, { messageId: waiting._id, declined: ["c2"] });
     await s.t.finishAllScheduledFunctions(() => {});
     const [first, second] = s.requests();
-    expect(first.messages).toEqual([expect.objectContaining({ role: "system" }), { role: "user", content: "Go" }]);
+    expect(first.messages).toEqual([expect.objectContaining({ role: "system" }), { role: "user", content: tagged("Go") }]);
     expect(second.messages.slice(2)).toEqual([
       {
         role: "assistant",

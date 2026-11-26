@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
+import { untagged } from "../test/untagged";
 import { messageDelta, messageStart, messageStop, sse, textDelta } from "../test/sse";
 import { api } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -39,7 +40,7 @@ type Body = {
   messages: { role: string; content: string | Block[] }[];
 };
 const systemText = (b: Body) => (typeof b.system === "string" ? b.system : b.system.map((x) => x.text).join(""));
-const text = (c: string | Block[]) => (typeof c === "string" ? c : c.map((b) => b.text).join(""));
+const text = (c: string | Block[]) => untagged(typeof c === "string" ? c : c.map((b) => b.text).join(""));
 const isSummaryCall = (b: Body) => systemText(b).startsWith("You condense a chat");
 const isTitleCall = (b: Body) => b.max_tokens === 512;
 

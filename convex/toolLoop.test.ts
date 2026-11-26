@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
+import { tagged } from "../test/untagged";
 import { fakeMcp, type FakeMcpOptions } from "../test/fakeMcp";
 import { gate, gatedStream, type Gate } from "../test/sse";
 import {
@@ -133,7 +134,7 @@ describe("the tool loop on Anthropic", () => {
     // push a tool_use -> tool_result request over 4 alongside it.
     expect(first.cache_control).toEqual(expect.objectContaining({ type: "ephemeral" }));
     expect(second.cache_control).toBeUndefined();
-    expect(first.messages).toEqual([{ role: "user", content: "Find the cache docs" }]);
+    expect(first.messages).toEqual([{ role: "user", content: tagged("Find the cache docs") }]);
     expect(second.messages.slice(1)).toEqual([
       { role: "assistant", content: [{ type: "text", text: "Let me look." }, { type: "tool_use", id: "toolu_1", name: "docs__search", input: { q: "cache" } }] },
       { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "result of search" }] },
@@ -365,7 +366,7 @@ describe("the tool loop on Anthropic", () => {
     // The next turn carries the text only, no dangling tool_use.
     await s.send("Hello?");
     expect(s.replyRequests()[1].messages).toEqual([
-      { role: "user", content: "Go" },
+      { role: "user", content: tagged("Go") },
       { role: "assistant", content: "Working." },
       { role: "user", content: "Hello?" },
     ]);
@@ -471,7 +472,7 @@ describe("approving tool calls", () => {
     expect(s.mcpCalls).toEqual([]);
     // The thread is usable again, and the history holds no unanswered call.
     await s.send("Hi");
-    expect(s.replyRequests()[1].messages.map((m) => m.content)).toEqual(["Clean up", "Working.", "Hi"]);
+    expect(s.replyRequests()[1].messages.map((m) => m.content)).toEqual([tagged("Clean up"), "Working.", "Hi"]);
   });
 
   test("an approval left for 30 minutes stops the reply with Continue; the expiry is scheduled when it starts waiting", async () => {
@@ -513,7 +514,7 @@ describe("approving tool calls", () => {
     const waiting = await input(requestedAt + 5 * 60_000);
     expect(waiting).not.toBeNull();
     // The prefix runs through the step's text; its unanswered call is not part of it.
-    expect(waiting!.history).toEqual([{ role: "user", content: "Clean up" }, { role: "assistant", content: "Ok." }]);
+    expect(waiting!.history).toEqual([{ role: "user", content: tagged("Clean up") }, { role: "assistant", content: "Ok." }]);
     expect(waiting!.tools).toHaveLength(2);
     expect(await input(requestedAt + 31 * 60_000)).toBeNull();
   });

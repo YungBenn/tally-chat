@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
+import { tagged } from "../test/untagged";
 import { messageDelta, messageStart, messageStop, oaiDelta, oaiDone, oaiFinish, sse, textDelta } from "../test/sse";
 import { api, internal } from "./_generated/api";
 import { cacheState } from "./lib/cacheStatus";
@@ -108,7 +109,7 @@ describe("keepalive", () => {
     // shares. 5.5 models reject a conversation ending on an assistant message (no prefill), so
     // a one-character user message follows it; with max_tokens 0 nothing is generated.
     expect(first.messages).toEqual([
-      { role: "user", content: "Hi" },
+      { role: "user", content: tagged("Hi") },
       { role: "assistant", content: [{ type: "text", text: "R1", cache_control: { type: "ephemeral", ttl: "5m" } }] },
       { role: "user", content: "." },
     ]);
