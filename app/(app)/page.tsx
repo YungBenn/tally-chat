@@ -14,7 +14,7 @@ import Composer from "@/components/Composer";
 import ModeControl from "@/components/ModeControl";
 import { ToolPickerButton, useToolPicker } from "@/components/ToolPicker";
 import { SearchToggle, useWebSearch } from "@/components/WebSearch";
-import { DEFAULT_EFFORT, type Effort } from "@/convex/lib/effort";
+import { defaultEffortFor, type Effort } from "@/convex/lib/effort";
 import type { MessageImage } from "@/convex/lib/images";
 import type { OutputMode } from "@/convex/lib/outputModes";
 import { NewThreadCostStrip } from "@/components/CostStrip";
@@ -161,7 +161,6 @@ export default function NewThread() {
   const [draftDocTokens, setDraftDocTokens] = useState(0);
   const [mode, setMode] = useState<OutputMode>("normal");
   const [effortChoice, setEffort] = useState<Effort | null>(null);
-  const effort = effortChoice ?? settings?.defaultEffort ?? DEFAULT_EFFORT;
   // The owner's default model while it's still listed, else the first one.
   const defaultModel =
     settings?.defaultModel &&
@@ -170,6 +169,10 @@ export default function NewThread() {
     choice ??
     options.find((o) => o.value === defaultModel)?.value ??
     options[0]?.value;
+  const effort =
+    effortChoice ??
+    settings?.defaultEffort ??
+    defaultEffortFor(selected?.split("|")[1] ?? "");
   // Effort is an Anthropic-style setting (spec phase 4); other providers get no control.
   const anthropic =
     providers?.find((p) => p._id === selected?.split("|")[0])?.apiStyle ===

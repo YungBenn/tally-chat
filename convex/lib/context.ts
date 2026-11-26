@@ -99,9 +99,10 @@ export async function assembleHistory(
   // Per-message effort and images ride along on user messages; the adapter turns them into
   // their own blocks, so request bytes depend only on stored data.
   const toChat = (m: Doc<"messages">): ChatMessage[] =>
-    // A reply that used tools goes back as its steps, results word for word (ADR 0003).
+    // A reply that used tools goes back as its steps, results word for word (ADR 0003). With a
+    // checkpoint, kept replies lose their thinking: it is about messages the summary replaced.
     m.role === "assistant" && usedTools(m.parts)
-      ? expandParts(m.parts!)
+      ? expandParts(m.parts!, !latest)
       : [
           {
             role: m.role,
