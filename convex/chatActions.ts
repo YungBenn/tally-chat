@@ -13,7 +13,7 @@ import {
 import type { CacheTtl } from "./lib/cacheStatus";
 import {
   CURRENT_SUMMARY_PROMPT_VERSION,
-  SUMMARY_MAX_TOKENS,
+  SUMMARY_REQUEST_MAX_TOKENS,
   SUMMARY_PROMPTS,
 } from "./lib/condense";
 import { callMcpTool } from "./lib/mcp";
@@ -468,7 +468,7 @@ export const condense = internalAction({
           model: input.model,
           system: SUMMARY_PROMPTS[CURRENT_SUMMARY_PROMPT_VERSION],
           messages: [{ role: "user", content: input.request }],
-          maxTokens: SUMMARY_MAX_TOKENS,
+          maxTokens: SUMMARY_REQUEST_MAX_TOKENS,
         },
         { allowlist: input.allowlist, resolve: systemResolve },
         new AbortController().signal,

@@ -136,7 +136,8 @@ describe("condensing after a reply", () => {
     const [call] = s.summaryCalls();
     expect(call.model).toBe("claude-sonnet-5-5"); // the thread's own model, not the side-job one
     expect(call.output_config).toBeUndefined(); // the model's API default effort
-    expect(call.max_tokens).toBe(6000);
+    // No effort field to keep thinking short, so the request leaves room for it above the summary's 6,000.
+    expect(call.max_tokens).toBe(16_000);
     expect(systemText(call)).toBe(SUMMARY_PROMPTS[2]);
     expect(SUMMARY_MAX_TOKENS).toBe(6000);
     const request = text(call.messages[0].content);

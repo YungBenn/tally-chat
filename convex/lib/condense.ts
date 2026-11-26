@@ -26,6 +26,9 @@ export const condenseSettings = (
 
 // The summary's output cap. A summary cut off at it is discarded, never saved.
 export const SUMMARY_MAX_TOKENS = 6000;
+// What the request asks for: the summary's cap plus room for thinking, since the thread's own
+// model runs at its API default effort (spec: no effort field) and thinking counts toward max_tokens.
+export const SUMMARY_REQUEST_MAX_TOKENS = SUMMARY_MAX_TOKENS + 10_000;
 
 // Versioned like the system prompts: changing the wording changes every future summary.
 export const SUMMARY_PROMPTS: Record<number, string> = {
