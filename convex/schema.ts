@@ -36,6 +36,7 @@ export default defineSchema({
         hidden: v.boolean(),
         vision: v.optional(v.boolean()), // accepts images; absent = no
         tools: v.optional(v.boolean()), // can call tools (spec phase 10); see lib/toolSet supportsTools
+        reasoning: v.optional(v.boolean()), // owner says it reasons, so effort is sent (answer quality ticket 13)
         favorite: v.optional(v.boolean()), // starred in the model picker; absent = no
       }),
     ),
@@ -171,6 +172,7 @@ export default defineSchema({
     images: v.optional(v.array(imageValidator)), // user messages: images sent with it, fixed at creation
     search: v.optional(v.boolean()), // user messages: searched the web before the reply (see searches)
     documents: v.optional(v.array(documentRefValidator)), // user messages: documents sent with it
+    brevity: v.optional(v.string()), // user messages: instruction sent after the text (quick mode), frozen with it
   })
     .index("by_thread_parent", ["threadId", "parentId"])
     .index("by_status", ["status"])
@@ -208,10 +210,12 @@ export default defineSchema({
   searches: defineTable({
     ownerId: v.id("users"),
     messageId: v.id("messages"),
-    query: v.string(),
+    query: v.string(), // the first of queries; older rows have only this one
+    queries: v.optional(v.array(v.string())), // every query run (query rewriting)
     results: v.array(searchResultValidator),
     error: v.optional(v.string()),
     costMicroUsd: v.optional(v.number()), // what Exa reported; absent when it reported none
+    rewriteCostMicroUsd: v.optional(v.number()), // what the query rewrite side job cost
   }).index("by_messageId", ["messageId"]),
   // A summary standing in for every message up to coversUpToId on any branch containing it
   // (ADR 0001). Stored outside the tree so condensing never rewrites messages.
@@ -221,6 +225,7 @@ export default defineSchema({
     coversUpToId: v.id("messages"),
     summary: v.string(),
     tokens: v.number(),
+    promptVersion: v.optional(v.number()), // SUMMARY_PROMPTS version; absent means 1
   }).index("by_threadId", ["threadId"]),
   // Metered model calls that are not part of the conversation (design doc S6 side jobs).
   sideJobs: defineTable({
@@ -230,6 +235,7 @@ export default defineSchema({
       v.literal("title"),
       v.literal("keepalive"),
       v.literal("condense"),
+      v.literal("rewrite"),
     ),
     providerId: v.id("providers"),
     model: v.string(),

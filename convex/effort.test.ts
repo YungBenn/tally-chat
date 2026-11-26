@@ -57,13 +57,52 @@ async function setup() {
   return { t, owner, anthropicId, openaiId, chat, anthropicBodies };
 }
 
+describe("per-model default effort", () => {
+  const stored = async (s: Awaited<ReturnType<typeof setup>>, modelId: string) => {
+    const providerId = await s.t.run(async (ctx) => {
+      const p = (await ctx.db.get("providers", s.anthropicId))!;
+      await ctx.db.patch("providers", s.anthropicId, { models: [...p.models, { id: modelId, displayName: modelId, hidden: false }] });
+      return s.anthropicId;
+    });
+    const thread = await s.owner.mutation(api.chat.createThread, { providerId, modelId });
+    await s.chat(thread);
+    return s.anthropicBodies().filter((b) => b.max_tokens !== 512).at(-1)!.output_config;
+  };
+
+  test.each([
+    ["claude-opus-5-5", "medium"],
+    ["cc/claude-opus-5-5", "medium"],
+    ["claude-fable-5-2", "medium"],
+    ["claude-sonnet-5-5", "low"],
+    ["claude-haiku-5-5", "low"],
+    ["mystery-model", "low"],
+  ])("new thread on %s sends %s", async (modelId, effort) => {
+    const s = await setup();
+    expect(await stored(s, modelId)).toEqual({ effort });
+  });
+
+  test("a saved default effort wins over the model default", async () => {
+    const s = await setup();
+    await s.owner.mutation(api.settings.setDefaultEffort, { effort: "high" });
+    expect(await stored(s, "claude-opus-5-5")).toEqual({ effort: "high" });
+  });
+
+  test("existing threads keep their stored effort when the model default changes", async () => {
+    const s = await setup();
+    const thread = await s.owner.mutation(api.chat.createThread, { providerId: s.anthropicId, modelId: "claude-sonnet-5-5" });
+    await s.owner.mutation(api.settings.setDefaultEffort, { effort: "max" });
+    await s.chat(thread);
+    expect(s.anthropicBodies().find((b) => b.max_tokens !== 512)!.output_config).toEqual({ effort: "low" });
+  });
+});
+
 describe("thread effort", () => {
   test("new Anthropic threads default to low, sent on every reply with summarized thinking", async () => {
     const s = await setup();
     const thread = await s.owner.mutation(api.chat.createThread, { providerId: s.anthropicId, modelId: "claude-sonnet-5-5" });
     await s.chat(thread);
     await s.chat(thread, "Again");
-    const replies = s.anthropicBodies().filter((b) => b.max_tokens !== 30);
+    const replies = s.anthropicBodies().filter((b) => b.max_tokens !== 512);
     expect(replies.map((b) => b.output_config)).toEqual([{ effort: "low" }, { effort: "low" }]);
     expect(replies.every((b) => JSON.stringify(b.thinking) === '{"type":"adaptive","display":"summarized"}')).toBe(true);
   });
@@ -72,7 +111,7 @@ describe("thread effort", () => {
     const s = await setup();
     const thread = await s.owner.mutation(api.chat.createThread, { providerId: s.anthropicId, modelId: "claude-sonnet-5-5", effort: "high" });
     await s.chat(thread);
-    expect(s.anthropicBodies().find((b) => b.max_tokens !== 30)!.output_config).toEqual({ effort: "high" });
+    expect(s.anthropicBodies().find((b) => b.max_tokens !== 512)!.output_config).toEqual({ effort: "high" });
     const reply = (await s.owner.query(api.chat.getThread, { threadId: thread }))!.messages.at(-1)!;
     expect(reply.effort).toBe("high");
     expect((await s.owner.query(api.inspector.get, { threadId: thread }))!.effort).toBe("high");
@@ -87,7 +126,7 @@ describe("thread effort", () => {
     await s.t.action(internal.chatActions.keepalive, { threadId: thread });
     const keepalive = s.anthropicBodies().find((b) => b.stream === false)!;
     expect(keepalive.output_config).toEqual({ effort: "medium" });
-    expect(s.anthropicBodies().find((b) => b.max_tokens === 30)!.output_config).toEqual({ effort: "low" });
+    expect(s.anthropicBodies().find((b) => b.max_tokens === 512)!.output_config).toEqual({ effort: "low" });
   });
 
   test("Anthropic threads from before phase 4 run at low; OpenAI-compatible threads send no effort", async () => {
@@ -95,7 +134,7 @@ describe("thread effort", () => {
     const old = await s.owner.mutation(api.chat.createThread, { providerId: s.anthropicId, modelId: "claude-sonnet-5-5" });
     await s.t.run((ctx) => ctx.db.patch("threads", old, { effort: undefined }));
     await s.chat(old);
-    expect(s.anthropicBodies().find((b) => b.max_tokens !== 30)!.output_config).toEqual({ effort: "low" });
+    expect(s.anthropicBodies().find((b) => b.max_tokens !== 512)!.output_config).toEqual({ effort: "low" });
 
     const oai = await s.owner.mutation(api.chat.createThread, { providerId: s.openaiId, modelId: "gpt-5", effort: "max" });
     expect((await s.t.run((ctx) => ctx.db.get("threads", oai)))!.effort).toBeUndefined();

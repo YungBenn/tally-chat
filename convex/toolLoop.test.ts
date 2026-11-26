@@ -77,7 +77,7 @@ async function setup(opts: { steps: Step[] | ((body: Body, n: number) => Step); 
     [ANTHROPIC]: {
       respond: (init) => {
         const body = JSON.parse(String(init?.body)) as Body;
-        if (body.max_tokens === 30) return new Response(sse(messageStart({ input_tokens: 1 }), textDelta("Title"), messageDelta({ output_tokens: 1 }), messageStop)); // title job
+        if (body.max_tokens === 512) return new Response(sse(messageStart({ input_tokens: 1 }), textDelta("Title"), messageDelta({ output_tokens: 1 }), messageStop)); // title job
         n += 1;
         const step = typeof opts.steps === "function" ? opts.steps(body, n) : (opts.steps[n - 1] ?? { text: "done" });
         const events: (string | Gate)[] = [messageStart({ input_tokens: 100 * n, cache_read_input_tokens: 0 })];
@@ -105,7 +105,7 @@ async function setup(opts: { steps: Step[] | ((body: Body, n: number) => Step); 
     await settle();
   };
   const replyRequests = () =>
-    fake!.requests.filter((r) => r.url.endsWith("/v1/messages") && (r.body as Body).max_tokens !== 30).map((r) => r.body as Body);
+    fake!.requests.filter((r) => r.url.endsWith("/v1/messages") && (r.body as Body).max_tokens !== 512).map((r) => r.body as Body);
   const replies = () =>
     t.run(async (ctx) => (await ctx.db.query("messages").collect()).filter((m) => m.role === "assistant"));
   return { t, owner, ownerId, threadId, serverId, send, settle, replyRequests, replies, mcpCalls };
@@ -306,6 +306,43 @@ describe("the tool loop on Anthropic", () => {
     expect(third[1].content).toEqual(expected);
     expect(third[2].content).toEqual([{ type: "tool_result", tool_use_id: "t", content: "result of search" }]);
     expect(third[3].content).toBe("Done.");
+  });
+
+  describe("thinking after a checkpoint", () => {
+    const old = { thinking: "old reasoning", signature: "sig-old" };
+    const fresh = { thinking: "fresh reasoning", signature: "sig-new" };
+    // Turn 1 is covered by a checkpoint; turn 2 is a kept tool-loop reply with thinking.
+    async function withCheckpoint(steps: Step[]) {
+      const s = await setup({ steps: [{ text: "Hi." }, { thinking: old, text: "Looking.", calls: [call("t", "search")] }, { text: "Done." }, ...steps] });
+      await s.send("First");
+      await s.send("Go");
+      const [first] = await s.replies();
+      await s.t.run((ctx) =>
+        ctx.db.insert("checkpoints", { ownerId: s.ownerId, threadId: s.threadId, coversUpToId: first._id, summary: "S", tokens: 10 }),
+      );
+      return s;
+    }
+
+    test("kept tool-loop replies are sent without thinking; text, calls and results unchanged", async () => {
+      const s = await withCheckpoint([{ text: "Next answer." }]);
+      await s.send("And then?");
+      const sent = s.replyRequests()[3].messages;
+      expect(sent.map((m) => m.role)).toEqual(["user", "user", "assistant", "user", "assistant", "user"]);
+      expect(sent[2].content).toEqual([
+        { type: "text", text: "Looking." },
+        { type: "tool_use", id: "t", name: "docs__search", input: {} },
+      ]);
+      expect(sent[3].content).toEqual([{ type: "tool_result", tool_use_id: "t", content: "result of search" }]);
+      expect(JSON.stringify(sent)).not.toMatch(/thinking/);
+    });
+
+    test("the current step of an in-progress loop keeps its thinking", async () => {
+      const s = await withCheckpoint([{ thinking: fresh, text: "Again.", calls: [call("u", "search")] }, { text: "Fine." }]);
+      await s.send("More");
+      const sent = JSON.stringify(s.replyRequests()[4].messages);
+      expect(sent).toContain("fresh reasoning");
+      expect(sent).not.toContain("old reasoning");
+    });
   });
 
   test("a stopped reply leaves no call without its result in the next request", async () => {

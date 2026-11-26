@@ -1,9 +1,14 @@
 "use client";
 
 import { SegmentedControl } from "@/components/ui/fields";
-import { MODE_MAX_TOKENS, OUTPUT_MODES, type OutputMode } from "@/convex/lib/outputModes";
+import { OUTPUT_MODES, type OutputMode } from "@/convex/lib/outputModes";
 
 const LABEL: Record<OutputMode, string> = { quick: "Quick", normal: "Normal", long: "Long" };
+const HINT: Record<OutputMode, string> = {
+  quick: "asks for a short answer",
+  normal: "matches length to the question",
+  long: "room for very long output",
+};
 
 // Quick, normal or long: how long the next reply may be (spec phase 4, S11).
 export default function ModeControl({
@@ -25,7 +30,7 @@ export default function ModeControl({
       options={OUTPUT_MODES.map((mode) => ({
         value: mode,
         label: LABEL[mode],
-        title: `${LABEL[mode]}: up to ${MODE_MAX_TOKENS[mode].toLocaleString("en-US")} tokens, thinking included`,
+        title: `${LABEL[mode]}: ${HINT[mode]}`,
       }))}
     />
   );

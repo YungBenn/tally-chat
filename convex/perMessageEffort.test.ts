@@ -91,11 +91,11 @@ async function setup(model = "claude-sonnet-5-5") {
     await owner.mutation(api.chat.send, { threadId, content, effort });
     await t.finishAllScheduledFunctions(() => {});
   };
-  // Reply requests with their headers, title side jobs (30 tokens) left out.
+  // Reply requests with their headers, title side jobs (512 tokens) left out.
   const replies = () =>
     fake!.requests
       .filter(
-        (r) => (r.body as Body).max_tokens !== 30 && (r.body as Body).stream,
+        (r) => (r.body as Body).max_tokens !== 512 && (r.body as Body).stream,
       )
       .map((r) => ({
         body: r.body as Body,

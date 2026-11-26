@@ -132,7 +132,7 @@ async function setup() {
     fake!.requests
       .filter(
         (r) =>
-          r.url.endsWith("/v1/messages") && (r.body as Body).max_tokens !== 30,
+          r.url.endsWith("/v1/messages") && (r.body as Body).max_tokens !== 512,
       )
       .map((r) => r.body as Body);
   return { t, owner, ownerId, providerId, threadId, store, image, replies };
