@@ -1362,12 +1362,13 @@ export const generationInput = internalQuery({
       .unique();
     const ancestors = await ancestorIds(ctx, message);
     const history = await assembleHistory(ctx, message.threadId, ancestors, message);
-    // A retry at higher effort: its question carries the reply's effort as a per-message change.
+    // A retry at another effort: its question carries the reply's effort as a per-message change.
+    // Only an explicit retry does; an ordinary reply's effort may come from a folded message.
     const sent =
       history.messages.findLast((m) => m.effort)?.effort ??
       effortFor(thread, provider, model);
     const retryEffort =
-      !oneOff && message.effort && message.effort !== sent
+      message.retry && !oneOff && message.effort && message.effort !== sent
         ? message.effort
         : undefined;
     if (retryEffort) history.messages.at(-1)!.effort = retryEffort;

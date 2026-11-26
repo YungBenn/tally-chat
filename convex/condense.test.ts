@@ -182,6 +182,21 @@ describe("condensing after a reply", () => {
     expect(inspector!.layers.find((l) => l.kind === "checkpoint")!.label).toBe("summary of turns\u00a01\u2060–\u20604");
   });
 
+  test("a plain reply after a checkpoint folded an effortful message is not treated as a retry", async () => {
+    const s = await setup();
+    fake = fakeFetch({ [ANTHROPIC]: provider(() => "Summary one") });
+    await s.setCondense({ condenseEnabled: false });
+    await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: `Turn 1 ${LONG}`, effort: "high" });
+    await s.t.finishAllScheduledFunctions(() => {});
+    for (let i = 2; i <= 5; i++) await s.chat(`Turn ${i} ${LONG}`);
+    await s.setCondense({ condenseEnabled: true });
+    await s.chat(`Turn 6 ${LONG}`); // folds turns 1 to 4, the effort change with them
+    expect(await s.checkpoints()).toHaveLength(1);
+    await s.chat("Turn 7");
+    // Nothing on the new message asks for an effort: the request's bytes stay what they were.
+    expect(JSON.stringify(s.replyCalls().at(-1)!.messages.slice(1))).not.toContain("output_config");
+  });
+
   test("a version 1 checkpoint keeps its bytes: the summary is sent bare, without tags", async () => {
     const s = await setup();
     fake = fakeFetch({ [ANTHROPIC]: provider(() => "unused") });
