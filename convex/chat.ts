@@ -339,6 +339,8 @@ const messageView = v.object({
       results: v.array(v.object({ title: v.string(), url: v.string() })),
       error: v.optional(v.string()),
       costMicroUsd: v.optional(v.number()),
+      queries: v.optional(v.array(v.string())),
+      rewriteCostMicroUsd: v.optional(v.number()),
     }),
   ),
 });
@@ -592,6 +594,8 @@ async function searchView(ctx: QueryCtx, messageId: Id<"messages">) {
     results: search.results.map(({ title, url }) => ({ title, url })),
     ...(search.error ? { error: search.error } : {}),
     ...(search.costMicroUsd !== undefined ? { costMicroUsd: search.costMicroUsd } : {}),
+    ...(search.queries ? { queries: search.queries } : {}),
+    ...(search.rewriteCostMicroUsd !== undefined ? { rewriteCostMicroUsd: search.rewriteCostMicroUsd } : {}),
   };
 }
 

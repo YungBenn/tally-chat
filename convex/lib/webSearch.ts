@@ -10,13 +10,68 @@ export const searchResultValidator = v.object({
   snippet: v.string(),
 });
 export type SearchResult = Infer<typeof searchResultValidator>;
+const MAX_RESULTS = 6;
+// queries: every query run, query being the first; absent on searches from before rewriting.
 // costMicroUsd: what Exa reported the search cost; absent when it reported none.
-export type StoredSearch = { query: string; results: SearchResult[]; error?: string; costMicroUsd?: number };
+// rewriteCostMicroUsd: what the query rewrite cost, when it ran and was priced.
+export type StoredSearch = {
+  query: string;
+  queries?: string[];
+  results: SearchResult[];
+  error?: string;
+  costMicroUsd?: number;
+  rewriteCostMicroUsd?: number;
+};
 
-// ponytail: the message text is the query; rewriting it into a better query costs a model call.
+// The raw message as the query: what a failed rewrite falls back to.
 export const searchQuery = (text: string) => text.slice(0, 300);
 
-const MAX_RESULTS = 6;
+export const REWRITE_SYSTEM =
+  "You write web search queries. Given the recent conversation and the user's new message, reply with a JSON array of one to three standalone search queries that find what the new message needs. Each query must make sense without the conversation. Use several queries only when the message asks about separate things. Reply with the JSON array only.";
+export const REWRITE_TURNS = 6; // messages of the branch the rewrite reads
+export const REWRITE_EXCERPT = 1500; // characters of each
+export const REWRITE_MAX_TOKENS = 300;
+export const REWRITE_TIMEOUT_MS = 5000;
+
+export function rewritePrompt(turns: { role: "user" | "assistant"; text: string }[], message: string, date?: string): string {
+  return [
+    ...(date ? [`Today's date: ${date}`, ""] : []),
+    "Recent conversation:",
+    ...turns.map((t) => `${t.role === "user" ? "User" : "Assistant"}: ${t.text.slice(0, REWRITE_EXCERPT)}`),
+    "",
+    `New message: ${message.slice(0, REWRITE_EXCERPT)}`,
+  ].join("\n");
+}
+
+// One to three queries from the rewrite's reply, each clipped to 300 characters; null when the
+// reply is not a JSON array with a usable query (the caller falls back to the raw message).
+export function parseQueries(text: string): string[] | null {
+  // The model may wrap the array in a code fence or a sentence.
+  const array = text.match(/\[[\s\S]*\]/)?.[0];
+  if (!array) return null;
+  try {
+    const parsed: unknown = JSON.parse(array);
+    if (!Array.isArray(parsed)) return null;
+    const queries = parsed
+      .filter((q): q is string => typeof q === "string")
+      .map((q) => q.trim().slice(0, 300))
+      .filter(Boolean)
+      .slice(0, 3);
+    return queries.length ? queries : null;
+  } catch {
+    return null;
+  }
+}
+
+// Each query's results in query order, a URL once, at most six.
+export function mergeResults(lists: SearchResult[][]): SearchResult[] {
+  const seen = new Set<string>();
+  return lists
+    .flat()
+    .filter((r) => !seen.has(r.url) && seen.add(r.url))
+    .slice(0, MAX_RESULTS);
+}
+
 // What a search adds before it runs: 6 results with 300-character snippets measured
 // about 870 tokens.
 // ponytail: a fixed guess for unsent and unmeasured turns; measured usage replaces it after.

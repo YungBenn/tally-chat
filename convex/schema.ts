@@ -207,10 +207,12 @@ export default defineSchema({
   searches: defineTable({
     ownerId: v.id("users"),
     messageId: v.id("messages"),
-    query: v.string(),
+    query: v.string(), // the first of queries; older rows have only this one
+    queries: v.optional(v.array(v.string())), // every query run (query rewriting)
     results: v.array(searchResultValidator),
     error: v.optional(v.string()),
     costMicroUsd: v.optional(v.number()), // what Exa reported; absent when it reported none
+    rewriteCostMicroUsd: v.optional(v.number()), // what the query rewrite side job cost
   }).index("by_messageId", ["messageId"]),
   // A summary standing in for every message up to coversUpToId on any branch containing it
   // (ADR 0001). Stored outside the tree so condensing never rewrites messages.
@@ -229,6 +231,7 @@ export default defineSchema({
       v.literal("title"),
       v.literal("keepalive"),
       v.literal("condense"),
+      v.literal("rewrite"),
     ),
     providerId: v.id("providers"),
     model: v.string(),
