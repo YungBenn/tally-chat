@@ -66,7 +66,7 @@ describe("per-model default effort", () => {
     });
     const thread = await s.owner.mutation(api.chat.createThread, { providerId, modelId });
     await s.chat(thread);
-    return s.anthropicBodies().filter((b) => b.max_tokens !== 30).at(-1)!.output_config;
+    return s.anthropicBodies().filter((b) => b.max_tokens !== 512).at(-1)!.output_config;
   };
 
   test.each([
@@ -92,7 +92,7 @@ describe("per-model default effort", () => {
     const thread = await s.owner.mutation(api.chat.createThread, { providerId: s.anthropicId, modelId: "claude-sonnet-5-5" });
     await s.owner.mutation(api.settings.setDefaultEffort, { effort: "max" });
     await s.chat(thread);
-    expect(s.anthropicBodies().find((b) => b.max_tokens !== 30)!.output_config).toEqual({ effort: "low" });
+    expect(s.anthropicBodies().find((b) => b.max_tokens !== 512)!.output_config).toEqual({ effort: "low" });
   });
 });
 
