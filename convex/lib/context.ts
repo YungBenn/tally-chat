@@ -87,17 +87,21 @@ export async function assembleHistory(
         .map(async (ref) => [ref.id, await ctx.db.get("documents", ref.id)] as const),
     ),
   );
-  const withAttachments = (m: Doc<"messages">) =>
-    [
+  const withAttachments = (m: Doc<"messages">) => {
+    const search = searches.get(m._id);
+    // Format 2 puts the search block above the text; format 1 keeps it after.
+    return [
       ...(m.date ? [dateBlock(m.date)] : []),
       ...(m.documents ?? []).flatMap((ref) => {
         const doc = documents.get(ref.id);
         return doc ? [documentBlock(doc.name, doc.text)] : [];
       }),
+      ...(search?.format ? [searchBlock(search)] : []),
       m.content,
       ...(m.brevity ? [m.brevity] : []),
-      ...(searches.get(m._id) ? [searchBlock(searches.get(m._id)!)] : []),
+      ...(search && !search.format ? [searchBlock(search)] : []),
     ].join("\n\n");
+  };
 
   // Per-message effort and images ride along on user messages; the adapter turns them into
   // their own blocks, so request bytes depend only on stored data.

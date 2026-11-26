@@ -21,7 +21,10 @@ export type StoredSearch = {
   error?: string;
   costMicroUsd?: number;
   rewriteCostMicroUsd?: number;
+  // Absent is format 1; searches are written as format 2 (SEARCH_FORMAT).
+  format?: number;
 };
+export const SEARCH_FORMAT = 2;
 
 // The raw message as the query: what a failed rewrite falls back to.
 export const searchQuery = (text: string) => text.slice(0, 300);
@@ -72,16 +75,16 @@ export function mergeResults(lists: SearchResult[][]): SearchResult[] {
     .slice(0, MAX_RESULTS);
 }
 
-// What a search adds before it runs: 6 results with 300-character snippets measured
-// about 870 tokens.
+// What a search adds before it runs: 6 results with up to 1,500-character passages, about
+// 3,000 tokens.
 // ponytail: a fixed guess for unsent and unmeasured turns; measured usage replaces it after.
-export const SEARCH_TOKENS_ESTIMATE = 900;
+export const SEARCH_TOKENS_ESTIMATE = 3000;
 // What Exa charges for a search before it reports the cost: $0.007 for an auto search with
 // highlights, as measured.
 // ponytail: a fixed guess; Exa's prices or a deep search can cost more, so read it from the
 // last stored searches if the estimate drifts.
 export const SEARCH_FEE_MICRO_USD_ESTIMATE = 7000;
-const MAX_SNIPPET = 300;
+const MAX_SNIPPET = 1500; // also the highlights budget asked of Exa
 const clip = (s: string) => (s.length > MAX_SNIPPET ? `${s.slice(0, MAX_SNIPPET - 1)}…` : s);
 
 export function parseExa(json: unknown): SearchResult[] {
@@ -110,7 +113,7 @@ export async function searchExa(apiKey: string, query: string): Promise<StoredSe
     const res = await fetch("https://api.exa.ai/search", {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": apiKey },
-      body: JSON.stringify({ query, type: "auto", numResults: MAX_RESULTS, contents: { highlights: true } }),
+      body: JSON.stringify({ query, type: "auto", numResults: MAX_RESULTS, contents: { highlights: { query, maxCharacters: MAX_SNIPPET } } }),
       // The reply waits on the search, so a stalled Exa can't hold it for long.
       signal: AbortSignal.timeout(15_000),
     });
@@ -133,7 +136,8 @@ export async function searchExa(apiKey: string, query: string): Promise<StoredSe
   }
 }
 
-// What the model sees after the message text. Changing this text changes the bytes of every
+// What the model sees with the message: after its text for format 1 searches, before it for
+// format 2 (so the question ends the message). Changing this text changes the bytes of every
 // searched message, so treat it like a system prompt.
 export function searchBlock(search: StoredSearch): string {
   const body = search.error
@@ -144,5 +148,6 @@ export function searchBlock(search: StoredSearch): string {
           "Results of a web search run for this message. Use them where they help, and cite sources by URL.",
           ...search.results.flatMap((r, i) => ["", `[${i + 1}] ${r.title}`, r.url, ...(r.snippet ? [r.snippet] : [])]),
         ];
-  return [`<web_search query=${JSON.stringify(search.query)}>`, ...body, "</web_search>"].join("\n");
+  const open = search.format === undefined ? `query=${JSON.stringify(search.query)}` : `queries=${JSON.stringify(search.queries ?? [search.query])}`;
+  return [`<web_search ${open}>`, ...body, "</web_search>"].join("\n");
 }

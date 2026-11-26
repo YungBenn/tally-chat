@@ -6,7 +6,7 @@ import { budgetReached } from "./lib/budget";
 import { meterCall } from "./lib/metering";
 import { recordDailyUsage } from "./lib/rollups";
 import { USAGE_FIELDS, usageValidator, type Usage } from "./lib/usage";
-import { REWRITE_TURNS, searchQuery, searchResultValidator } from "./lib/webSearch";
+import { REWRITE_TURNS, SEARCH_FORMAT, searchQuery, searchResultValidator } from "./lib/webSearch";
 
 // The search a reply waits for: its user message asked to search and has no successful search
 // stored. A retry or a later turn reuses a successful one, so its bytes never change; a failed
@@ -147,7 +147,7 @@ export const save = internalMutation({
         .unique();
       if (existing && !existing.error) return null;
       if (existing) await ctx.db.delete("searches", existing._id);
-      await ctx.db.insert("searches", { ownerId, messageId, ...search });
+      await ctx.db.insert("searches", { ownerId, messageId, ...search, format: SEARCH_FORMAT });
     }
     // A successful search is a metered call in the same mutation, so totals never drift from
     // their searches. Zero usage keeps hit rate and savings about caching; no cost is unpriced.
