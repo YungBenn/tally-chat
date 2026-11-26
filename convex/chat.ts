@@ -658,8 +658,14 @@ async function appendUserMessage(
     .withIndex("by_ownerId", (q) => q.eq("ownerId", thread.ownerId))
     .unique();
   const today = dateLine(Date.now(), settings?.timeZone);
-  const earlier = await Promise.all(path.map((id) => ctx.db.get("messages", id)));
-  const lastDate = earlier.findLast((m) => m?.date)?.date;
+  // Walks back from the parent and stops at the first dated message, so a long branch isn't read
+  // whole (Convex caps a mutation's reads; see lib/ancestors). The first message of every local
+  // day carries a date, so the walk is at most one day long.
+  let lastDate: string | undefined;
+  for (const id of path.toReversed()) {
+    lastDate = (await ctx.db.get("messages", id))?.date;
+    if (lastDate) break;
+  }
   const id = await insertMessage(
     ctx,
     {
