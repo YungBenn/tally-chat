@@ -34,7 +34,7 @@ import type { Doc, Id } from "../convex/_generated/dataModel";
 import type { QueryCtx } from "../convex/_generated/server";
 import { assembleHistory } from "../convex/lib/context";
 import { messagesBody, type ChatMessage } from "../convex/lib/anthropic";
-import { MODE_MAX_TOKENS, type OutputMode } from "../convex/lib/outputModes";
+import { outputCeiling, type OutputMode } from "../convex/lib/outputModes";
 import type { Effort } from "../convex/lib/effort";
 import { systemPrompt } from "../convex/lib/systemPrompts";
 import {
@@ -186,13 +186,14 @@ const tier = (model: string) => /opus|sonnet|haiku|fable/.exec(model)?.[0];
 
 function setup(c: Case, cfg: Config) {
   const s = c.settings;
+  const effort = cfg.effort ?? s.effort;
   return {
     model: cfg.model ?? s.model,
     // The app's own system prompt; the history was assembled by the app's own code at collect time.
     system: systemPrompt(cfg.promptVersion ?? s.systemPromptVersion, s.instructions),
     messages: c.history,
-    effort: cfg.effort ?? s.effort,
-    maxTokens: MODE_MAX_TOKENS[cfg.outputMode ?? s.outputMode],
+    effort,
+    maxTokens: outputCeiling(cfg.outputMode ?? s.outputMode, effort),
   };
 }
 

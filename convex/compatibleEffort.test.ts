@@ -39,9 +39,9 @@ async function setup() {
     await t.finishAllScheduledFunctions(() => {});
     return threadId;
   };
-  // The latest reply request, not the title call (max_tokens 30) that follows it.
+  // The latest reply request, not the title call (max_tokens 512) that follows it.
   const lastBody = () =>
-    fake!.requests.map((r) => r.body as Record<string, unknown>).filter((b) => b.max_tokens !== 30).at(-1)!;
+    fake!.requests.map((r) => r.body as Record<string, unknown>).filter((b) => b.max_tokens !== 512).at(-1)!;
   return { t, owner, providerId, reply, lastBody };
 }
 

@@ -36,14 +36,14 @@ async function setup(events: (string | Gate)[]) {
     [ANTHROPIC]: {
       respond: (init) => {
         const body = JSON.parse(String(init?.body)) as Body;
-        if (body.max_tokens === 30) return new Response(sse(messageStart({ input_tokens: 1 }), textDelta("Title"), messageDelta({ output_tokens: 1 }), messageStop));
+        if (body.max_tokens === 512) return new Response(sse(messageStart({ input_tokens: 1 }), textDelta("Title"), messageDelta({ output_tokens: 1 }), messageStop));
         n += 1;
         const next = [messageStart({ input_tokens: 1 }), textDelta("Next"), messageDelta({ output_tokens: 1 }), messageStop];
         return new Response(gatedStream(n === 1 ? events : next, init?.signal));
       },
     },
   });
-  const replyRequests = () => fake!.requests.filter((r) => (r.body as Body).max_tokens !== 30).map((r) => r.body as Body);
+  const replyRequests = () => fake!.requests.filter((r) => (r.body as Body).max_tokens !== 512).map((r) => r.body as Body);
   const assistant = async () => (await t.run((ctx) => ctx.db.query("messages").collect())).find((m) => m.role === "assistant")!;
   const lastReply = async () => (await owner.query(api.chat.getThread, { threadId }))!.messages.at(-1)!;
   return { t, owner, threadId, replyRequests, assistant, lastReply };
@@ -55,7 +55,7 @@ describe("summarized thinking", () => {
     await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Hi" });
     await s.t.finishAllScheduledFunctions(() => {});
     expect(s.replyRequests()[0].thinking).toEqual({ type: "adaptive", display: "summarized" });
-    const title = fake!.requests.find((r) => (r.body as Body).max_tokens === 30)!.body as Body;
+    const title = fake!.requests.find((r) => (r.body as Body).max_tokens === 512)!.body as Body;
     expect(title.thinking).toBeUndefined();
   });
 
