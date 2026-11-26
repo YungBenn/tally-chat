@@ -33,7 +33,7 @@ export const REWRITE_SYSTEM =
   "You write web search queries. Given the recent conversation and the user's new message, reply with a JSON array of one to three standalone search queries that find what the new message needs. Each query must make sense without the conversation. Use several queries only when the message asks about separate things. Reply with the JSON array only.";
 export const REWRITE_TURNS = 6; // messages of the branch the rewrite reads
 export const REWRITE_EXCERPT = 1500; // characters of each
-export const REWRITE_MAX_TOKENS = 300;
+export const REWRITE_MAX_TOKENS = 512; // thinking models spend tokens before the array, like a title
 export const REWRITE_TIMEOUT_MS = 5000;
 
 export function rewritePrompt(turns: { role: "user" | "assistant"; text: string }[], message: string, date?: string): string {

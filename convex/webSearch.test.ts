@@ -485,6 +485,8 @@ describe("search query rewriting", () => {
     expect(prompt).toContain("User: What is Convex?");
     expect(prompt).toContain("Assistant: ok");
     expect(prompt).toContain("New message: What does it cost?");
+    // Thinking side-job models spend tokens before the JSON array, so it asks for as much as a title.
+    expect((followUp as { max_tokens?: number }).max_tokens).toBe(512);
     expect(s.searchRequests().map((r) => (r.body as { query: string }).query)).toEqual(["convex pricing plans"]);
     const [row] = await stored(s);
     expect(row).toMatchObject({ query: "convex pricing plans", queries: ["convex pricing plans"] });
