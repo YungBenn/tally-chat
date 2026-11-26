@@ -5,6 +5,7 @@ import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
 import { messageDelta, messageStart, messageStop, sse, textDelta } from "../test/sse";
 import { api } from "./_generated/api";
+import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { paybackTurns, planFold } from "./lib/condense";
 import { SUMMARY_PREFIX } from "./lib/context";
@@ -522,6 +523,78 @@ describe("the cache veto", () => {
     await longThread(s, 5); // about 650 tokens: past half of claude-tiny's 1,000
     await s.chat(`Turn 6 ${LONG}`);
     expect(await s.checkpoints()).toHaveLength(1);
+  });
+});
+
+describe("the folded transcript", () => {
+  // A 5-turn thread with condensing off; `decorate` edits the stored messages before the fold.
+  async function folded(decorate: (ctx: MutationCtx, users: Doc<"messages">[], replies: Doc<"messages">[], s: Awaited<ReturnType<typeof setup>>) => Promise<void>) {
+    const s = await setup();
+    fake = fakeFetch({ [ANTHROPIC]: provider(() => "Summary one") });
+    await longThread(s, 5);
+    await s.t.run(async (ctx) => {
+      const all = await ctx.db.query("messages").collect();
+      await decorate(ctx, all.filter((m) => m.role === "user"), all.filter((m) => m.role === "assistant"), s);
+    });
+    await s.chat(`Turn 6 ${LONG}`);
+    return text(s.summaryCalls()[0].messages[0].content);
+  }
+
+  test("each folded document is named with its first 500 characters", async () => {
+    const request = await folded(async (ctx, users, _r, s) => {
+      const [u1, u5] = [users[0], users[4]];
+      const id = await ctx.db.insert("documents", { ownerId: s.ownerId, name: "spec.md", text: "d".repeat(500) + "TAIL", tokens: 1 });
+      const late = await ctx.db.insert("documents", { ownerId: s.ownerId, name: "late.md", text: "kept", tokens: 1 });
+      await ctx.db.patch("messages", u1._id, { documents: [{ id, name: "spec.md", tokens: 1 }] });
+      await ctx.db.patch("messages", u5._id, { documents: [{ id: late, name: "late.md", tokens: 1 }] });
+    });
+    expect(request).toContain("spec.md");
+    expect(request).toContain("d".repeat(500));
+    expect(request).not.toContain("TAIL");
+    expect(request).not.toContain("late.md"); // turn 5 is kept verbatim
+  });
+
+  test("each search lists its query and its results' titles and URLs, not their snippets", async () => {
+    const request = await folded(async (ctx, [u1], _r, s) => {
+      await ctx.db.patch("messages", u1._id, { search: true });
+      await ctx.db.insert("searches", {
+        ownerId: s.ownerId, messageId: u1._id, query: "convex pricing 2026",
+        results: [{ title: "Convex Pricing", url: "https://convex.dev/pricing", snippet: "SNIPPET-TEXT" }],
+      });
+    });
+    expect(request).toContain("convex pricing 2026");
+    expect(request).toContain("Convex Pricing");
+    expect(request).toContain("https://convex.dev/pricing");
+    expect(request).not.toContain("SNIPPET-TEXT");
+  });
+
+  test("each tool call shows its name, arguments clipped to 300 and its result clipped to 500, errors marked", async () => {
+    const request = await folded(async (ctx, _u, [r1]) => {
+      await ctx.db.patch("messages", r1._id, {
+        parts: [
+          { type: "toolCall", step: 1, id: "a", name: "read_file", input: JSON.stringify({ path: "p".repeat(400) }) },
+          { type: "toolResult", step: 1, id: "a", text: "r".repeat(600), status: "ok" },
+          { type: "toolCall", step: 2, id: "b", name: "run_sql", input: "{}" },
+          { type: "toolResult", step: 2, id: "b", text: "syntax boom", status: "error" },
+          { type: "text", step: 3, text: "done" },
+        ],
+      });
+    });
+    expect(request).toContain("read_file");
+    expect(request).toContain("p".repeat(280)); // the argument text, cut at 300 including its JSON wrapper
+    expect(request).not.toContain("p".repeat(301));
+    expect(request).toContain("r".repeat(500));
+    expect(request).not.toContain("r".repeat(501));
+    expect(request).toMatch(/run_sql[\s\S]*error[\s\S]*syntax boom/i);
+    expect(request).not.toMatch(/read_file[^\n]*error/i);
+  });
+
+  test("pinned messages stay out, digests included", async () => {
+    const request = await folded(async (ctx, [u1], _r, s) => {
+      const id = await ctx.db.insert("documents", { ownerId: s.ownerId, name: "pinned.md", text: "pinned body", tokens: 1 });
+      await ctx.db.patch("messages", u1._id, { pinned: true, documents: [{ id, name: "pinned.md", tokens: 1 }] });
+    });
+    expect(request).not.toContain("pinned.md");
   });
 });
 

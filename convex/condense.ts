@@ -260,11 +260,35 @@ export const input = internalQuery({
     if (await budgetReached(ctx, plan.settings, now)) return null; // side jobs pause while over budget
     const { cut, end, checkpoint, provider } = plan;
     const { apiStyle, baseUrl, apiKeyEncrypted } = provider;
+    const folded = branch.slice(cut, end + 1);
+    const documents = new Map(
+      await Promise.all(
+        folded
+          .flatMap((m) => m.documents ?? [])
+          .map(async (ref) => [ref.id, await ctx.db.get("documents", ref.id)] as const),
+      ),
+    );
+    const searches = new Map(
+      await Promise.all(
+        folded
+          .filter((m) => m.search)
+          .map(
+            async (m) =>
+              [
+                m._id,
+                await ctx.db
+                  .query("searches")
+                  .withIndex("by_messageId", (q) => q.eq("messageId", m._id))
+                  .unique(),
+              ] as const,
+          ),
+      ),
+    );
     return {
       coversUpToId: branch[end]._id,
       request: summaryRequest(
         checkpoint?.summary ?? null,
-        foldTranscript(branch.slice(cut, end + 1)),
+        foldTranscript(folded, { documents, searches }),
       ),
       providerId: provider._id,
       provider: { apiStyle, baseUrl, apiKeyEncrypted },
