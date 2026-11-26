@@ -1,4 +1,5 @@
 import { v, type Infer } from "convex/values";
+import type { Doc } from "../_generated/dataModel";
 
 // How hard the model thinks (spec phase 4, S7): Anthropic's `output_config.effort`. The 5.5 models
 // can't turn thinking off, so effort is the one control; new threads start at `low`.
@@ -25,3 +26,12 @@ export const defaultEffortFor = (modelId: string): Effort =>
   MEDIUM_MODELS.has(modelId.split("/").at(-1) ?? modelId)
     ? "medium"
     : DEFAULT_EFFORT;
+
+// Whether requests to this model carry an effort: every Anthropic model, and OpenAI-compatible
+// ones only when the owner says the model reasons (answer quality ticket 13).
+export const supportsEffort = (
+  provider: Pick<Doc<"providers">, "apiStyle" | "models"> | null,
+  modelId: string,
+) =>
+  provider?.apiStyle === "anthropic" ||
+  provider?.models.find((m) => m.id === modelId)?.reasoning === true;

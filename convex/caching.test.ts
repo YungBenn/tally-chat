@@ -57,8 +57,8 @@ async function setup(usage: object = { input_tokens: 10, cache_read_input_tokens
     await owner.mutation(api.chat.send, { threadId: thread, content });
     await t.finishAllScheduledFunctions(() => {});
   };
-  // Replies only: title side jobs (max_tokens 30) are filtered out.
-  const replies = () => fake!.requests.filter((r) => r.url.endsWith("/v1/messages") && (r.body as Body).max_tokens !== 30).map((r) => r.body as Body);
+  // Replies only: title side jobs (max_tokens 512) are filtered out.
+  const replies = () => fake!.requests.filter((r) => r.url.endsWith("/v1/messages") && (r.body as Body).max_tokens !== 512).map((r) => r.body as Body);
   return { t, owner, ownerId, threadId, openaiId, send, replies };
 }
 
@@ -129,7 +129,7 @@ describe("cache-aware Anthropic requests", () => {
   test("title side jobs are unaffected", async () => {
     const s = await setup();
     await s.send("Hi");
-    const title = fake!.requests.map((r) => r.body as Body).find((b) => b.max_tokens === 30)!;
+    const title = fake!.requests.map((r) => r.body as Body).find((b) => b.max_tokens === 512)!;
     expect(title).toBeDefined();
     expect(typeof title.system).toBe("string");
     expect(breakpoints(title)).toEqual([]);

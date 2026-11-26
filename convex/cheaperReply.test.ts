@@ -60,7 +60,7 @@ async function setup() {
     await owner.mutation(api.chat.send, { threadId, content, model });
     await t.finishAllScheduledFunctions(() => {});
   };
-  const replies = () => fake!.requests.filter((r) => (r.body as Body).max_tokens !== 30).map((r) => r.body as Body);
+  const replies = () => fake!.requests.filter((r) => (r.body as Body).max_tokens !== 512).map((r) => r.body as Body);
   const thread = () => t.run((ctx) => ctx.db.get("threads", threadId));
   const state = () => t.run((ctx) => threadState(ctx, threadId));
   return { t, owner, ownerId, anthropicId, openaiId, threadId, send, replies, thread, state };

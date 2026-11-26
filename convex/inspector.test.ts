@@ -73,7 +73,7 @@ async function setup(replyUsages: object[], model = "claude-sonnet-5-5") {
       respond: (init) => {
         const title =
           (JSON.parse(String(init?.body)) as { max_tokens: number })
-            .max_tokens === 30;
+            .max_tokens === 512;
         const usage = title
           ? { input_tokens: 20, cache_read_input_tokens: 0, output_tokens: 3 }
           : replyUsages[reply++];

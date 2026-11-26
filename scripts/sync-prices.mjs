@@ -11,6 +11,7 @@ const FIELDS = {
   cache_creation_input_token_cost: "cacheWrite5m",
   cache_creation_input_token_cost_above_1hr: "cacheWrite1h",
   max_input_tokens: "contextWindow", // for the condenser's context-window override (spec phase 6)
+  max_output_tokens: "maxOutput", // clamps the output ceiling (answer quality ticket 07)
 };
 
 const res = await fetch(SOURCE);
