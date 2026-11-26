@@ -286,6 +286,17 @@ describe("output ceilings by effort", () => {
     expect(s.replies().map((b) => b.max_tokens)).toEqual([ceiling]);
   });
 
+  test("a one-message effort change sets that reply's ceiling, not the thread's", async () => {
+    const s = await setup();
+    await s.owner.mutation(api.chat.send, {
+      threadId: s.anthropicThread,
+      content: "Hard one",
+      effort: "max",
+    });
+    await s.settle();
+    expect(s.replies().map((b) => b.max_tokens)).toEqual([64_000]);
+  });
+
   test("the ceiling is clamped to the model's known output limit", async () => {
     const { outputCeiling } = await import("./lib/outputModes");
     expect(outputCeiling("long", "max", 4096)).toBe(4096);

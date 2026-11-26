@@ -1397,9 +1397,8 @@ export const generationInput = internalQuery({
           : undefined,
       maxTokens: outputCeiling(
         message.outputMode ?? "normal",
-        oneOff
-          ? message.effort
-          : (retryEffort ?? effortFor(thread, provider, model)),
+        // The reply's own effort: a per-message change or a retry's level, else the thread's.
+        message.effort ?? effortFor(thread, provider, model),
         priceFor(model)?.maxOutput,
       ),
       effort: oneOff ? message.effort : effortFor(thread, provider, model),
