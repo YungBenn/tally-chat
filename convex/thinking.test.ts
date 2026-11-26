@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
+import { untagged } from "../test/untagged";
 import { gate, gatedStream, messageDelta, messageStart, messageStop, sse, textDelta, thinkingBlock, type Gate } from "../test/sse";
 import { api } from "./_generated/api";
 import { encryptSecret } from "./lib/vault";
@@ -87,7 +88,7 @@ describe("summarized thinking", () => {
 
     await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Follow up" });
     await s.t.finishAllScheduledFunctions(() => {});
-    expect(s.replyRequests()[1].messages.map((m) => m.content)).toEqual(["Hard question", "The answer.", "Follow up"]);
+    expect(s.replyRequests()[1].messages.map((m) => untagged(m.content as string))).toEqual(["Hard question", "The answer.", "Follow up"]);
   });
 
   test("a reply with no thinking has no thinking and no parts", async () => {
