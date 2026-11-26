@@ -328,9 +328,20 @@ function DefaultModel() {
 
 function DefaultEffort() {
   const settings = useQuery(api.settings.get);
+  const providers = useQuery(api.providers.list);
   const setDefaultEffort = useMutation(api.settings.setDefaultEffort);
   const [error, run] = useSave();
-  if (!settings) return null;
+  if (!settings || !providers) return null;
+  // The model a new thread starts on: the default model while it's still listed, else the first one.
+  const listed = providers.flatMap((p) =>
+    p.models.filter((m) => !m.hidden).map((m) => ({ providerId: p._id, modelId: m.id })),
+  );
+  const newThreadModel =
+    listed.find(
+      (m) =>
+        m.providerId === settings.defaultModel?.providerId &&
+        m.modelId === settings.defaultModel?.modelId,
+    ) ?? listed[0];
   return (
     <SettingsRow
       title="Default effort"
@@ -339,7 +350,7 @@ function DefaultEffort() {
           aria-label="Default effort"
           value={
             settings.defaultEffort ??
-            defaultEffortFor(settings.defaultModel?.modelId ?? "")
+            defaultEffortFor(newThreadModel?.modelId ?? "")
           }
           error={error ?? undefined}
           onValueChange={(v) =>
