@@ -19,7 +19,7 @@ const RESULTS = {
   requestId: "r1",
   results: [
     { id: "1", title: "Convex | All gas", url: "https://www.convex.dev/", highlights: ["Convex is the all-in-one backend."] },
-    { id: "2", title: "Convex docs", url: "https://docs.convex.dev/", highlights: ["x".repeat(400)] },
+    { id: "2", title: "Convex docs", url: "https://docs.convex.dev/", highlights: ["x".repeat(2000)] },
   ],
 };
 // Exa answers by query, so one fixture serves searches for different texts.
@@ -74,7 +74,7 @@ const firstUserText = (body: { messages: { role: string; content: unknown }[] })
   return typeof c === "string" ? c : (c as { type: string; text?: string }[]).filter((b) => b.type === "text").map((b) => b.text).join("");
 };
 const failedBlock = (query: string, error: string) =>
-  `${query}\n\n<web_search query=${JSON.stringify(query)}>\nThe web search failed (${error}), so there are no results.\n</web_search>`;
+  `<web_search queries=${JSON.stringify([query])}>\nThe web search failed (${error}), so there are no results.\n</web_search>\n\n${query}`;
 
 describe("web search settings", () => {
   test("saves the key trimmed and encrypted, never returns it, and empty text clears it", async () => {
@@ -124,7 +124,7 @@ describe("searching before a reply", () => {
 
     const [request] = s.searchRequests();
     expect(request.headers["x-api-key"]).toBe(EXA_KEY);
-    expect(request.body).toEqual({ query: "What is Convex?", type: "auto", numResults: 6, contents: { highlights: true } });
+    expect(request.body).toEqual({ query: "What is Convex?", type: "auto", numResults: 6, contents: { highlights: { query: "What is Convex?", maxCharacters: 1500 } } });
   });
 
   test("sends the results with the message, and shows them as sources", async () => {
@@ -137,9 +137,7 @@ describe("searching before a reply", () => {
     const text = firstUserText(s.modelRequests()[0]);
     expect(text).toBe(
       [
-        "What is Convex?",
-        "",
-        '<web_search query="What is Convex?">',
+        '<web_search queries=["What is Convex?"]>',
         "Results of a web search run for this message. Use them where they help, and cite sources by URL.",
         "",
         "[1] Convex | All gas",
@@ -148,8 +146,10 @@ describe("searching before a reply", () => {
         "",
         "[2] Convex docs",
         "https://docs.convex.dev/",
-        `${"x".repeat(299)}…`,
+        `${"x".repeat(1499)}…`,
         "</web_search>",
+        "",
+        "What is Convex?",
       ].join("\n"),
     );
     const [user, reply] = (await s.thread()).messages;
@@ -163,6 +163,25 @@ describe("searching before a reply", () => {
       ],
     });
     expect(reply).toMatchObject({ status: "done", text: "ok" });
+  });
+
+  test("a search stored before format 2 renders as it always did: the block after the text", async () => {
+    const s = await setup();
+    await s.saveKey();
+    fake = fakeFetch(fixtures());
+    await s.send("Hi", false);
+    const [user] = (await s.thread()).messages;
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch("messages", user._id, { search: true });
+      await ctx.db.insert("searches", {
+        ownerId: s.ownerId, messageId: user._id, query: "Hi",
+        results: [{ title: "Old", url: "https://old.example/", snippet: "Short." }],
+      });
+    });
+    await s.send("Next", false);
+    expect(firstUserText(s.modelRequests()[1])).toBe(
+      'Hi\n\n<web_search query="Hi">\nResults of a web search run for this message. Use them where they help, and cite sources by URL.\n\n[1] Old\nhttps://old.example/\nShort.\n</web_search>',
+    );
   });
 
   test("a retry and a later turn reuse the stored results, so the bytes never change", async () => {
@@ -188,7 +207,7 @@ describe("searching before a reply", () => {
     fake = fakeFetch(fixtures({ Hi: { body: RESULTS } }));
     await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: "Hi", search: true });
     const view = await s.owner.query(api.inspector.get, { threadId: s.threadId });
-    expect(view!.layers.find((l) => l.kind === "turns")).toMatchObject({ tokens: 1 + 900, estimated: true });
+    expect(view!.layers.find((l) => l.kind === "turns")).toMatchObject({ tokens: 1 + 3000, estimated: true });
     await s.settle();
   });
 
@@ -318,7 +337,7 @@ describe("searching before a reply", () => {
     await s.settle();
 
     expect(s.searchRequests()).toHaveLength(2);
-    expect(firstUserText(s.modelRequests()[1])).toBe('What is Bun?\n\n<web_search query="What is Bun?">\nThe web search returned no results.\n</web_search>');
+    expect(firstUserText(s.modelRequests()[1])).toBe('<web_search queries=["What is Bun?"]>\nThe web search returned no results.\n</web_search>\n\nWhat is Bun?');
   });
 });
 

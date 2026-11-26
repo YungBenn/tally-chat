@@ -25,15 +25,15 @@ test("results without a host are skipped, and the next good ones fill their plac
   ]);
 });
 
-test("highlights are trimmed and joined, and a long snippet is cut at 300 characters", () => {
+test("highlights are trimmed and joined, and a long snippet is cut at 1,500 characters", () => {
   const [joined, long] = parseExa({
     results: [
       { title: " Convex ", url: "https://www.convex.dev/", highlights: ["  Convex is a backend. ", "\nIt syncs.  "] },
-      { title: "Docs", url: "https://docs.convex.dev/", highlights: ["x".repeat(400)] },
+      { title: "Docs", url: "https://docs.convex.dev/", highlights: ["x".repeat(2000)] },
     ],
   });
   expect(joined).toEqual({ title: "Convex", url: "https://www.convex.dev/", snippet: "Convex is a backend. … It syncs." });
-  expect(long.snippet).toBe(`${"x".repeat(299)}…`);
+  expect(long.snippet).toBe(`${"x".repeat(1499)}…`);
 });
 
 test("a missing or empty title falls back to the URL, and no highlights is an empty snippet", () => {
