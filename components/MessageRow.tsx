@@ -106,7 +106,7 @@ const MessageRow = memo(function MessageRow({
 export default MessageRow;
 
 // "Retry with" another model. Mounts its picker on first press: a long thread has one per reply.
-function RetryWithMenu({ messageId }: { messageId: Id<"messages"> }) {
+function RetryWithMenu({ messageId, effort }: { messageId: Id<"messages">; effort?: Effort }) {
   const { threadId, mode, threadModel } = useThreadRow();
   const retry = useMutation(api.chat.retry);
   const trigger = (
@@ -124,7 +124,7 @@ function RetryWithMenu({ messageId }: { messageId: Id<"messages"> }) {
       <ModelMenu
         title="Retry with"
         threadId={threadId}
-        maxOutputTokens={outputCeiling(mode)}
+        maxOutputTokens={outputCeiling(mode, effort)}
         retryOf={messageId}
         defaultOpen
         onPick={(model) =>
@@ -483,7 +483,7 @@ function AssistantMessage({ m, highlighted, isLast }: { m: ThreadMessage; highli
                 />
               )}
             </Busy>
-            <RetryWithMenu messageId={m._id} />
+            <RetryWithMenu messageId={m._id} effort={m.effort} />
             {m.retryEffort && <RetryHigherEffort messageId={m._id} effort={m.retryEffort} />}
             <PinButton id={m._id} pinned={m.pinned} locked={m.pinLocked} />
           </MessageActions>

@@ -5,6 +5,7 @@ import { CacheGlyph, useCacheTemp } from "@/components/CacheStatus";
 import { Kbd } from "@/components/ui/feedback";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import type { Effort } from "@/convex/lib/effort";
 import { outputCeiling, type OutputMode } from "@/convex/lib/outputModes";
 import { imageTokens } from "@/convex/lib/images";
 import { estimateTokens, usd } from "@/lib/format";
@@ -117,6 +118,7 @@ export default function CostStrip({
   draftImages,
   draftDocTokens = 0,
   mode,
+  effort,
   onOpen,
 }: {
   threadId: Id<"threads">;
@@ -124,6 +126,7 @@ export default function CostStrip({
   draftImages?: { width: number; height: number }[];
   draftDocTokens?: number; // attached documents' text
   mode: OutputMode;
+  effort?: Effort; // a per-message change waiting for the send; else the level in force
   onOpen: () => void;
 }) {
   const data = useQuery(api.inspector.get, { threadId });
@@ -139,7 +142,7 @@ export default function CostStrip({
     draftTokens: estimateTokens(draft) + imagesTokens(draftImages) + draftDocTokens + DATE_TAG_TOKENS_ESTIMATE + (search ? SEARCH_TOKENS_ESTIMATE : 0),
     // A reply can't run past the chosen mode's limit.
     expectedOutputTokens:
-      next.expectedOutputTokens === null ? null : Math.min(next.expectedOutputTokens, outputCeiling(mode)),
+      next.expectedOutputTokens === null ? null : Math.min(next.expectedOutputTokens, outputCeiling(mode, effort ?? data.effort ?? undefined)),
   });
   return <Strip cost={withSearchFee(cost, search)} cache={<CacheLabel cache={{ ...timing, managed: cache.managed }} />} hit={thread.hitRate} onOpen={onOpen} />;
 }

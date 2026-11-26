@@ -508,6 +508,7 @@ export default function ThreadPage() {
                 draftImages={draftImages}
                 draftDocTokens={draftDocTokens}
                 mode={mode}
+                effort={pendingEffort ?? undefined}
                 onOpen={toggleInspector}
               />
             }
@@ -524,7 +525,7 @@ export default function ThreadPage() {
                       draftDocTokens +
                       (webSearch.on ? SEARCH_TOKENS_ESTIMATE : 0)
                     }
-                    maxOutputTokens={outputCeiling(mode)}
+                    maxOutputTokens={outputCeiling(mode, pendingEffort ?? inspector?.effort ?? undefined)}
                     selected={oneOff ?? threadModel}
                     onPick={(model) => setReplyWith({ threadId, model })}
                     trigger={
