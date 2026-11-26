@@ -17,4 +17,11 @@ export const EFFORT_LEVELS: Effort[] = [
   "xhigh",
   "max",
 ];
+// Threads from before per-model defaults, and unknown models, run at `low`.
 export const DEFAULT_EFFORT: Effort = "low";
+const MEDIUM_MODELS = new Set(["claude-opus-5-5", "claude-fable-5-2"]);
+// A new thread's starting effort. Proxies prefix ids ("cc/claude-opus-5-5"); match the last segment.
+export const defaultEffortFor = (modelId: string): Effort =>
+  MEDIUM_MODELS.has(modelId.split("/").at(-1) ?? modelId)
+    ? "medium"
+    : DEFAULT_EFFORT;

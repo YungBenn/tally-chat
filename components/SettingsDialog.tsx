@@ -22,7 +22,7 @@ import { toast } from "@/components/ui/toast";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
-  DEFAULT_EFFORT,
+  defaultEffortFor,
   EFFORT_LEVELS,
   type Effort,
 } from "@/convex/lib/effort";
@@ -337,7 +337,10 @@ function DefaultEffort() {
       control={
         <Select
           aria-label="Default effort"
-          value={settings.defaultEffort ?? DEFAULT_EFFORT}
+          value={
+            settings.defaultEffort ??
+            defaultEffortFor(settings.defaultModel?.modelId ?? "")
+          }
           error={error ?? undefined}
           onValueChange={(v) =>
             run(setDefaultEffort({ effort: v as Effort }))
@@ -445,7 +448,7 @@ function Condensing() {
         }
       >
         When recent turns grow past the threshold, older turns fold into a
-        summary by your side-job model. A condense that wouldn&apos;t pay for
+        summary by the thread&apos;s own model. A condense that wouldn&apos;t pay for
         itself through the cache waits.
       </SettingsRow>
       <SettingsRow
@@ -461,7 +464,7 @@ function Condensing() {
           />
         }
       >
-        Tokens of recent turns before older ones are condensed.
+        Tokens of recent turns before older ones are condensed. Default 80,000.
       </SettingsRow>
       <SettingsRow
         title="Keep last"
