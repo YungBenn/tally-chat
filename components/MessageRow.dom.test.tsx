@@ -41,7 +41,7 @@ const ctx = {
 };
 
 let unmount = () => {};
-function mount() {
+function mount(message = reply) {
   const el = document.createElement("div");
   document.body.append(el);
   const root = createRoot(el);
@@ -49,7 +49,7 @@ function mount() {
   act(() =>
     root.render(
       <ThreadRowContext value={ctx}>
-        <MessageRow message={reply} highlighted={false} isLast breakCost={null} editRequest={null} />
+        <MessageRow message={message}highlighted={false} isLast breakCost={null} editRequest={null} />
       </ThreadRowContext>,
     ),
   );
@@ -89,6 +89,20 @@ test("Retry at higher effort shows only when the reply has a next level, and pri
   expect(document.body.textContent).toContain("Retry at high effort");
   expect(subscribed()).toBeGreaterThan(0);
   delete (reply as { retryEffort?: string }).retryEffort;
+});
+
+test("a stored thinking summary is collapsed above the answer and expands on press", async () => {
+  mount({ ...reply, thinking: "Weighing the options." });
+  const head = document.querySelector<HTMLButtonElement>(".tc-thinking-summary-head")!;
+  expect(head.getAttribute("aria-expanded")).toBe("false");
+  expect(document.body.textContent).not.toContain("Weighing the options.");
+  await act(async () => head.click());
+  expect(document.body.textContent).toContain("Weighing the options.");
+});
+
+test("a reply with no thinking shows no summary", () => {
+  mount();
+  expect(document.querySelector(".tc-thinking-summary-head")).toBeNull();
 });
 
 test("the reply details open on the first press", async () => {

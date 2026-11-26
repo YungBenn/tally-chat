@@ -28,6 +28,7 @@ export function withSentTurn(thread: Thread, args: SendArgs, shown: SentAttachme
     pinLocked: false,
     text: "",
     items: undefined,
+    thinking: undefined,
     hitStepLimit: undefined,
     approvalExpired: undefined,
     error: undefined,

@@ -3,6 +3,7 @@
 import {
   IconArrowsExchange,
   IconBolt,
+  IconChevronRight,
   IconFileText,
   IconMessages,
   IconPencil,
@@ -364,6 +365,24 @@ function UserMessage({
   );
 }
 
+/**
+ * A reply's thinking summary: open while the model is still thinking, collapsed once the answer
+ * starts (or when the reply is stored), and the owner's own toggle wins from then on.
+ */
+function ThinkingSummary({ text, answering }: { text: string; answering: boolean }) {
+  const [chosen, setChosen] = useState<boolean | null>(null);
+  const open = chosen ?? !answering;
+  return (
+    <div className="tc-thinking-summary">
+      <button type="button" className="tc-thinking-summary-head" aria-expanded={open} onClick={() => setChosen(!open)}>
+        <IconChevronRight size={14} stroke={1.75} className="tc-toolcall-chevron" aria-hidden />
+        Thinking
+      </button>
+      {open && <p className="tc-thinking-summary-body tc-fade-in">{text}</p>}
+    </div>
+  );
+}
+
 function AssistantMessage({ m, highlighted, isLast }: { m: ThreadMessage; highlighted: boolean; isLast: boolean }) {
   const { mode, onContinue } = useThreadRow();
   const retry = useMutation(api.chat.retry);
@@ -374,6 +393,8 @@ function AssistantMessage({ m, highlighted, isLast }: { m: ThreadMessage; highli
   // An optimistic placeholder (ticket 08) has no stream yet, and its id must never reach the server.
   const live = useQuery(api.chat.streamingText, streaming && !isOptimistic(m._id) ? { messageId: m._id } : "skip");
   const text = (streaming ? live : null) ?? m.text;
+  const liveThinking = useQuery(api.chat.streamingThinking, streaming && !isOptimistic(m._id) ? { messageId: m._id } : "skip");
+  const thinking = [m.thinking, streaming ? liveThinking : null].filter(Boolean).join("\n\n");
   return (
     <article
       id={`m-${m._id}`}
@@ -381,7 +402,8 @@ function AssistantMessage({ m, highlighted, isLast }: { m: ThreadMessage; highli
       data-streaming={streaming ? "true" : undefined}
     >
       {streaming && text && <StreamRail />}
-      {streaming && !text && !m.items?.some((i) => i.kind === "tool" && i.status === "running") && <ThinkingIndicator />}
+      {thinking && <ThinkingSummary text={thinking} answering={!!text} />}
+      {streaming && !text && !thinking && !m.items?.some((i) => i.kind === "tool" && i.status === "running") && <ThinkingIndicator />}
       {m.items ? (
         <>
           {m.items.map((item, i) =>

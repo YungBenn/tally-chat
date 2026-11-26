@@ -271,7 +271,7 @@ describe("output ceilings by effort", () => {
     expect(JSON.stringify(s.replies()[0].messages.at(-1))).not.toContain(
       "Answer briefly",
     );
-    expect(JSON.stringify(s.replies()[0].messages.at(-1))).toContain('"Hi"');
+    expect(JSON.stringify(s.replies()[0].messages.at(-1))).toContain("\\n\\nHi");
   });
 
   test("the title request asks for 512 tokens, in both API styles", async () => {

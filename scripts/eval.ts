@@ -186,13 +186,14 @@ const tier = (model: string) => /opus|sonnet|haiku|fable/.exec(model)?.[0];
 
 function setup(c: Case, cfg: Config) {
   const s = c.settings;
+  const effort = cfg.effort ?? s.effort;
   return {
     model: cfg.model ?? s.model,
     // The app's own system prompt; the history was assembled by the app's own code at collect time.
     system: systemPrompt(cfg.promptVersion ?? s.systemPromptVersion, s.instructions),
     messages: c.history,
-    effort: cfg.effort ?? s.effort,
-    maxTokens: outputCeiling(cfg.outputMode ?? s.outputMode, cfg.effort ?? s.effort),
+    effort,
+    maxTokens: outputCeiling(cfg.outputMode ?? s.outputMode, effort),
   };
 }
 
