@@ -192,6 +192,7 @@ export default defineSchema({
   streams: defineTable({
     messageId: v.id("messages"),
     text: v.string(),
+    thinking: v.optional(v.string()), // the step's thinking summary so far
   }).index("by_messageId", ["messageId"]),
   // A document's extracted text (lib/documents). threadId is set when a message first sends it;
   // until then it is a composer attachment, swept after a day.

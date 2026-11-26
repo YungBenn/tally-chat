@@ -35,6 +35,7 @@ import {
   createStream,
   deleteStream,
   streamText,
+  streamThinking,
 } from "./lib/textStream";
 import { priceFor, sumCost, sumUsage, usageValidator } from "./lib/usage";
 import {
@@ -44,6 +45,7 @@ import {
   MAX_STEPS,
   nextStep,
   expandParts,
+  thinkingSummary,
   toolStatusValidator,
   usedTools,
   type Part,
@@ -277,6 +279,7 @@ const messageView = v.object({
     v.literal("error"),
   ),
   text: v.string(),
+  thinking: v.optional(v.string()),
   // Replies that called tools: what happened, in order (the text between calls, each call and its
   // result). While the reply runs, text is only the current step's, still streaming.
   items: v.optional(
@@ -415,6 +418,8 @@ export const getThread = query({
         // doesn't re-run this query (ADR 0004).
         text: m.content,
         items: usedTools(m.parts) ? toolItems(m, thread, servers) : undefined,
+        // The summary of every finished step; the running step's is in streamingText.
+        thinking: thinkingSummary(m.parts),
         hitStepLimit: m.hitStepLimit,
         approvalExpired: m.approvalExpired,
         error: m.error,
@@ -1314,14 +1319,25 @@ export const streamingText = query({
   },
 });
 
+// A streaming step's thinking summary so far, kept in the same row as its text.
+export const streamingThinking = query({
+  args: { messageId: v.id("messages") },
+  returns: v.string(),
+  handler: async (ctx, { messageId }) => {
+    const ownerId = await requireOwner(ctx);
+    await ownedMessage(ctx, ownerId, messageId);
+    return await streamThinking(ctx, messageId);
+  },
+});
+
 // One flush of a streaming step: appends the text and says whether to stop, in one round trip.
 export const flush = internalMutation({
-  args: { messageId: v.id("messages"), text: v.string() },
+  args: { messageId: v.id("messages"), text: v.string(), thinking: v.optional(v.string()) },
   returns: v.boolean(),
-  handler: async (ctx, { messageId, text }) => {
+  handler: async (ctx, { messageId, text, thinking }) => {
     const message = await ctx.db.get("messages", messageId);
     // No stream row: the step was closed meanwhile (stuck-reply sweep), so the action stops.
-    if (!(await appendStream(ctx, messageId, text))) return true;
+    if (!(await appendStream(ctx, messageId, text, thinking))) return true;
     return message?.stopRequested === true;
   },
 });
@@ -1422,7 +1438,8 @@ export const finalize = internalMutation({
       ...(content ? [{ type: "text" as const, step, text: content }] : []),
       ...calls.map((c) => ({ type: "toolCall" as const, step, ...c })),
     ];
-    const withTools = usedTools(message.parts) || loop;
+    // A reply keeps parts when it called a tool or showed a thinking summary; a plain one has none.
+    const withTools = usedTools(message.parts) || loop || !!thinking?.length;
     const parts = withTools ? [...(message.parts ?? []), ...stepParts] : undefined;
 
     // The step's text moves onto the message (content, or parts when the reply goes on) in this

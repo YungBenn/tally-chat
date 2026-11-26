@@ -58,14 +58,14 @@ async function setup() {
 }
 
 describe("thread effort", () => {
-  test("new Anthropic threads default to low, sent on every reply with no thinking parameter", async () => {
+  test("new Anthropic threads default to low, sent on every reply with summarized thinking", async () => {
     const s = await setup();
     const thread = await s.owner.mutation(api.chat.createThread, { providerId: s.anthropicId, modelId: "claude-sonnet-5-5" });
     await s.chat(thread);
     await s.chat(thread, "Again");
     const replies = s.anthropicBodies().filter((b) => b.max_tokens !== 30);
     expect(replies.map((b) => b.output_config)).toEqual([{ effort: "low" }, { effort: "low" }]);
-    expect(replies.every((b) => b.thinking === undefined)).toBe(true);
+    expect(replies.every((b) => JSON.stringify(b.thinking) === '{"type":"adaptive","display":"summarized"}')).toBe(true);
   });
 
   test("the chosen effort is fixed for the thread, recorded on each reply, and shown by the inspector", async () => {

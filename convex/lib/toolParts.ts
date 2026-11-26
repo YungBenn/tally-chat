@@ -58,6 +58,12 @@ export const nextStep = (parts: Part[] | undefined) =>
 export const joinText = (parts: Part[]) =>
   parts.flatMap((p) => (p.type === "text" && p.text ? [p.text] : [])).join("\n\n");
 
+// The thinking summaries of a reply's finished steps, one blank line apart; undefined when none.
+export const thinkingSummary = (parts: Part[] | undefined) =>
+  parts
+    ?.flatMap((p) => (p.type === "thinking" && p.thinking ? [p.thinking] : []))
+    .join("\n\n") || undefined;
+
 export const usedTools = (parts: Part[] | undefined) => !!parts?.some((p) => p.type === "toolCall");
 
 // What the model is told for a call that didn't return a result.

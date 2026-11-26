@@ -204,6 +204,16 @@ export const generate = internalAction({
           });
           continue;
         }
+        if (event.type === "thinkingDelta") {
+          // Summary pieces arrive with pauses between them, so each one is shown at once.
+          const stop = await ctx.runMutation(internal.chat.flush, { messageId, text: "", thinking: event.text });
+          if (stop) {
+            abort.abort();
+            await finish("stopped");
+            return null;
+          }
+          continue;
+        }
         if (event.type === "thinking" || event.type === "redactedThinking") {
           thinking.push(event);
           continue;
