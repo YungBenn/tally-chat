@@ -5,7 +5,7 @@ import { CacheGlyph, useCacheTemp } from "@/components/CacheStatus";
 import { Kbd } from "@/components/ui/feedback";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { MODE_MAX_TOKENS, type OutputMode } from "@/convex/lib/outputModes";
+import { outputCeiling, type OutputMode } from "@/convex/lib/outputModes";
 import { imageTokens } from "@/convex/lib/images";
 import { estimateTokens, usd } from "@/lib/format";
 import { nextSendMicroUsd } from "@/lib/nextSend";
@@ -138,7 +138,7 @@ export default function CostStrip({
     draftTokens: estimateTokens(draft) + imagesTokens(draftImages) + draftDocTokens + (search ? SEARCH_TOKENS_ESTIMATE : 0),
     // A reply can't run past the chosen mode's limit.
     expectedOutputTokens:
-      next.expectedOutputTokens === null ? null : Math.min(next.expectedOutputTokens, MODE_MAX_TOKENS[mode]),
+      next.expectedOutputTokens === null ? null : Math.min(next.expectedOutputTokens, outputCeiling(mode)),
   });
   return <Strip cost={withSearchFee(cost, search)} cache={<CacheLabel cache={{ ...timing, managed: cache.managed }} />} hit={thread.hitRate} onOpen={onOpen} />;
 }

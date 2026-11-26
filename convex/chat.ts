@@ -18,8 +18,9 @@ import { assertWithinBudget, BUDGET_REACHED, budgetReached } from "./lib/budget"
 import { ancestorIds, insertMessage } from "./lib/ancestors";
 import { assembleHistory, latestCheckpoint } from "./lib/context";
 import {
-  MODE_MAX_TOKENS,
+  outputCeiling,
   outputModeValidator,
+  QUICK_BREVITY,
   type OutputMode,
 } from "./lib/outputModes";
 import { supportsPerMessageEffort } from "./lib/anthropic";
@@ -608,6 +609,7 @@ async function appendUserMessage(
   replyModel?: ReplyModel, // the model answering it, when not the thread's
   search?: boolean,
   documents?: DocumentRef[],
+  mode?: OutputMode, // quick stores its brevity line on the message
 ) {
   if (effort) await assertPerMessageEffort(ctx, thread);
   if (images?.length)
@@ -625,6 +627,7 @@ async function appendUserMessage(
       images: images?.length ? images : undefined,
       search: search || undefined,
       documents: documents?.length ? documents : undefined,
+      brevity: mode === "quick" ? QUICK_BREVITY : undefined,
     },
     parent ? [...(await ancestorIds(ctx, parent)), parent._id] : [],
   );
@@ -898,6 +901,7 @@ async function sendTo(
       model,
       search,
       docs,
+      mode,
     ),
     mode,
     model,
@@ -993,6 +997,7 @@ export const edit = mutation({
         // A searched message searches again for its new text, while search is still set up.
         original.search && (await searchKeySet(ctx, ownerId)),
         original.documents, // like images, the documents stay
+        mode,
       ),
       mode,
     );
@@ -1302,7 +1307,11 @@ export const generationInput = internalQuery({
         thread.toolSet?.length && supportsTools(provider, model)
           ? thread.toolSet.map(toDefinition)
           : undefined,
-      maxTokens: MODE_MAX_TOKENS[message.outputMode ?? "normal"],
+      maxTokens: outputCeiling(
+        message.outputMode ?? "normal",
+        oneOff ? message.effort : effortFor(thread, provider, model),
+        priceFor(model)?.maxOutput,
+      ),
       effort: oneOff ? message.effort : effortFor(thread, provider, model),
       cacheTtl: requestCacheTtl(settings?.keepaliveEnabled, ancestors.length),
     };

@@ -82,15 +82,15 @@ async function setup(stopReason = "end_turn", finishReason = "stop") {
     owner.mutation(api.chat.createThread, { providerId, modelId });
   const anthropicThread = await thread(anthropicId, "claude-sonnet-5-5");
   const settle = () => t.finishAllScheduledFunctions(() => {});
-  // Reply requests only: title side jobs ask for 30 tokens.
+  // Reply requests only: title side jobs ask for 512 tokens.
   const replies = () =>
     fake!.requests
       .map((r) => r.body as Body)
       .filter(
         (b) =>
-          b.max_tokens !== 30 &&
+          b.max_tokens !== 512 &&
           (b as { max_completion_tokens?: number }).max_completion_tokens !==
-            30,
+            512,
       );
   const last = async (threadId: Id<"threads">) =>
     (await owner.query(api.chat.getThread, { threadId }))!.messages.at(-1)!;
@@ -117,7 +117,7 @@ describe("output modes", () => {
       mode: "long",
     });
     await s.settle();
-    expect(s.replies().map((b) => b.max_tokens)).toEqual([2048, 8192, 32_000]);
+    expect(s.replies().map((b) => b.max_tokens)).toEqual([8192, 8192, 32_000]);
   });
 
   test("OpenAI-compatible requests carry the mode's limit too", async () => {
@@ -133,7 +133,7 @@ describe("output modes", () => {
       max_tokens?: number;
       max_completion_tokens?: number;
     }[];
-    expect(body.max_tokens ?? body.max_completion_tokens).toBe(2048);
+    expect(body.max_tokens ?? body.max_completion_tokens).toBe(8192);
   });
 
   test("a reply that stops at its limit is marked truncated; one that finishes isn't", async () => {
@@ -190,6 +190,104 @@ describe("output modes", () => {
       ["user", "Continue."],
       ["assistant", "ok"],
     ]);
+  });
+});
+
+describe("output ceilings by effort", () => {
+  test.each([
+    ["quick", "low", 8192],
+    ["quick", "high", 8192],
+    ["quick", "max", 16_384],
+    ["normal", "low", 8192],
+    ["normal", "medium", 32_000],
+    ["normal", "high", 32_000],
+    ["normal", "xhigh", 64_000],
+    ["long", "low", 32_000],
+    ["long", "medium", 64_000],
+    ["long", "max", 64_000],
+  ] as const)("%s at %s asks for %i", async (mode, effort, ceiling) => {
+    const s = await setup();
+    const thread = await s.owner.mutation(api.chat.createThread, {
+      providerId: (await s.t.run((ctx) => ctx.db.query("providers").first()))!
+        ._id,
+      modelId: "claude-sonnet-5-5",
+      effort,
+    });
+    await s.owner.mutation(api.chat.send, {
+      threadId: thread,
+      content: "Hi",
+      mode,
+    });
+    await s.settle();
+    expect(s.replies().map((b) => b.max_tokens)).toEqual([ceiling]);
+  });
+
+  test("the ceiling is clamped to the model's known output limit", async () => {
+    const { outputCeiling } = await import("./lib/outputModes");
+    expect(outputCeiling("long", "max", 4096)).toBe(4096);
+    expect(outputCeiling("long", "max", 128_000)).toBe(64_000);
+  });
+
+  test("quick mode stores the brevity line after the text and sends it; other modes don't", async () => {
+    const s = await setup();
+    await s.owner.mutation(api.chat.send, {
+      threadId: s.anthropicThread,
+      content: "Why is the sky blue?",
+      mode: "quick",
+    });
+    await s.settle();
+    await s.owner.mutation(api.chat.send, {
+      threadId: s.anthropicThread,
+      content: "And grass?",
+    });
+    await s.settle();
+    const messages = await s.t.run((ctx) =>
+      ctx.db
+        .query("messages")
+        .collect()
+        .then((all) => all.filter((m) => m.role === "user")),
+    );
+    expect(messages[0].brevity).toBe(
+      "Answer briefly: a few sentences at most, unless that would leave the answer wrong.",
+    );
+    expect(messages[1].brevity).toBeUndefined();
+    const [first, second] = s.replies();
+    const text = (m: unknown) => JSON.stringify(m);
+    expect(text(first.messages.at(-1))).toContain(
+      "Why is the sky blue?\\n\\nAnswer briefly: a few sentences at most, unless that would leave the answer wrong.",
+    );
+    // frozen: still there, same bytes, in later requests
+    expect(text(second.messages[0])).toContain("Answer briefly: a few");
+    expect(text(second.messages.at(-1))).not.toContain("Answer briefly");
+  });
+
+  test("messages sent before the brevity line render byte for byte as before", async () => {
+    const s = await setup();
+    await s.owner.mutation(api.chat.send, {
+      threadId: s.anthropicThread,
+      content: "Hi",
+    });
+    await s.settle();
+    expect(JSON.stringify(s.replies()[0].messages.at(-1))).not.toContain(
+      "Answer briefly",
+    );
+    expect(JSON.stringify(s.replies()[0].messages.at(-1))).toContain('"Hi"');
+  });
+
+  test("the title request asks for 512 tokens, in both API styles", async () => {
+    const s = await setup();
+    await s.owner.mutation(api.chat.send, {
+      threadId: s.anthropicThread,
+      content: "Hi",
+    });
+    await s.settle();
+    const thread = await s.thread(s.openaiId, "gpt-5");
+    await s.owner.mutation(api.chat.send, { threadId: thread, content: "Hi" });
+    await s.settle();
+    const titles = fake!.requests
+      .map((r) => r.body as { max_tokens?: number; max_completion_tokens?: number })
+      .filter((b) => (b.max_tokens ?? b.max_completion_tokens) === 512);
+    expect(titles).toHaveLength(2);
   });
 });
 

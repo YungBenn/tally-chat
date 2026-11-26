@@ -172,6 +172,7 @@ export default defineSchema({
     images: v.optional(v.array(imageValidator)), // user messages: images sent with it, fixed at creation
     search: v.optional(v.boolean()), // user messages: searched the web before the reply (see searches)
     documents: v.optional(v.array(documentRefValidator)), // user messages: documents sent with it
+    brevity: v.optional(v.string()), // user messages: instruction sent after the text (quick mode), frozen with it
   })
     .index("by_thread_parent", ["threadId", "parentId"])
     .index("by_status", ["status"])
