@@ -85,7 +85,7 @@ Writing a new checkpoint for a thread, whether the summary comes from the provid
 _Avoid_: Compact, truncate, prune
 
 **Side job**:
-Model work the user did not directly ask for, such as titles and condensing, run on the user's chosen cheap model.
+Model work the user did not directly ask for, such as titles, run on the user's chosen cheap model. Condensing is a side job too, but it runs on the thread's own model.
 _Avoid_: Background task, auxiliary call
 
 ## Cost

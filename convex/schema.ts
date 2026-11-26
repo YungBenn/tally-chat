@@ -221,6 +221,7 @@ export default defineSchema({
     coversUpToId: v.id("messages"),
     summary: v.string(),
     tokens: v.number(),
+    promptVersion: v.optional(v.number()), // SUMMARY_PROMPTS version; absent means 1
   }).index("by_threadId", ["threadId"]),
   // Metered model calls that are not part of the conversation (design doc S6 side jobs).
   sideJobs: defineTable({

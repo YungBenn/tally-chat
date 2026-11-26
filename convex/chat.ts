@@ -28,7 +28,7 @@ import {
   MAX_IMAGES_PER_MESSAGE,
   type MessageImage,
 } from "./lib/images";
-import { DEFAULT_EFFORT, effortValidator, supportsEffort, type Effort } from "./lib/effort";
+import { DEFAULT_EFFORT, defaultEffortFor, effortValidator, supportsEffort, type Effort } from "./lib/effort";
 import { meterCall } from "./lib/metering";
 import {
   appendStream,
@@ -249,7 +249,7 @@ async function insertThread(
     startedAt: Date.now(),
     // Only models that take an effort store one (spec phase 4, answer quality ticket 13).
     effort: supportsEffort(provider, modelId)
-      ? (effort ?? DEFAULT_EFFORT)
+      ? (effort ?? settings?.defaultEffort ?? defaultEffortFor(modelId))
       : undefined,
   });
   return (await ctx.db.get("threads", id))!;

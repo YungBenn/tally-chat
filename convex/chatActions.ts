@@ -352,7 +352,7 @@ export const generateTitle = internalAction({
   },
 });
 
-// Condense job (spec phase 6): summarizes the turns condense.input picked on the side-job model
+// Condense job (spec phase 6): summarizes the turns condense.input picked on the thread's own model
 // and saves the summary as a checkpoint. A failed, empty or cut-off summary saves nothing; the
 // next reply tries again.
 export const condense = internalAction({
@@ -382,7 +382,6 @@ export const condense = internalAction({
           system: SUMMARY_PROMPTS[CURRENT_SUMMARY_PROMPT_VERSION],
           messages: [{ role: "user", content: input.request }],
           maxTokens: SUMMARY_MAX_TOKENS,
-          effort: input.provider.apiStyle === "anthropic" ? "low" : undefined,
         },
         { allowlist: input.allowlist, resolve: systemResolve },
         new AbortController().signal,
@@ -411,6 +410,7 @@ export const condense = internalAction({
       coversUpToId: input.coversUpToId,
       providerId: input.providerId,
       model: input.model,
+      promptVersion: CURRENT_SUMMARY_PROMPT_VERSION,
       summary: failure ? undefined : summary,
       failure,
       ...usage,
