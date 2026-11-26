@@ -1,4 +1,5 @@
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
+import type { Part } from "./toolParts";
 
 // Condensing (spec phase 6): fold all but the most recent turns into a checkpoint summary.
 
@@ -69,17 +70,56 @@ export function planFold(
   return null;
 }
 
-// The folded messages as a role-labelled transcript for the summarizer. Pinned messages stay
-// verbatim after the summary, so they're left out; images become placeholders.
-export function foldTranscript(messages: Doc<"messages">[]) {
+const DOCUMENT_CLIP = 500;
+const TOOL_ARGS_CLIP = 300;
+const TOOL_RESULT_CLIP = 500;
+
+// What folded messages carried besides their text, by id (a document may have been deleted).
+export type FoldExtras = {
+  documents: Map<Id<"documents">, Doc<"documents"> | null>;
+  searches: Map<Id<"messages">, Doc<"searches"> | null>;
+};
+
+// A message's documents, search and tool work, one line each.
+function digest(m: Doc<"messages">, { documents, searches }: FoldExtras) {
+  const lines: string[] = [];
+  for (const ref of m.documents ?? []) {
+    const doc = documents.get(ref.id);
+    lines.push(`[Document ${JSON.stringify(ref.name)}: ${doc ? doc.text.slice(0, DOCUMENT_CLIP) : "(removed)"}]`);
+  }
+  const search = searches.get(m._id);
+  if (search) {
+    const hits = search.results.map((r) => `${r.title} <${r.url}>`).join("; ");
+    lines.push(`[Search ${JSON.stringify(search.query)}: ${search.error ? `failed - ${search.error}` : hits || "no results"}]`);
+  }
+  const calls = new Map<string, Extract<Part, { type: "toolCall" }>>();
+  for (const p of m.parts ?? []) {
+    if (p.type === "toolCall") calls.set(p.id, p);
+    if (p.type !== "toolResult") continue;
+    const call = calls.get(p.id);
+    const failed = p.status === "ok" ? "" : p.status === "error" ? "error: " : `${p.status}: `;
+    lines.push(
+      `[Tool ${call?.name ?? "unknown"}(${(call?.input ?? "").slice(0, TOOL_ARGS_CLIP)}) -> ${failed}${p.text.slice(0, TOOL_RESULT_CLIP)}]`,
+    );
+  }
+  return lines;
+}
+
+// The folded messages as a role-labelled transcript for the summarizer, each followed by a digest
+// of its documents, search and tool work. Pinned messages stay verbatim after the summary, so
+// they're left out; images become placeholders.
+export function foldTranscript(messages: Doc<"messages">[], extras: FoldExtras) {
   return messages
-    .filter((m) => !m.pinned && m.content !== "")
+    .filter((m) => !m.pinned)
     .map((m) => {
       const images = m.images?.length
         ? `[${m.images.length} image${m.images.length === 1 ? "" : "s"}] `
         : "";
-      return `${m.role === "user" ? "User" : "Assistant"}: ${images}${m.content}`;
+      const head = `${m.role === "user" ? "User" : "Assistant"}: ${images}${m.content}`;
+      const lines = digest(m, extras);
+      return m.content === "" && !lines.length ? "" : [head, ...lines].join("\n");
     })
+    .filter(Boolean)
     .join("\n\n");
 }
 
