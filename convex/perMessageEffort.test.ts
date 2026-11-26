@@ -91,11 +91,11 @@ async function setup(model = "claude-sonnet-5-5") {
     await owner.mutation(api.chat.send, { threadId, content, effort });
     await t.finishAllScheduledFunctions(() => {});
   };
-  // Reply requests with their headers, title side jobs (30 tokens) left out.
+  // Reply requests with their headers, title side jobs (512 tokens) left out.
   const replies = () =>
     fake!.requests
       .filter(
-        (r) => (r.body as Body).max_tokens !== 30 && (r.body as Body).stream,
+        (r) => (r.body as Body).max_tokens !== 512 && (r.body as Body).stream,
       )
       .map((r) => ({
         body: r.body as Body,
@@ -232,6 +232,7 @@ describe("per-message effort", () => {
       const [, before, after] = s.replies();
       expect(after.beta).toBe(BETA);
       expect(after.body.output_config).toEqual({ effort: "low" });
+      expect(after.body.max_tokens).toBeGreaterThan(before.body.max_tokens); // room for the extra thinking
       expect(after.body.messages.slice(0, 3)).toEqual(
         before.body.messages.slice(0, 3),
       );

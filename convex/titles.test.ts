@@ -18,12 +18,12 @@ let fake: ReturnType<typeof fakeFetch> | undefined;
 afterEach(() => fake?.restore());
 
 type Body = { model: string; max_tokens?: number; system?: string; messages: { content: string }[] };
-// Replies answer "Answer"; title calls (max_tokens 30) answer the given title, with usage.
+// Replies answer "Answer"; title calls (max_tokens 512) answer the given title, with usage.
 const anthropicResponder = (title: string | null) => ({
   respond: (init: RequestInit | undefined) => {
     const body = JSON.parse(String(init?.body)) as Body;
-    if (body.max_tokens === 30 && title === null) return new Response(JSON.stringify({ error: { message: "boom" } }), { status: 500 });
-    const text = body.max_tokens === 30 ? title! : "Answer";
+    if (body.max_tokens === 512 && title === null) return new Response(JSON.stringify({ error: { message: "boom" } }), { status: 500 });
+    const text = body.max_tokens === 512 ? title! : "Answer";
     return new Response(sse(messageStart({ input_tokens: 50, output_tokens: 1 }), textDelta(text), messageDelta({ output_tokens: 8 }), messageStop));
   },
 });
@@ -56,7 +56,7 @@ async function setup() {
     await t.finishAllScheduledFunctions(() => {});
   };
   const title = async () => (await owner.query(api.chat.getThread, { threadId }))!.title;
-  const titleCalls = () => fake!.requests.filter((r) => (r.body as Body).max_tokens === 30 || (r.body as { max_tokens?: number; max_completion_tokens?: number }).max_completion_tokens === 30);
+  const titleCalls = () => fake!.requests.filter((r) => (r.body as Body).max_tokens === 512 || (r.body as { max_tokens?: number; max_completion_tokens?: number }).max_completion_tokens === 512);
   return { t, owner, threadId, anthropicId, openaiId, chat, title, titleCalls };
 }
 
@@ -116,7 +116,7 @@ describe("side-job titles", () => {
       [ANTHROPIC]: {
         respond: (init) => {
           const body = JSON.parse(String(init?.body)) as Body;
-          if (body.max_tokens !== 30 && ++replies === 1) return new Response(JSON.stringify({ error: { message: "expired" } }), { status: 401 });
+          if (body.max_tokens !== 512 && ++replies === 1) return new Response(JSON.stringify({ error: { message: "expired" } }), { status: 401 });
           return ok.respond(init);
         },
       },

@@ -60,7 +60,7 @@ async function setup() {
     return id;
   };
   const replyTools = () =>
-    fake!.requests.filter((r) => r.url.endsWith("/v1/messages") && (r.body as Body).stream && (r.body as Body).max_tokens !== 30).map((r) => (r.body as Body).tools);
+    fake!.requests.filter((r) => r.url.endsWith("/v1/messages") && (r.body as Body).stream && (r.body as Body).max_tokens !== 512).map((r) => (r.body as Body).tools);
   return { t, owner, ownerId, anthropicId, plainId, serverId, thread, replyTools };
 }
 

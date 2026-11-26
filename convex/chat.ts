@@ -18,8 +18,9 @@ import { assertWithinBudget, BUDGET_REACHED, budgetReached } from "./lib/budget"
 import { ancestorIds, insertMessage } from "./lib/ancestors";
 import { assembleHistory, latestCheckpoint } from "./lib/context";
 import {
-  MODE_MAX_TOKENS,
+  outputCeiling,
   outputModeValidator,
+  QUICK_BREVITY,
   type OutputMode,
 } from "./lib/outputModes";
 import { supportsPerMessageEffort } from "./lib/anthropic";
@@ -30,8 +31,10 @@ import {
 } from "./lib/images";
 import {
   DEFAULT_EFFORT,
+  defaultEffortFor,
   effortValidator,
   higherEffort,
+  supportsEffort,
   type Effort,
 } from "./lib/effort";
 import { meterCall } from "./lib/metering";
@@ -252,11 +255,10 @@ async function insertThread(
     systemPromptVersion: CURRENT_SYSTEM_PROMPT_VERSION,
     instructions: settings?.customInstructions,
     startedAt: Date.now(),
-    // Only Anthropic-style threads send effort (spec phase 4).
-    effort:
-      provider.apiStyle === "anthropic"
-        ? (effort ?? DEFAULT_EFFORT)
-        : undefined,
+    // Only models that take an effort store one (spec phase 4, answer quality ticket 13).
+    effort: supportsEffort(provider, modelId)
+      ? (effort ?? settings?.defaultEffort ?? defaultEffortFor(modelId))
+      : undefined,
   });
   return (await ctx.db.get("threads", id))!;
 }
@@ -345,6 +347,8 @@ const messageView = v.object({
       results: v.array(v.object({ title: v.string(), url: v.string() })),
       error: v.optional(v.string()),
       costMicroUsd: v.optional(v.number()),
+      queries: v.optional(v.array(v.string())),
+      rewriteCostMicroUsd: v.optional(v.number()),
     }),
   ),
 });
@@ -607,6 +611,8 @@ async function searchView(ctx: QueryCtx, messageId: Id<"messages">) {
     results: search.results.map(({ title, url }) => ({ title, url })),
     ...(search.error ? { error: search.error } : {}),
     ...(search.costMicroUsd !== undefined ? { costMicroUsd: search.costMicroUsd } : {}),
+    ...(search.queries ? { queries: search.queries } : {}),
+    ...(search.rewriteCostMicroUsd !== undefined ? { rewriteCostMicroUsd: search.rewriteCostMicroUsd } : {}),
   };
 }
 
@@ -620,6 +626,7 @@ async function appendUserMessage(
   replyModel?: ReplyModel, // the model answering it, when not the thread's
   search?: boolean,
   documents?: DocumentRef[],
+  mode?: OutputMode, // quick stores its brevity line on the message
 ) {
   if (effort) await assertPerMessageEffort(ctx, thread);
   if (images?.length)
@@ -637,19 +644,21 @@ async function appendUserMessage(
       images: images?.length ? images : undefined,
       search: search || undefined,
       documents: documents?.length ? documents : undefined,
+      brevity: mode === "quick" ? QUICK_BREVITY : undefined,
     },
     parent ? [...(await ancestorIds(ctx, parent)), parent._id] : [],
   );
   return (await ctx.db.get("messages", id))!;
 }
 
-// The effort a thread's requests send (spec phase 4): Anthropic-style threads only; threads from
-// before phase 4 run at the default.
+// The effort a request to `modelId` sends (spec phase 4): Anthropic-style models and compatible
+// ones the owner flagged as reasoning; threads from before phase 4 run at the default.
 export const effortFor = (
   thread: Doc<"threads">,
   provider: Doc<"providers"> | null,
+  modelId: string = thread.modelId,
 ) =>
-  provider?.apiStyle === "anthropic"
+  supportsEffort(provider, modelId)
     ? (thread.effort ?? DEFAULT_EFFORT)
     : undefined;
 
@@ -661,8 +670,9 @@ async function effortInForce(
   thread: Doc<"threads">,
   user: Doc<"messages">,
   provider: Doc<"providers"> | null,
+  modelId: string,
 ) {
-  const base = effortFor(thread, provider);
+  const base = effortFor(thread, provider, modelId);
   if (!base) return undefined;
   if (user.effort) return user.effort;
   const ancestors = await Promise.all(
@@ -792,7 +802,8 @@ async function startReply(
       providerId: provider?._id ?? thread.providerId,
       outputMode,
       effort:
-        retryEffort ?? (await effortInForce(ctx, thread, user, provider)),
+        retryEffort ??
+        (await effortInForce(ctx, thread, user, provider, modelId)),
     },
     [...(await ancestorIds(ctx, user)), user._id],
   );
@@ -910,6 +921,7 @@ async function sendTo(
       model,
       search,
       docs,
+      mode,
     ),
     mode,
     model,
@@ -1018,6 +1030,7 @@ export const edit = mutation({
         // A searched message searches again for its new text, while search is still set up.
         original.search && (await searchKeySet(ctx, ownerId)),
         original.documents, // like images, the documents stay
+        mode,
       ),
       mode,
     );
@@ -1073,8 +1086,10 @@ export const setThreadEffort = mutation({
     const ownerId = await requireOwner(ctx);
     const thread = await ownedThread(ctx, ownerId, threadId);
     if (
-      (await ctx.db.get("providers", thread.providerId))?.apiStyle !==
-      "anthropic"
+      !supportsEffort(
+        await ctx.db.get("providers", thread.providerId),
+        thread.modelId,
+      )
     ) {
       throw new ConvexError("This provider has no effort setting");
     }
@@ -1301,9 +1316,12 @@ export const generationInput = internalQuery({
     // A retry at higher effort: its question carries the reply's effort as a per-message change.
     const sent =
       history.messages.findLast((m) => m.effort)?.effort ??
-      effortFor(thread, provider);
-    if (!oneOff && message.effort && message.effort !== sent)
-      history.messages.at(-1)!.effort = message.effort;
+      effortFor(thread, provider, model);
+    const retryEffort =
+      !oneOff && message.effort && message.effort !== sent
+        ? message.effort
+        : undefined;
+    if (retryEffort) history.messages.at(-1)!.effort = retryEffort;
     return {
       stopRequested: message.stopRequested === true,
       // When this step was queued, for the reply timing log: later steps set stepStartedAt.
@@ -1331,8 +1349,14 @@ export const generationInput = internalQuery({
         thread.toolSet?.length && supportsTools(provider, model)
           ? thread.toolSet.map(toDefinition)
           : undefined,
-      maxTokens: MODE_MAX_TOKENS[message.outputMode ?? "normal"],
-      effort: oneOff ? message.effort : effortFor(thread, provider),
+      maxTokens: outputCeiling(
+        message.outputMode ?? "normal",
+        oneOff
+          ? message.effort
+          : (retryEffort ?? effortFor(thread, provider, model)),
+        priceFor(model)?.maxOutput,
+      ),
+      effort: oneOff ? message.effort : effortFor(thread, provider, model),
       cacheTtl: requestCacheTtl(settings?.keepaliveEnabled, ancestors.length),
     };
   },

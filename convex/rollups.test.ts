@@ -38,7 +38,7 @@ async function setup(replyUsages: object[]) {
   fake = fakeFetch({
     [ANTHROPIC]: {
       respond: (init) => {
-        const title = (JSON.parse(String(init?.body)) as { max_tokens: number }).max_tokens === 30;
+        const title = (JSON.parse(String(init?.body)) as { max_tokens: number }).max_tokens === 512;
         const usage = title ? { input_tokens: 20, cache_read_input_tokens: 0, output_tokens: 3 } : replyUsages[reply++];
         return new Response(sse(messageStart(usage), textDelta("ok"), messageDelta({ output_tokens: 5 }), messageStop));
       },

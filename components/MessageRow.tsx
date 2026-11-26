@@ -35,7 +35,7 @@ import { MountOnOpen, Popover, Tooltip } from "@/components/ui/overlay";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { Effort } from "@/convex/lib/effort";
-import { MODE_MAX_TOKENS, type OutputMode } from "@/convex/lib/outputModes";
+import { outputCeiling, type OutputMode } from "@/convex/lib/outputModes";
 import { estimateTokens, tokens, usd } from "@/lib/format";
 import { isOptimistic } from "@/lib/optimisticSend";
 import { cn } from "@/lib/utils";
@@ -123,7 +123,7 @@ function RetryWithMenu({ messageId }: { messageId: Id<"messages"> }) {
       <ModelMenu
         title="Retry with"
         threadId={threadId}
-        maxOutputTokens={MODE_MAX_TOKENS[mode]}
+        maxOutputTokens={outputCeiling(mode)}
         retryOf={messageId}
         defaultOpen
         onPick={(model) =>
@@ -181,7 +181,7 @@ function RetryHigherEstimate({
     threadId,
     now: openedAt,
     draftTokens: 0,
-    maxOutputTokens: MODE_MAX_TOKENS[mode],
+    maxOutputTokens: outputCeiling(mode, effort),
     retryOf: messageId,
   });
   const cost = rows?.find((r) => r.thread)?.costMicroUsd;
