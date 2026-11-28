@@ -101,6 +101,7 @@ What's in the context window, what's cached, and what every reply cost, down to 
 - **Custom instructions** for every new thread. Each thread keeps the ones it started with, so editing them never breaks a warm cache.
 - **Web search on Exa**: toggle Search and the message is searched before the reply, with its sources shown under it. Results are stored once, so a retry or a later turn sends the same bytes. Each search's cost counts toward spend.
 - **Math and diagrams**: LaTeX renders with KaTeX and Mermaid blocks draw as diagrams.
+- **Visual blocks**: headline numbers show as stat panels, proportions as a split bar and short rankings as bar charts, plus note, tip and warning callouts. The model writes a few lines of data, not HTML, and the app draws them in light and dark, so a visual costs tens of tokens instead of thousands.
 - **Documents**: attach PDFs and text files (Markdown, CSV, JSON, code), priced in tokens before you send. The text is read once and sent the same way every turn, so it stays cached.
 - **Tools over MCP**: connect MCP servers and let a reply call tools in a loop, with approvals, and a tool set frozen per thread so the cache keeps hitting.
 - **Pin, rename and delete** any thread from the sidebar, by its menu or a right-click.
