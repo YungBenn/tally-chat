@@ -253,7 +253,7 @@ textarea.tc-input { height: auto; min-height: 5.25rem; padding: 0.625rem 0.75rem
 .tc-prose blockquote::before { content: ""; position: absolute; left: 0; top: 0.25rem; bottom: 0.25rem; width: 1px; background: linear-gradient(180deg, var(--holo-cyan), var(--holo-violet), var(--holo-pink), var(--holo-amber)); opacity: calc(0.85 * var(--holo-mul)); }
 .tc-prose .tc-callout { --c: var(--info); --c-soft: var(--info-soft); padding: 0.75rem 1rem; background: var(--c-soft); border: 1px solid color-mix(in srgb, var(--c) 28%, transparent); border-radius: var(--radius-card); font-size: 0.9375rem; line-height: 1.625rem; color: var(--foreground); }
 .tc-prose .tc-callout[data-callout="tip"] { --c: var(--success); --c-soft: var(--success-soft); }
-.tc-prose .tc-callout[data-callout="important"] { --c: var(--accent); --c-soft: var(--accent-soft); }
+.tc-prose .tc-callout[data-callout="important"] { --c: var(--holo-violet); --c-soft: color-mix(in srgb, var(--holo-violet) 10%, var(--background)); }
 .tc-prose .tc-callout[data-callout="warning"] { --c: var(--warning); --c-soft: var(--warning-soft); }
 .tc-prose .tc-callout[data-callout="caution"] { --c: var(--danger); --c-soft: var(--danger-soft); }
 .tc-prose .tc-callout-title { display: flex; align-items: center; gap: 0.4375rem; margin-bottom: 0.25rem; font: 600 0.8125rem/1.25rem var(--font-sans); color: var(--c); }
