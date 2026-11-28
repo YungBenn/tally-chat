@@ -1,12 +1,21 @@
 "use client";
 
-import { IconCheck, IconCopy, IconFileText } from "@tabler/icons-react";
+import {
+  IconAlertOctagon,
+  IconAlertTriangle,
+  IconBulb,
+  IconCheck,
+  IconCopy,
+  IconFileText,
+  IconInfoCircle,
+  IconMessageExclamation,
+} from "@tabler/icons-react";
 import { Fragment, memo, useEffect, useId, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Button, IconButton } from "@/components/ui/button";
 import { languageReady, loadLanguage, tokensNow } from "@/lib/highlight";
 import { katexReady, loadKatex, mathHtml } from "@/lib/katex";
-import { remarkPlugins, splitBlocks } from "@/lib/markdownBlocks";
+import { type CalloutKind, remarkPlugins, splitBlocks } from "@/lib/markdownBlocks";
 import { normalizeMath } from "@/lib/mathDelimiters";
 import { useMedia } from "@/lib/useMedia";
 
@@ -198,6 +207,14 @@ function CodeBlock({ children }: { children?: React.ReactNode }) {
   );
 }
 
+const CALLOUTS: Record<CalloutKind, { title: string; Icon: typeof IconInfoCircle }> = {
+  note: { title: "Note", Icon: IconInfoCircle },
+  tip: { title: "Tip", Icon: IconBulb },
+  important: { title: "Important", Icon: IconMessageExclamation },
+  warning: { title: "Warning", Icon: IconAlertTriangle },
+  caution: { title: "Caution", Icon: IconAlertOctagon },
+};
+
 // remark-math leaves math as code with a math-inline or math-display class (display inside a pre).
 const components = {
   pre: ({ children }: { children?: React.ReactNode }) => {
@@ -214,6 +231,20 @@ const components = {
     ) : (
       <code className={className}>{children}</code>
     ),
+  blockquote: ({ children, ...props }: React.ComponentProps<"blockquote"> & { "data-callout"?: CalloutKind }) => {
+    const kind = props["data-callout"];
+    if (!kind) return <blockquote>{children}</blockquote>;
+    const { title, Icon } = CALLOUTS[kind];
+    return (
+      <div className="tc-callout" data-callout={kind} role="note">
+        <div className="tc-callout-title">
+          <Icon size={16} stroke={1.5} aria-hidden />
+          <span>{title}</span>
+        </div>
+        {children}
+      </div>
+    );
+  },
   a: (props: React.ComponentProps<"a">) => <a {...props} target="_blank" rel="noreferrer" />,
   table: (props: React.ComponentProps<"table">) => (
     <div className="tc-table-scroll">
