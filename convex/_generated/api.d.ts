@@ -26,6 +26,7 @@ import type * as lib_budget from "../lib/budget.js";
 import type * as lib_cacheStatus from "../lib/cacheStatus.js";
 import type * as lib_condense from "../lib/condense.js";
 import type * as lib_context from "../lib/context.js";
+import type * as lib_dateTag from "../lib/dateTag.js";
 import type * as lib_documents from "../lib/documents.js";
 import type * as lib_effort from "../lib/effort.js";
 import type * as lib_images from "../lib/images.js";
@@ -82,6 +83,7 @@ declare const fullApi: ApiFromModules<{
   "lib/cacheStatus": typeof lib_cacheStatus;
   "lib/condense": typeof lib_condense;
   "lib/context": typeof lib_context;
+  "lib/dateTag": typeof lib_dateTag;
   "lib/documents": typeof lib_documents;
   "lib/effort": typeof lib_effort;
   "lib/images": typeof lib_images;
