@@ -196,7 +196,7 @@ function Condense({
     <section className="flex flex-col gap-2.5 border-t border-border pt-4">
       <h2 className="text-subheading">Condense</h2>
       <p className="text-body-sm text-foreground-muted">
-        Replaces older turns with a summary written by the side-job model.{" "}
+        Replaces older turns with a summary written by the thread's own model.{" "}
         {state.state === "off"
           ? "Automatic condensing is off."
           : state.state === "held"
