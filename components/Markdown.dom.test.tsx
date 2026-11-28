@@ -26,6 +26,17 @@ test("a code block in a mounted reply becomes highlighted once Shiki loads", asy
   await act(() => root.unmount());
 }, 60_000);
 
+test("while streaming, only the still-open visual fence gets the placeholder", async () => {
+  const el = document.createElement("div");
+  const root = createRoot(el);
+  const text = '[ref]: http://x\n\n```stats\n{"items":[{"value":"1","label":"One"}]}\n```\n\n```bars\n{"rows":[';
+  await act(() => root.render(<Markdown text={text} streaming />));
+  expect(el.querySelector(".tc-stats")?.textContent).toContain("One");
+  expect(el.querySelectorAll(".tc-visual-ph")).toHaveLength(1);
+  expect(el.querySelector(".tc-visual-ph")?.previousElementSibling?.className).toBe("tc-stats");
+  await act(() => root.unmount());
+});
+
 // Client-rendered styles serialize as `--w: 0%`, so the zero-width fill must be absent, not matched by text.
 test("a bars row with value 0 renders no fill, others keep theirs", async () => {
   const el = document.createElement("div");

@@ -316,16 +316,15 @@ const components = {
 
 // A visual block whose fence is still open holds its place quietly while the reply streams, instead of
 // showing partial JSON. A reply that finished with the fence open shows the code: the text is final.
-const placeholderComponents = {
+// Only the fence that runs to the end of the block is open; earlier closed ones render normally.
+const openFenceComponents = (text: string, mode: "streaming" | "done") => ({
   ...components,
-  pre: ({ children }: { children?: React.ReactNode }) =>
-    isVisualKind(langOf(children)) ? <div className="tc-visual-ph" aria-hidden /> : components.pre({ children }),
-};
-const codeComponents = {
-  ...components,
-  pre: ({ children }: { children?: React.ReactNode }) =>
-    isVisualKind(langOf(children)) ? <CodeBlock>{children}</CodeBlock> : components.pre({ children }),
-};
+  pre: ({ children, node }: { children?: React.ReactNode; node?: { position?: { end: { offset?: number } } } }) => {
+    const open = isVisualKind(langOf(children)) && (node?.position?.end.offset ?? 0) >= text.trimEnd().length;
+    if (!open) return components.pre({ children });
+    return mode === "streaming" ? <div className="tc-visual-ph" aria-hidden /> : <CodeBlock>{children}</CodeBlock>;
+  },
+});
 
 // ponytail: open-fence placeholder covers top-level fences only; extend if models start nesting visual blocks in lists or quotes.
 // One top-level block; memoized so a streaming reply re-renders only the block still growing.
@@ -333,7 +332,7 @@ const Block = memo(function Block({ text, openFence }: { text: string; openFence
   return (
     <ReactMarkdown
       remarkPlugins={remarkPlugins}
-      components={openFence === "streaming" ? placeholderComponents : openFence === "done" ? codeComponents : components}
+      components={openFence ? openFenceComponents(text, openFence) : components}
     >
       {text}
     </ReactMarkdown>
