@@ -27,7 +27,12 @@ export const SYSTEM_PROMPTS: Record<number, string> = {
   // Visual blocks (ticket 01): version 3 plus callouts. Unpublished until feat/visual-blocks merges, so later tickets edit it in place.
   4: V3.replace(
     "\n</rendering>",
-    "\nA blockquote whose first line is [!NOTE], [!TIP], [!IMPORTANT], [!WARNING] or [!CAUTION] renders as a callout with an icon and title, e.g. \"> [!WARNING]\" then \"> text\" on the next line. Use one sparingly for what the reader must not miss.\n</rendering>",
+    `\nA blockquote whose first line is [!NOTE], [!TIP], [!IMPORTANT], [!WARNING] or [!CAUTION] renders as a callout with an icon and title, e.g. "> [!WARNING]" then "> text" on the next line. Use one sparingly for what the reader must not miss.
+${FENCE}stats
+{"items":[{"value":"27 of 32","label":"PRs merged","note":"84%"}]}
+${FENCE}
+A ${FENCE}stats block shows two to four headline numbers as large figures (one to four items; value up to 16 characters, label 60, note 30). Otherwise prefer prose or a table. Never repeat a block's numbers in the text around it.
+</rendering>`,
   ),
 };
 export const CURRENT_SYSTEM_PROMPT_VERSION = 4;

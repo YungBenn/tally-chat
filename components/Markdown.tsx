@@ -17,6 +17,7 @@ import { languageReady, loadLanguage, tokensNow } from "@/lib/highlight";
 import { katexReady, loadKatex, mathHtml } from "@/lib/katex";
 import { type CalloutKind, remarkPlugins, splitBlocks } from "@/lib/markdownBlocks";
 import { normalizeMath } from "@/lib/mathDelimiters";
+import { isOpenVisualFence, isVisualKind, parseVisualBlock, type VisualBlock } from "@/lib/visualBlocks";
 import { useMedia } from "@/lib/useMedia";
 
 function useCopy(text: string) {
@@ -215,15 +216,33 @@ const CALLOUTS: Record<CalloutKind, { title: string; Icon: typeof IconInfoCircle
   caution: { title: "Caution", Icon: IconAlertOctagon },
 };
 
+const langOf = (children: React.ReactNode) => {
+  const code = Array.isArray(children) ? children[0] : children;
+  return /language-([\w-]+)/.exec(classOf(code))?.[1] ?? "text";
+};
+
+/** A visual block (ADR 0005) in the app's own design. Real text throughout, so it selects and reads aloud. */
+function VisualBlockView({ block }: { block: VisualBlock }) {
+  return (
+    <dl className="tc-stats">
+      {block.items.map((it, i) => (
+        <div key={i} className="tc-stat">
+          <dt>{it.label}</dt>
+          <dd className="tc-stat-value">{it.value}</dd>
+          {it.note && <dd className="tc-stat-note">{it.note}</dd>}
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 // remark-math leaves math as code with a math-inline or math-display class (display inside a pre).
 const components = {
   pre: ({ children }: { children?: React.ReactNode }) => {
     const code = Array.isArray(children) ? children[0] : children;
-    return classOf(code).includes("math-display") ? (
-      <MathFormula tex={textOf(children)} display />
-    ) : (
-      <CodeBlock>{children}</CodeBlock>
-    );
+    if (classOf(code).includes("math-display")) return <MathFormula tex={textOf(children)} display />;
+    const block = parseVisualBlock(langOf(children), textOf(children).replace(/\n$/, ""));
+    return block ? <VisualBlockView block={block} /> : <CodeBlock>{children}</CodeBlock>;
   },
   code: ({ className, children }: React.ComponentProps<"code">) =>
     className?.includes("math-inline") ? (
@@ -253,20 +272,50 @@ const components = {
   ),
 };
 
+// A visual block whose fence is still open holds its place quietly while the reply streams, instead of
+// showing partial JSON. A reply that finished with the fence open shows the code: the text is final.
+const placeholderComponents = {
+  ...components,
+  pre: ({ children }: { children?: React.ReactNode }) =>
+    isVisualKind(langOf(children)) ? <div className="tc-visual-ph" aria-hidden /> : components.pre({ children }),
+};
+const codeComponents = {
+  ...components,
+  pre: ({ children }: { children?: React.ReactNode }) =>
+    isVisualKind(langOf(children)) ? <CodeBlock>{children}</CodeBlock> : components.pre({ children }),
+};
+
 // One top-level block; memoized so a streaming reply re-renders only the block still growing.
-const Block = memo(function Block({ text }: { text: string }) {
+const Block = memo(function Block({ text, openFence }: { text: string; openFence: "streaming" | "done" | null }) {
   return (
-    <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
+    <ReactMarkdown
+      remarkPlugins={remarkPlugins}
+      components={openFence === "streaming" ? placeholderComponents : openFence === "done" ? codeComponents : components}
+    >
       {text}
     </ReactMarkdown>
   );
 });
 
-export default memo(function Markdown({ text, className }: { text: string; className?: string }) {
+/** `streaming`: this text is still arriving, so an open visual fence is a placeholder. Once the reply is done it is code. */
+export default memo(function Markdown({
+  text,
+  className,
+  streaming = false,
+}: {
+  text: string;
+  className?: string;
+  streaming?: boolean;
+}) {
+  const blocks = splitBlocks(normalizeMath(text));
   return (
     <div className={className ?? "tc-prose"}>
-      {splitBlocks(normalizeMath(text)).map((block, i) => (
-        <Block key={i} text={block} />
+      {blocks.map((block, i) => (
+        <Block
+          key={i}
+          text={block}
+          openFence={i === blocks.length - 1 && isOpenVisualFence(block) ? (streaming ? "streaming" : "done") : null}
+        />
       ))}
     </div>
   );

@@ -69,7 +69,7 @@ describe("sending with custom instructions", () => {
     expect(SYSTEM_PROMPTS[3]).toContain("A ```mermaid block renders");
   });
 
-  test("published prompts 1-3 keep their bytes; version 4 is version 3 plus the callout line", () => {
+  test("published prompts 1-3 keep their bytes; version 4 is version 3 plus callouts and visual blocks", () => {
     const sha = (v: number) => createHash("sha256").update(SYSTEM_PROMPTS[v]).digest("hex");
     expect([1, 2, 3].map(sha)).toEqual([
       "4eeff3005400ddc46bdcb7eb3622215d5572e6e560d65515491556d6660ee03a",
@@ -79,7 +79,9 @@ describe("sending with custom instructions", () => {
     expect(CURRENT_SYSTEM_PROMPT_VERSION).toBe(4);
     const line = SYSTEM_PROMPTS[4].split("\n").find((l) => l.includes("> [!WARNING]"))!;
     expect(line).toBeTruthy();
-    expect(SYSTEM_PROMPTS[4].replace(`${line}\n`, "")).toBe(SYSTEM_PROMPTS[3]);
+    const added = SYSTEM_PROMPTS[4].slice(SYSTEM_PROMPTS[4].indexOf(line), SYSTEM_PROMPTS[4].indexOf("</rendering>"));
+    expect(SYSTEM_PROMPTS[4].replace(added, "")).toBe(SYSTEM_PROMPTS[3]);
+    expect(added).toContain('```stats\n{"items":[{"value":"27 of 32"');
   });
 
   test("a new thread sends the instructions set when it was created, and later edits leave it alone", async () => {

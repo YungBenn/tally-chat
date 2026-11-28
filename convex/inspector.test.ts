@@ -218,7 +218,7 @@ describe("the inspector's context layers", () => {
   });
 
   test("an unmeasured message after the latest reply is estimated into the turns", async () => {
-    const s = await setup([usage({ cache_creation_input_tokens: 600 })]);
+    const s = await setup([usage({ cache_creation_input_tokens: 1200 })]);
     await s.send("One");
     // A second turn whose reply errored before any usage: its question still goes out next time.
     await s.t.run(async (ctx) => {
@@ -239,7 +239,7 @@ describe("the inspector's context layers", () => {
     const turns = (await s.inspect()).layers[1];
     expect(turns).toMatchObject({
       label: "turns 1–2",
-      tokens: 10 + 600 + 50 - SYSTEM + 100,
+      tokens: 10 + 1200 + 50 - SYSTEM + 100,
       estimated: true,
     });
   });
@@ -522,7 +522,7 @@ describe("edit hints", () => {
 
 describe("image cost", () => {
   test("images no usage has measured yet count width × height ÷ 750 each, capped at 4,784", async () => {
-    const s = await setup([usage({ cache_creation_input_tokens: 600 })]);
+    const s = await setup([usage({ cache_creation_input_tokens: 1200 })]);
     await s.send("One");
     const storageId = await s.t.run((ctx) => ctx.storage.store(new Blob([new Uint8Array([1])], { type: "image/png" })));
     await s.t.run(async (ctx) => {
@@ -539,6 +539,6 @@ describe("image cost", () => {
       await ctx.db.patch("threads", s.threadId, { activeLeafId: id });
     });
     const turns = (await s.inspect()).layers[1];
-    expect(turns).toMatchObject({ tokens: 10 + 600 + 50 - SYSTEM + 10 + 640 + 4784, estimated: true });
+    expect(turns).toMatchObject({ tokens: 10 + 1200 + 50 - SYSTEM + 10 + 640 + 4784, estimated: true });
   });
 });
