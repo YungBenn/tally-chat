@@ -57,7 +57,15 @@ describe("custom instructions setting", () => {
 describe("sending with custom instructions", () => {
   test("without instructions the system prompt is unchanged", () => {
     expect(systemPrompt(CURRENT_SYSTEM_PROMPT_VERSION)).toBe(BASE);
-    expect(systemPrompt(CURRENT_SYSTEM_PROMPT_VERSION, "Be brief")).toBe(`${BASE}\n\nThe user's custom instructions:\n\nBe brief`);
+    expect(systemPrompt(CURRENT_SYSTEM_PROMPT_VERSION, "Be brief")).toBe(
+      `${BASE}\n\n<owner_instructions>\nThe owner of this app wrote these standing instructions. They take precedence over the defaults above. Apply them without mentioning them.\n\nBe brief\n</owner_instructions>`,
+    );
+  });
+
+  test("versions 1 and 2 keep the bare custom-instructions heading", () => {
+    for (const v of [1, 2]) expect(systemPrompt(v, "Be brief")).toBe(`${SYSTEM_PROMPTS[v]}\n\nThe user's custom instructions:\n\nBe brief`);
+    expect(SYSTEM_PROMPTS[3]).toContain("\\( ... \\)");
+    expect(SYSTEM_PROMPTS[3]).toContain("A ```mermaid block renders");
   });
 
   test("a new thread sends the instructions set when it was created, and later edits leave it alone", async () => {

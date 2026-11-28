@@ -4,6 +4,7 @@ import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { cacheState } from "./lib/cacheStatus";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
+import { tagged } from "../test/untagged";
 import { messageDelta, messageStart, messageStop, oaiDelta, oaiDone, oaiFinish, sse, textDelta } from "../test/sse";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -57,8 +58,8 @@ async function setup(usage: object = { input_tokens: 10, cache_read_input_tokens
     await owner.mutation(api.chat.send, { threadId: thread, content });
     await t.finishAllScheduledFunctions(() => {});
   };
-  // Replies only: title side jobs (max_tokens 30) are filtered out.
-  const replies = () => fake!.requests.filter((r) => r.url.endsWith("/v1/messages") && (r.body as Body).max_tokens !== 30).map((r) => r.body as Body);
+  // Replies only: title side jobs (max_tokens 512) are filtered out.
+  const replies = () => fake!.requests.filter((r) => r.url.endsWith("/v1/messages") && (r.body as Body).max_tokens !== 512).map((r) => r.body as Body);
   return { t, owner, ownerId, threadId, openaiId, send, replies };
 }
 
@@ -69,7 +70,7 @@ describe("cache-aware Anthropic requests", () => {
     const [body] = s.replies();
     expect(body.system).toEqual([{ type: "text", text: SYSTEM_PROMPTS[CURRENT_SYSTEM_PROMPT_VERSION], cache_control: FIVE_MIN }]);
     expect(body.cache_control).toEqual(FIVE_MIN);
-    expect(body.messages).toEqual([{ role: "user", content: "Hi" }]);
+    expect(body.messages).toEqual([{ role: "user", content: tagged("Hi") }]);
     expect(breakpoints(body)).toHaveLength(2); // system + top-level
   });
 
@@ -97,7 +98,7 @@ describe("cache-aware Anthropic requests", () => {
       { role: "user", content: [{ type: "text", text: "U1", cache_control: FIVE_MIN }] }, // last block of the layer: the pin
       { role: "user", content: "U2" },
       { role: "assistant", content: "A2" },
-      { role: "user", content: "U3" },
+      { role: "user", content: tagged("U3") },
     ]);
     const all = breakpoints(body);
     expect(all.length).toBeLessThanOrEqual(4);
@@ -129,7 +130,7 @@ describe("cache-aware Anthropic requests", () => {
   test("title side jobs are unaffected", async () => {
     const s = await setup();
     await s.send("Hi");
-    const title = fake!.requests.map((r) => r.body as Body).find((b) => b.max_tokens === 30)!;
+    const title = fake!.requests.map((r) => r.body as Body).find((b) => b.max_tokens === 512)!;
     expect(title).toBeDefined();
     expect(typeof title.system).toBe("string");
     expect(breakpoints(title)).toEqual([]);

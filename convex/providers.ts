@@ -24,6 +24,7 @@ const providerView = v.object({
       hidden: v.boolean(),
       vision: v.optional(v.boolean()),
       tools: v.boolean(), // can call tools: Anthropic models by default, others when the owner says so
+      reasoning: v.optional(v.boolean()), // owner says it reasons: effort is sent to it
       favorite: v.boolean(), // starred in the model picker
     }),
   ),
@@ -75,12 +76,13 @@ export const updateModel = mutation({
     displayName: v.optional(v.string()),
     vision: v.optional(v.boolean()), // "accepts images", set by the owner for OpenAI-compatible models
     tools: v.optional(v.boolean()), // "can call tools", set by the owner for OpenAI-compatible models
+    reasoning: v.optional(v.boolean()), // "reasons", set by the owner: effort is sent as reasoning_effort
     favorite: v.optional(v.boolean()), // starred in the model picker
   },
   returns: v.null(),
   handler: async (
     ctx,
-    { providerId, modelId, hidden, displayName, vision, tools, favorite },
+    { providerId, modelId, hidden, displayName, vision, tools, reasoning, favorite },
   ) => {
     const ownerId = await requireOwner(ctx);
     const provider = await ctx.db.get("providers", providerId);
@@ -95,6 +97,7 @@ export const updateModel = mutation({
             displayName: displayName?.trim() || m.displayName,
             vision: vision ?? m.vision,
             tools: tools ?? m.tools,
+            reasoning: reasoning ?? m.reasoning,
             favorite: favorite ?? m.favorite,
           },
     );
@@ -137,6 +140,7 @@ const modelValidator = v.object({
   hidden: v.boolean(),
   vision: v.optional(v.boolean()),
   tools: v.optional(v.boolean()),
+  reasoning: v.optional(v.boolean()),
   favorite: v.optional(v.boolean()),
 });
 
@@ -161,6 +165,7 @@ export const mergeModels = internalMutation({
               favorite: before.favorite,
               vision: m.vision ?? before.vision,
               tools: m.tools ?? before.tools,
+              reasoning: m.reasoning ?? before.reasoning,
             }
           : m;
       }),

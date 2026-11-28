@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch, type Recorded } from "../test/fakeFetch";
+import { tagged } from "../test/untagged";
 import { gate, gatedStream, oaiDelta, oaiDone, oaiFinish } from "../test/sse";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -57,7 +58,7 @@ describe("OpenAI-compatible chat", () => {
       model: "gpt-5",
       stream: true,
       stream_options: { include_usage: true },
-      messages: [{ role: "system" }, { role: "user", content: "Hi" }],
+      messages: [{ role: "system" }, { role: "user", content: tagged("Hi") }],
     });
   });
 

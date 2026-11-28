@@ -1,13 +1,22 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import type { ChatMessage } from "./anthropic";
+import { dateBlock } from "./dateTag";
 import { documentBlock } from "./documents";
+import { QUICK_BREVITY } from "./outputModes";
 import { expandParts, usedTools } from "./toolParts";
 import { searchBlock } from "./webSearch";
 
 // Prefix for the summary message. Changing it changes every request's bytes after the
 // system prompt, so treat it like a system prompt: version it if it ever changes.
 export const SUMMARY_PREFIX = "Summary of the earlier conversation:\n\n";
+// A version 2 summary also carries the latest date stored in the turns it replaced, so folding
+// away the only dated message doesn't leave the model without a date. Version 1 stays bare.
+const summaryText = (c: { summary: string; promptVersion?: number }, date?: string) =>
+  SUMMARY_PREFIX +
+  ((c.promptVersion ?? 1) >= 2
+    ? `<summary>\n${c.summary}\n</summary>${date ? `\n\n${dateBlock(date)}` : ""}`
+    : c.summary);
 
 // The latest checkpoint on a branch (message ids, root first), or null. Checkpoints roll, so the
 // one covering the most of the branch is the latest. A fork made before a checkpoint doesn't
@@ -44,10 +53,12 @@ export type History = {
   layerEnd: number;
   checkpoint: Doc<"checkpoints"> | null;
 };
+// pendingReply: the reply the history is being built for, which is not on the branch yet.
 export async function assembleHistory(
   ctx: QueryCtx,
   threadId: Id<"threads">,
   branchIds: Id<"messages">[],
+  pendingReply?: Doc<"messages">,
 ): Promise<History> {
   const branch = (
     await Promise.all(branchIds.map((id) => ctx.db.get("messages", id)))
@@ -83,22 +94,38 @@ export async function assembleHistory(
         .map(async (ref) => [ref.id, await ctx.db.get("documents", ref.id)] as const),
     ),
   );
-  const withAttachments = (m: Doc<"messages">) =>
-    [
+  // A retry's mode decides the brevity line of the message it answers, whatever mode that message
+  // was sent in; every request on a branch through the retry then renders the same bytes.
+  const brevityOf = (m: Doc<"messages">) => {
+    const reply = m._id === pendingReply?.parentId ? pendingReply : branch[(position.get(m._id) ?? -1) + 1];
+    return reply?.retry && reply.parentId === m._id && reply.outputMode
+      ? reply.outputMode === "quick" ? QUICK_BREVITY : undefined
+      : m.brevity;
+  };
+  const withAttachments = (m: Doc<"messages">) => {
+    const search = searches.get(m._id);
+    const brevity = brevityOf(m);
+    // Format 2 puts the search block above the text; format 1 keeps it after.
+    return [
+      ...(m.date ? [dateBlock(m.date)] : []),
       ...(m.documents ?? []).flatMap((ref) => {
         const doc = documents.get(ref.id);
         return doc ? [documentBlock(doc.name, doc.text)] : [];
       }),
+      ...(search?.format ? [searchBlock(search)] : []),
       m.content,
-      ...(searches.get(m._id) ? [searchBlock(searches.get(m._id)!)] : []),
+      ...(brevity ? [brevity] : []),
+      ...(search && !search.format ? [searchBlock(search)] : []),
     ].join("\n\n");
+  };
 
   // Per-message effort and images ride along on user messages; the adapter turns them into
   // their own blocks, so request bytes depend only on stored data.
   const toChat = (m: Doc<"messages">): ChatMessage[] =>
-    // A reply that used tools goes back as its steps, results word for word (ADR 0003).
+    // A reply that used tools goes back as its steps, results word for word (ADR 0003). With a
+    // checkpoint, kept replies lose their thinking: it is about messages the summary replaced.
     m.role === "assistant" && usedTools(m.parts)
-      ? expandParts(m.parts!)
+      ? expandParts(m.parts!, !latest)
       : [
           {
             role: m.role,
@@ -114,7 +141,7 @@ export async function assembleHistory(
     return { messages: verbatim(branch), layerEnd: 0, checkpoint: null };
   const cut = position.get(latest.coversUpToId)! + 1;
   const layer: ChatMessage[] = [
-    { role: "user", content: SUMMARY_PREFIX + latest.summary },
+    { role: "user", content: summaryText(latest, branch.slice(0, cut).findLast((m) => m.date)?.date) },
     ...verbatim(branch.slice(0, cut).filter((m) => m.pinned)),
   ];
   return {

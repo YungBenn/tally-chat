@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
+import { tagged } from "../test/untagged";
 import { fakeMcp } from "../test/fakeMcp";
 import { oaiDelta, oaiDone, oaiFinish, oaiToolCall, oaiToolFinish } from "../test/sse";
 import { api } from "./_generated/api";
@@ -59,7 +60,7 @@ async function setup(steps: Step[] | ((n: number) => Step), mcpOptions: Partial<
     [OPENAI]: {
       respond: (init) => {
         const body = JSON.parse(String(init?.body)) as Wire;
-        if (body.max_tokens === 30) return new Response(oaiDelta("Title") + oaiFinish({ prompt_tokens: 1, completion_tokens: 1 }) + oaiDone);
+        if (body.max_tokens === 512) return new Response(oaiDelta("Title") + oaiFinish({ prompt_tokens: 1, completion_tokens: 1 }) + oaiDone);
         n += 1;
         const step = typeof steps === "function" ? steps(n) : (steps[n - 1] ?? { text: "done" });
         const usage = { prompt_tokens: 100 * n, completion_tokens: 10 };
@@ -76,7 +77,7 @@ async function setup(steps: Step[] | ((n: number) => Step), mcpOptions: Partial<
     await owner.mutation(api.chat.send, { threadId, content });
     await t.finishAllScheduledFunctions(() => {});
   };
-  const requests = () => fake!.requests.filter((r) => r.url.includes("chat/completions") && (r.body as Wire).max_tokens !== 30).map((r) => r.body as Wire);
+  const requests = () => fake!.requests.filter((r) => r.url.includes("chat/completions") && (r.body as Wire).max_tokens !== 512).map((r) => r.body as Wire);
   const replies = () => t.run(async (ctx) => (await ctx.db.query("messages").collect()).filter((m) => m.role === "assistant"));
   return { t, owner, threadId, send, requests, replies, mcpCalls };
 }
@@ -94,7 +95,7 @@ describe("the tool loop on OpenAI-compatible providers", () => {
     await s.owner.mutation(api.chat.approveTools, { messageId: waiting._id, declined: ["c2"] });
     await s.t.finishAllScheduledFunctions(() => {});
     const [first, second] = s.requests();
-    expect(first.messages).toEqual([expect.objectContaining({ role: "system" }), { role: "user", content: "Go" }]);
+    expect(first.messages).toEqual([expect.objectContaining({ role: "system" }), { role: "user", content: tagged("Go") }]);
     expect(second.messages.slice(2)).toEqual([
       {
         role: "assistant",

@@ -7,6 +7,14 @@ export const messageStart = (usage: object) => encode({ type: "message_start", m
 export const messageDelta = (usage: object) => encode({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage });
 export const sse = (...events: string[]) => events.join("");
 
+// A finished thinking block (summary text, signature) as stream events.
+export const thinkingBlock = (summary: string, signature: string, index = 0) => [
+  encode({ type: "content_block_start", index, content_block: { type: "thinking", thinking: "" } }),
+  encode({ type: "content_block_delta", index, delta: { type: "thinking_delta", thinking: summary } }),
+  encode({ type: "content_block_delta", index, delta: { type: "signature_delta", signature } }),
+  encode({ type: "content_block_stop", index }),
+];
+
 // A stream that pauses at each gate until the test releases it, and errors when aborted.
 export function gatedStream(steps: (string | Gate)[], signal: AbortSignal | null | undefined) {
   const queue = [...steps];

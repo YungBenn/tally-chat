@@ -14,7 +14,7 @@ import Composer from "@/components/Composer";
 import ModeControl from "@/components/ModeControl";
 import { ToolPickerButton, useToolPicker } from "@/components/ToolPicker";
 import { SearchToggle, useWebSearch } from "@/components/WebSearch";
-import { DEFAULT_EFFORT, type Effort } from "@/convex/lib/effort";
+import { defaultEffortFor, type Effort } from "@/convex/lib/effort";
 import type { MessageImage } from "@/convex/lib/images";
 import type { OutputMode } from "@/convex/lib/outputModes";
 import { NewThreadCostStrip } from "@/components/CostStrip";
@@ -161,7 +161,6 @@ export default function NewThread() {
   const [draftDocTokens, setDraftDocTokens] = useState(0);
   const [mode, setMode] = useState<OutputMode>("normal");
   const [effortChoice, setEffort] = useState<Effort | null>(null);
-  const effort = effortChoice ?? settings?.defaultEffort ?? DEFAULT_EFFORT;
   // The owner's default model while it's still listed, else the first one.
   const defaultModel =
     settings?.defaultModel &&
@@ -170,13 +169,20 @@ export default function NewThread() {
     choice ??
     options.find((o) => o.value === defaultModel)?.value ??
     options[0]?.value;
-  // Effort is an Anthropic-style setting (spec phase 4); other providers get no control.
-  const anthropic =
-    providers?.find((p) => p._id === selected?.split("|")[0])?.apiStyle ===
-    "anthropic";
-  const selectedModel = providers
-    ?.find((p) => p._id === selected?.split("|")[0])
-    ?.models.find((m) => m.id === selected?.split("|")[1]);
+  const selectedProvider = providers?.find(
+    (p) => p._id === selected?.split("|")[0],
+  );
+  const selectedModel = selectedProvider?.models.find(
+    (m) => m.id === selected?.split("|")[1],
+  );
+  // Effort is for Anthropic models and compatible models flagged as reasoning (spec phase 4).
+  const hasEffort =
+    selectedProvider?.apiStyle === "anthropic" ||
+    selectedModel?.reasoning === true;
+  const effort =
+    effortChoice ??
+    settings?.defaultEffort ??
+    defaultEffortFor(selected?.split("|")[1] ?? "");
   const vision = selectedModel?.vision === true;
   const toolPicker = useToolPicker(selectedModel?.tools === true);
 
@@ -221,7 +227,7 @@ export default function NewThread() {
                     selected={selected}
                     onPick={setChoice}
                   />
-                  {anthropic && (
+                  {hasEffort && (
                     <EffortControl value={effort} onChange={setEffort} />
                   )}
                   <ModeControl value={mode} onChange={setMode} />
@@ -270,7 +276,7 @@ export default function NewThread() {
               const threadId = await startThread({
                 providerId: providerId as Id<"providers">,
                 modelId,
-                effort: anthropic ? effort : undefined,
+                effort: hasEffort ? effort : undefined,
                 content: text,
                 mode,
                 images: images.length ? images : undefined,

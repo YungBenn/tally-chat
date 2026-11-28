@@ -38,7 +38,7 @@ import { SEARCH_TOKENS_ESTIMATE } from "@/convex/lib/webSearch";
 import type { Effort } from "@/convex/lib/effort";
 import type { MessageImage } from "@/convex/lib/images";
 import {
-  MODE_MAX_TOKENS,
+  outputCeiling,
   OUTPUT_MODES,
   type OutputMode,
 } from "@/convex/lib/outputModes";
@@ -508,6 +508,7 @@ export default function ThreadPage() {
                 draftImages={draftImages}
                 draftDocTokens={draftDocTokens}
                 mode={mode}
+                effort={pendingEffort ?? undefined}
                 onOpen={toggleInspector}
               />
             }
@@ -524,7 +525,7 @@ export default function ThreadPage() {
                       draftDocTokens +
                       (webSearch.on ? SEARCH_TOKENS_ESTIMATE : 0)
                     }
-                    maxOutputTokens={MODE_MAX_TOKENS[mode]}
+                    maxOutputTokens={outputCeiling(mode, pendingEffort ?? inspector?.effort ?? undefined)}
                     selected={oneOff ?? threadModel}
                     onPick={(model) => setReplyWith({ threadId, model })}
                     trigger={

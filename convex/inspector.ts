@@ -33,6 +33,7 @@ import {
 } from "./lib/usage";
 import { freezeTools, supportsTools, toDefinition } from "./lib/toolSet";
 import { requireOwner } from "./owner";
+import { dateBlock } from "./lib/dateTag";
 import { SEARCH_TOKENS_ESTIMATE } from "./lib/webSearch";
 
 // Rough token count for text no provider has measured (characters ÷ 4; spec phase 3).
@@ -43,8 +44,10 @@ const estimateMessage = (m: {
   images?: { width: number; height: number }[];
   search?: boolean;
   documents?: { tokens: number }[];
+  date?: string;
 }) =>
   estimateTokens(m.content) +
+  (m.date ? estimateTokens(`${dateBlock(m.date)}\n\n`) : 0) +
   (m.images ?? []).reduce((sum, i) => sum + imageTokens(i), 0) +
   (m.search ? SEARCH_TOKENS_ESTIMATE : 0) +
   (m.documents ?? []).reduce((sum, d) => sum + d.tokens, 0);
@@ -532,7 +535,7 @@ async function threadFigures(
       all[f] -
         upkeep[f] -
         sideJobs
-          .filter((j) => j.kind === "title" || j.kind === "condense")
+          .filter((j) => j.kind !== "keepalive")
           .reduce((s, j) => s + j.usage[f], 0),
     ]),
   ) as Usage;

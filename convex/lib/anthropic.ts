@@ -148,6 +148,9 @@ export function messagesBody(req: MessagesRequest, stream: boolean) {
     model: req.model,
     max_tokens: req.maxTokens,
     ...(req.effort ? { output_config: { effort: req.effort } } : {}),
+    // Replies and keepalives (the cache-marked requests) ask for the thinking summary, which costs
+    // nothing extra and keeps their cached prefix the same. Side jobs ask for nothing.
+    ...(req.cache ? { thinking: { type: "adaptive" as const, display: "summarized" as const } } : {}),
     // Tools come first in the cached prefix; the system prompt's breakpoint covers them.
     ...(tools
       ? {
@@ -217,6 +220,7 @@ export function messagesBody(req: MessagesRequest, stream: boolean) {
 export type StreamEvent =
   | { type: "text"; text: string }
   | { type: "toolCall"; id: string; name: string; input: unknown } // the model asks for a tool (spec phase 10)
+  | { type: "thinkingDelta"; text: string } // a piece of the thinking summary, to show live
   | { type: "thinking"; thinking: string; signature: string } // a finished thinking block, to send back unchanged in a tool loop
   | { type: "redactedThinking"; data: string }
   | ({ type: "usage" } & NormalizedUsage)
@@ -303,6 +307,7 @@ export async function* streamAnthropicMessage(
       if (parsed.type === "content_block_delta" && parsed.delta?.type === "thinking_delta") {
         const block = thinkingBlocks.get(parsed.index ?? 0);
         if (block) block.thinking += parsed.delta.thinking ?? "";
+        if (parsed.delta.thinking) yield { type: "thinkingDelta", text: parsed.delta.thinking };
       }
       if (parsed.type === "content_block_delta" && parsed.delta?.type === "signature_delta") {
         const block = thinkingBlocks.get(parsed.index ?? 0);

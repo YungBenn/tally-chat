@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
+import { tagged } from "../test/untagged";
 import { fakeMcp, type FakeMcpOptions } from "../test/fakeMcp";
 import { gate, gatedStream, type Gate } from "../test/sse";
 import {
@@ -77,10 +78,10 @@ async function setup(opts: { steps: Step[] | ((body: Body, n: number) => Step); 
     [ANTHROPIC]: {
       respond: (init) => {
         const body = JSON.parse(String(init?.body)) as Body;
-        if (body.max_tokens === 30) return new Response(sse(messageStart({ input_tokens: 1 }), textDelta("Title"), messageDelta({ output_tokens: 1 }), messageStop)); // title job
+        if (body.max_tokens === 512) return new Response(sse(messageStart({ input_tokens: 1 }), textDelta("Title"), messageDelta({ output_tokens: 1 }), messageStop)); // title job
         n += 1;
         const step = typeof opts.steps === "function" ? opts.steps(body, n) : (opts.steps[n - 1] ?? { text: "done" });
-        const events: (string | Gate)[] = [messageStart({ input_tokens: 100 * n, cache_read_input_tokens: 0 })];
+        const events: (string | Gate)[] = [messageStart({ input_tokens: 1000 * n, cache_read_input_tokens: 0 })];
         if (step.gate) events.push(step.gate); // holds the step before its text
         let index = 0;
         if (step.thinking) {
@@ -105,7 +106,7 @@ async function setup(opts: { steps: Step[] | ((body: Body, n: number) => Step); 
     await settle();
   };
   const replyRequests = () =>
-    fake!.requests.filter((r) => r.url.endsWith("/v1/messages") && (r.body as Body).max_tokens !== 30).map((r) => r.body as Body);
+    fake!.requests.filter((r) => r.url.endsWith("/v1/messages") && (r.body as Body).max_tokens !== 512).map((r) => r.body as Body);
   const replies = () =>
     t.run(async (ctx) => (await ctx.db.query("messages").collect()).filter((m) => m.role === "assistant"));
   return { t, owner, ownerId, threadId, serverId, send, settle, replyRequests, replies, mcpCalls };
@@ -133,7 +134,7 @@ describe("the tool loop on Anthropic", () => {
     // push a tool_use -> tool_result request over 4 alongside it.
     expect(first.cache_control).toEqual(expect.objectContaining({ type: "ephemeral" }));
     expect(second.cache_control).toBeUndefined();
-    expect(first.messages).toEqual([{ role: "user", content: "Find the cache docs" }]);
+    expect(first.messages).toEqual([{ role: "user", content: tagged("Find the cache docs") }]);
     expect(second.messages.slice(1)).toEqual([
       { role: "assistant", content: [{ type: "text", text: "Let me look." }, { type: "tool_use", id: "toolu_1", name: "docs__search", input: { q: "cache" } }] },
       { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "result of search" }] },
@@ -185,16 +186,16 @@ describe("the tool loop on Anthropic", () => {
     await s.send("Go");
     const [reply] = await s.replies();
     expect(reply.steps).toHaveLength(3);
-    expect(reply.steps!.map((x) => x.usage.inputTokens)).toEqual([100, 200, 300]);
-    expect(reply.usage).toMatchObject({ inputTokens: 600, outputTokens: 30 });
+    expect(reply.steps!.map((x) => x.usage.inputTokens)).toEqual([1000, 2000, 3000]);
+    expect(reply.usage).toMatchObject({ inputTokens: 6000, outputTokens: 30 });
     expect(reply.costMicroUsd).toBe(reply.steps!.reduce((sum, x) => sum + x.costMicroUsd!, 0));
     const turn = (await s.owner.query(api.inspector.turn, { messageId: reply._id }))!;
-    expect(turn.steps.map((x) => x.usage.inputTokens)).toEqual([100, 200, 300]);
+    expect(turn.steps.map((x) => x.usage.inputTokens)).toEqual([1000, 2000, 3000]);
     // The inspector measures the next request from the last step: it holds every earlier one.
     const view = (await s.owner.query(api.inspector.get, { threadId: s.threadId }))!;
     const [tools, system, turns] = view.layers;
     expect([tools.kind, system.kind, turns.kind]).toEqual(["tools", "system", "turns"]);
-    expect(turns.tokens).toBe(300 + 10 - tools.tokens - system.tokens);
+    expect(turns.tokens).toBe(3000 + 10 - tools.tokens - system.tokens);
     // The usage rollups saw every step too.
     const rollup = await s.t.run(async (ctx) => (await ctx.db.query("dailyUsage").collect()).find((r) => r.dimension === "thread")!);
     expect(rollup.calls).toBe(4); // three steps and the title
@@ -308,6 +309,43 @@ describe("the tool loop on Anthropic", () => {
     expect(third[3].content).toBe("Done.");
   });
 
+  describe("thinking after a checkpoint", () => {
+    const old = { thinking: "old reasoning", signature: "sig-old" };
+    const fresh = { thinking: "fresh reasoning", signature: "sig-new" };
+    // Turn 1 is covered by a checkpoint; turn 2 is a kept tool-loop reply with thinking.
+    async function withCheckpoint(steps: Step[]) {
+      const s = await setup({ steps: [{ text: "Hi." }, { thinking: old, text: "Looking.", calls: [call("t", "search")] }, { text: "Done." }, ...steps] });
+      await s.send("First");
+      await s.send("Go");
+      const [first] = await s.replies();
+      await s.t.run((ctx) =>
+        ctx.db.insert("checkpoints", { ownerId: s.ownerId, threadId: s.threadId, coversUpToId: first._id, summary: "S", tokens: 10 }),
+      );
+      return s;
+    }
+
+    test("kept tool-loop replies are sent without thinking; text, calls and results unchanged", async () => {
+      const s = await withCheckpoint([{ text: "Next answer." }]);
+      await s.send("And then?");
+      const sent = s.replyRequests()[3].messages;
+      expect(sent.map((m) => m.role)).toEqual(["user", "user", "assistant", "user", "assistant", "user"]);
+      expect(sent[2].content).toEqual([
+        { type: "text", text: "Looking." },
+        { type: "tool_use", id: "t", name: "docs__search", input: {} },
+      ]);
+      expect(sent[3].content).toEqual([{ type: "tool_result", tool_use_id: "t", content: "result of search" }]);
+      expect(JSON.stringify(sent)).not.toMatch(/thinking/);
+    });
+
+    test("the current step of an in-progress loop keeps its thinking", async () => {
+      const s = await withCheckpoint([{ thinking: fresh, text: "Again.", calls: [call("u", "search")] }, { text: "Fine." }]);
+      await s.send("More");
+      const sent = JSON.stringify(s.replyRequests()[4].messages);
+      expect(sent).toContain("fresh reasoning");
+      expect(sent).not.toContain("old reasoning");
+    });
+  });
+
   test("a stopped reply leaves no call without its result in the next request", async () => {
     const hang = gate();
     const s = await setup({
@@ -328,7 +366,7 @@ describe("the tool loop on Anthropic", () => {
     // The next turn carries the text only, no dangling tool_use.
     await s.send("Hello?");
     expect(s.replyRequests()[1].messages).toEqual([
-      { role: "user", content: "Go" },
+      { role: "user", content: tagged("Go") },
       { role: "assistant", content: "Working." },
       { role: "user", content: "Hello?" },
     ]);
@@ -434,7 +472,7 @@ describe("approving tool calls", () => {
     expect(s.mcpCalls).toEqual([]);
     // The thread is usable again, and the history holds no unanswered call.
     await s.send("Hi");
-    expect(s.replyRequests()[1].messages.map((m) => m.content)).toEqual(["Clean up", "Working.", "Hi"]);
+    expect(s.replyRequests()[1].messages.map((m) => m.content)).toEqual([tagged("Clean up"), "Working.", "Hi"]);
   });
 
   test("an approval left for 30 minutes stops the reply with Continue; the expiry is scheduled when it starts waiting", async () => {
@@ -476,7 +514,7 @@ describe("approving tool calls", () => {
     const waiting = await input(requestedAt + 5 * 60_000);
     expect(waiting).not.toBeNull();
     // The prefix runs through the step's text; its unanswered call is not part of it.
-    expect(waiting!.history).toEqual([{ role: "user", content: "Clean up" }, { role: "assistant", content: "Ok." }]);
+    expect(waiting!.history).toEqual([{ role: "user", content: tagged("Clean up") }, { role: "assistant", content: "Ok." }]);
     expect(waiting!.tools).toHaveLength(2);
     expect(await input(requestedAt + 31 * 60_000)).toBeNull();
   });

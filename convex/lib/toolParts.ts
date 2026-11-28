@@ -58,6 +58,12 @@ export const nextStep = (parts: Part[] | undefined) =>
 export const joinText = (parts: Part[]) =>
   parts.flatMap((p) => (p.type === "text" && p.text ? [p.text] : [])).join("\n\n");
 
+// The thinking summaries of a reply's finished steps, one blank line apart; undefined when none.
+export const thinkingSummary = (parts: Part[] | undefined) =>
+  parts
+    ?.flatMap((p) => (p.type === "thinking" && p.thinking ? [p.thinking] : []))
+    .join("\n\n") || undefined;
+
 export const usedTools = (parts: Part[] | undefined) => !!parts?.some((p) => p.type === "toolCall");
 
 // What the model is told for a call that didn't return a result.
@@ -70,8 +76,9 @@ export const RESULT_NOTE: Record<Exclude<ToolStatus, "ok">, string> = {
 // The reply as request messages: for each step, the assistant's blocks (thinking, text, tool
 // calls) then the results, in the order they happened. A step whose calls don't all have a
 // result (the reply was stopped or cut mid-step) is sent as its text alone, so a history never
-// holds a call without its result.
-export function expandParts(parts: Part[]): ChatMessage[] {
+// holds a call without its result. Kept turns after a checkpoint pass withThinking false: their
+// reasoning is about messages the summary replaced; text, calls and results stay word for word.
+export function expandParts(parts: Part[], withThinking = true): ChatMessage[] {
   const messages: ChatMessage[] = [];
   const steps = [...new Set(parts.map((p) => p.step))].sort((a, b) => a - b);
   for (const step of steps) {
@@ -81,7 +88,7 @@ export function expandParts(parts: Part[]): ChatMessage[] {
     const results = new Map(own.flatMap((p) => (p.type === "toolResult" ? [[p.id, p] as const] : [])));
     const complete = calls.length > 0 && calls.every((c) => c.type === "toolCall" && results.has(c.id));
     const thinking = own.flatMap((p): AssistantBlock[] =>
-      p.type === "thinking"
+      !withThinking ? [] : p.type === "thinking"
         ? [{ type: "thinking", thinking: p.thinking, signature: p.signature }]
         : p.type === "redactedThinking"
           ? [{ type: "redacted_thinking", data: p.data }]

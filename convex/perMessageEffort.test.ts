@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
+import { tagged } from "../test/untagged";
 import {
   messageDelta,
   messageStart,
@@ -91,11 +92,11 @@ async function setup(model = "claude-sonnet-5-5") {
     await owner.mutation(api.chat.send, { threadId, content, effort });
     await t.finishAllScheduledFunctions(() => {});
   };
-  // Reply requests with their headers, title side jobs (30 tokens) left out.
+  // Reply requests with their headers, title side jobs (512 tokens) left out.
   const replies = () =>
     fake!.requests
       .filter(
-        (r) => (r.body as Body).max_tokens !== 30 && (r.body as Body).stream,
+        (r) => (r.body as Body).max_tokens !== 512 && (r.body as Body).stream,
       )
       .map((r) => ({
         body: r.body as Body,
@@ -156,7 +157,7 @@ describe("per-message effort", () => {
     )!;
     expect(keepalive.headers["anthropic-beta"]).toBe(BETA);
     expect((keepalive.body as Body).messages.slice(0, 2)).toEqual([
-      { role: "user", content: "Hard question" },
+      { role: "user", content: tagged("Hard question") },
       effortMessage("high"),
     ]);
   });
@@ -173,7 +174,7 @@ describe("per-message effort", () => {
     await s.t.finishAllScheduledFunctions(() => {});
     const fork = s.replies().at(-1)!;
     expect(fork.beta).toBeUndefined();
-    expect(fork.body.messages).toEqual([{ role: "user", content: "Uno" }]);
+    expect(fork.body.messages).toEqual([{ role: "user", content: tagged("Uno") }]);
 
     await s.owner.mutation(api.chat.switchBranch, { messageId: hard._id });
     await s.owner.mutation(api.chat.edit, {
@@ -212,5 +213,68 @@ describe("per-message effort", () => {
     const s = await setup("cc/claude-sonnet-5-5");
     await s.send("Hard question", "high");
     expect(s.replies()[0].beta).toBe(BETA);
+  });
+
+  describe("retry at higher effort", () => {
+    const retryHigher = async (s: Awaited<ReturnType<typeof setup>>) => {
+      const reply = (await s.messages()).findLast((m) => m.role === "assistant")!;
+      await s.owner.mutation(api.chat.retry, {
+        messageId: reply._id,
+        higherEffort: true,
+      });
+      await s.t.finishAllScheduledFunctions(() => {});
+    };
+
+    test("makes a sibling reply one level up as a per-message effort; the thread's effort and prefix stay", async () => {
+      const s = await setup();
+      await s.send("One");
+      await s.send("Hard question");
+      await retryHigher(s);
+      const [, before, after] = s.replies();
+      expect(after.beta).toBe(BETA);
+      expect(after.body.output_config).toEqual({ effort: "low" });
+      expect(after.body.max_tokens).toBeGreaterThan(before.body.max_tokens); // room for the extra thinking
+      expect(after.body.messages.slice(0, 3)).toEqual(
+        before.body.messages.slice(0, 3),
+      );
+      expect(after.body.messages.slice(3)).toEqual([effortMessage("medium")]);
+
+      const replies = (await s.messages()).filter((m) => m.role === "assistant");
+      expect(replies.map((m) => m.effort)).toEqual(["low", "medium"]);
+      expect(replies[1].siblingIds).toHaveLength(2); // beside the original reply
+      expect(
+        (await s.owner.query(api.inspector.get, { threadId: s.threadId }))!,
+      ).toMatchObject({ effort: "low" });
+      expect(replies[1].retryEffort).toBe("high");
+    });
+
+    test("is refused at max and offered by no reply", async () => {
+      const s = await setup();
+      await s.send("Hard question", "high");
+      await retryHigher(s); // high -> xhigh
+      await retryHigher(s); // xhigh -> max
+      const last = (await s.messages()).findLast((m) => m.role === "assistant")!;
+      expect(last.effort).toBe("max");
+      expect(last.retryEffort).toBeUndefined();
+      await expect(
+        s.owner.mutation(api.chat.retry, {
+          messageId: last._id,
+          higherEffort: true,
+        }),
+      ).rejects.toThrow("already at max");
+    });
+
+    test("is refused, and not offered, on models without per-message effort", async () => {
+      const s = await setup("claude-opus-4-8");
+      await s.send("Hi");
+      const reply = (await s.messages()).find((m) => m.role === "assistant")!;
+      expect(reply.retryEffort).toBeUndefined();
+      await expect(
+        s.owner.mutation(api.chat.retry, {
+          messageId: reply._id,
+          higherEffort: true,
+        }),
+      ).rejects.toThrow("can't change effort per message");
+    });
   });
 });

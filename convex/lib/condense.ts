@@ -1,10 +1,11 @@
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
+import type { Part } from "./toolParts";
 
 // Condensing (spec phase 6): fold all but the most recent turns into a checkpoint summary.
 
 export const CONDENSE_DEFAULTS = {
   enabled: true,
-  atTokens: 30_000,
+  atTokens: 80_000,
   keepTurns: 6,
   minThreadTokens: 10_000,
   paybackTurns: 10,
@@ -24,7 +25,10 @@ export const condenseSettings = (
 });
 
 // The summary's output cap. A summary cut off at it is discarded, never saved.
-export const SUMMARY_MAX_TOKENS = 2048;
+export const SUMMARY_MAX_TOKENS = 6000;
+// What the request asks for: the summary's cap plus room for thinking, since the thread's own
+// model runs at its API default effort (spec: no effort field) and thinking counts toward max_tokens.
+export const SUMMARY_REQUEST_MAX_TOKENS = SUMMARY_MAX_TOKENS + 10_000;
 
 // Versioned like the system prompts: changing the wording changes every future summary.
 export const SUMMARY_PROMPTS: Record<number, string> = {
@@ -36,8 +40,18 @@ export const SUMMARY_PROMPTS: Record<number, string> = {
     "If an earlier summary is given, merge it with the new turns into one summary.",
     "Never call tools. Reply with the summary only.",
   ].join(" "),
+  2: [
+    "You condense a chat between a user and an assistant so it can continue without the full history.",
+    "Write the summary in plain text, no preamble, under these headings (skip one that has nothing):",
+    "Goals and constraints; Decisions and conclusions; Facts, names, numbers and code; Documents and sources;",
+    "Open questions and promises; Current state.",
+    "Keep exact values verbatim: numbers, names, identifiers, file paths, URLs, commands and code.",
+    "If an earlier summary is given, merge it with the new turns into one summary and do not drop any item that still holds.",
+    "Err on the side of including information: later turns may need any detail, so prefer recall over brevity.",
+    "Never call tools. Reply with the summary only.",
+  ].join(" "),
 };
-export const CURRENT_SUMMARY_PROMPT_VERSION = 1;
+export const CURRENT_SUMMARY_PROMPT_VERSION = 2;
 
 // The index (in branch) of the last message to fold, or null when nothing can be folded.
 // Folds whole turns from `cut` (the first message after the latest checkpoint), keeping the
@@ -59,17 +73,56 @@ export function planFold(
   return null;
 }
 
-// The folded messages as a role-labelled transcript for the summarizer. Pinned messages stay
-// verbatim after the summary, so they're left out; images become placeholders.
-export function foldTranscript(messages: Doc<"messages">[]) {
+const DOCUMENT_CLIP = 500;
+const TOOL_ARGS_CLIP = 300;
+const TOOL_RESULT_CLIP = 500;
+
+// What folded messages carried besides their text, by id (a document may have been deleted).
+export type FoldExtras = {
+  documents: Map<Id<"documents">, Doc<"documents"> | null>;
+  searches: Map<Id<"messages">, Doc<"searches"> | null>;
+};
+
+// A message's documents, search and tool work, one line each.
+function digest(m: Doc<"messages">, { documents, searches }: FoldExtras) {
+  const lines: string[] = [];
+  for (const ref of m.documents ?? []) {
+    const doc = documents.get(ref.id);
+    lines.push(`[Document ${JSON.stringify(ref.name)}: ${doc ? doc.text.slice(0, DOCUMENT_CLIP) : "(removed)"}]`);
+  }
+  const search = searches.get(m._id);
+  if (search) {
+    const hits = search.results.map((r) => `${r.title} <${r.url}>`).join("; ");
+    lines.push(`[Search ${JSON.stringify(search.query)}: ${search.error ? `failed - ${search.error}` : hits || "no results"}]`);
+  }
+  const calls = new Map<string, Extract<Part, { type: "toolCall" }>>();
+  for (const p of m.parts ?? []) {
+    if (p.type === "toolCall") calls.set(p.id, p);
+    if (p.type !== "toolResult") continue;
+    const call = calls.get(p.id);
+    const failed = p.status === "ok" ? "" : p.status === "error" ? "error: " : `${p.status}: `;
+    lines.push(
+      `[Tool ${call?.name ?? "unknown"}(${(call?.input ?? "").slice(0, TOOL_ARGS_CLIP)}) -> ${failed}${p.text.slice(0, TOOL_RESULT_CLIP)}]`,
+    );
+  }
+  return lines;
+}
+
+// The folded messages as a role-labelled transcript for the summarizer, each followed by a digest
+// of its documents, search and tool work. Pinned messages stay verbatim after the summary, so
+// they're left out; images become placeholders.
+export function foldTranscript(messages: Doc<"messages">[], extras: FoldExtras) {
   return messages
-    .filter((m) => !m.pinned && m.content !== "")
+    .filter((m) => !m.pinned)
     .map((m) => {
       const images = m.images?.length
         ? `[${m.images.length} image${m.images.length === 1 ? "" : "s"}] `
         : "";
-      return `${m.role === "user" ? "User" : "Assistant"}: ${images}${m.content}`;
+      const head = `${m.role === "user" ? "User" : "Assistant"}: ${images}${m.content}`;
+      const lines = digest(m, extras);
+      return m.content === "" && !lines.length ? "" : [head, ...lines].join("\n");
     })
+    .filter(Boolean)
     .join("\n\n");
 }
 

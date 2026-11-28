@@ -38,6 +38,6 @@ describe("prices and cost", () => {
   });
 
   test("the synced table prices current Claude models with both cache write lifetimes and their context window", () => {
-    expect(priceFor("claude-sonnet-5-5")).toEqual({ input: 2e-6, output: 1e-5, cacheRead: 1e-7, cacheWrite5m: 2.5e-6, cacheWrite1h: 4e-6, contextWindow: 1_000_000 });
+    expect(priceFor("claude-sonnet-5-5")).toEqual({ input: 2e-6, output: 1e-5, cacheRead: 1e-7, cacheWrite5m: 2.5e-6, cacheWrite1h: 4e-6, contextWindow: 1_000_000, maxOutput: 128_000 });
   });
 });

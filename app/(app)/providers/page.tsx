@@ -335,6 +335,7 @@ function ProviderDetail({ provider, onBack }: { provider: Provider; onBack: () =
           <span>Model id</span>
           <span>Images</span>
           <span>Tools</span>
+          <span>Reasoning</span>
           <span>Shown</span>
         </div>
         {provider.models.map((m) => (
@@ -374,6 +375,17 @@ function ProviderDetail({ provider, onBack }: { provider: Provider; onBack: () =
             ) : (
               <span className="text-body-sm text-foreground-muted" title="Every Anthropic model can call tools">
                 {m.tools ? "Yes" : "No"}
+              </span>
+            )}
+            {openai ? (
+              <Switch
+                aria-label={`${m.displayName} reasons`}
+                checked={m.reasoning === true}
+                onCheckedChange={(v) => void updateModel({ providerId: provider._id, modelId: m.id, reasoning: v })}
+              />
+            ) : (
+              <span className="text-body-sm text-foreground-muted" title="Every Anthropic model takes an effort">
+                Yes
               </span>
             )}
             <Switch

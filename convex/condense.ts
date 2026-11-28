@@ -8,7 +8,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { activeBranch, sideJobModelFor } from "./chat";
+import { activeBranch } from "./chat";
 import { contextLayers, nextPrices } from "./inspector";
 import { warmAfterCondense } from "./keepalive";
 import { budgetReached } from "./lib/budget";
@@ -163,8 +163,8 @@ export async function condensePlan(
     ? branch.findIndex((m) => m._id === checkpoint.coversUpToId) + 1
     : 0;
   const end = planFold(branch, cut, config.keepTurns);
-  const sideJob = await sideJobModelFor(ctx, thread);
-  if (end === null || !sideJob) return { kind: "wait" as const, inTokens: 0 };
+  const provider = await ctx.db.get("providers", thread.providerId);
+  if (end === null || !provider) return { kind: "wait" as const, inTokens: 0 };
 
   // Folded tokens: the measured turns layer, scaled by the share of its text being folded.
   const chars = (ms: Doc<"messages">[]) =>
@@ -176,7 +176,6 @@ export async function condensePlan(
   const previousSummary = checkpoint?.tokens ?? 0;
   const summaryInputTokens = previousSummary + foldedTokens;
   const summaryTokens = estimateSummaryTokens(summaryInputTokens);
-  const provider = await ctx.db.get("providers", thread.providerId);
   const economics = condenseEconomics({
     oldPrefixTokens: totalTokens,
     removedTokens: summaryInputTokens - summaryTokens,
@@ -189,7 +188,7 @@ export async function condensePlan(
       thread.modelId,
       requestCacheTtl(settings?.keepaliveEnabled, branch.length + 1),
     ),
-    side: sidePrices(sideJob.provider, sideJob.model),
+    side: sidePrices(provider, thread.modelId),
   });
   const payback = economics?.paybackTurns ?? null;
   const window = priceFor(thread.modelId)?.contextWindow;
@@ -210,12 +209,12 @@ export async function condensePlan(
     cut,
     end,
     checkpoint,
-    sideJob,
+    provider,
     settings,
   };
 }
 
-// The side-job model's prices: free providers cost nothing; null without a price.
+// The summarizer's (the thread model's) prices: free providers cost nothing; null without a price.
 function sidePrices(provider: Doc<"providers">, model: string) {
   if (provider.free === true) return { input: 0, output: 0 };
   const price = priceFor(model);
@@ -259,17 +258,41 @@ export const input = internalQuery({
     const plan = await condensePlan(ctx, thread, branch, force);
     if (plan.kind !== "ready") return null;
     if (await budgetReached(ctx, plan.settings, now)) return null; // side jobs pause while over budget
-    const { cut, end, checkpoint, sideJob } = plan;
-    const { apiStyle, baseUrl, apiKeyEncrypted } = sideJob.provider;
+    const { cut, end, checkpoint, provider } = plan;
+    const { apiStyle, baseUrl, apiKeyEncrypted } = provider;
+    const folded = branch.slice(cut, end + 1);
+    const documents = new Map(
+      await Promise.all(
+        folded
+          .flatMap((m) => m.documents ?? [])
+          .map(async (ref) => [ref.id, await ctx.db.get("documents", ref.id)] as const),
+      ),
+    );
+    const searches = new Map(
+      await Promise.all(
+        folded
+          .filter((m) => m.search)
+          .map(
+            async (m) =>
+              [
+                m._id,
+                await ctx.db
+                  .query("searches")
+                  .withIndex("by_messageId", (q) => q.eq("messageId", m._id))
+                  .unique(),
+              ] as const,
+          ),
+      ),
+    );
     return {
       coversUpToId: branch[end]._id,
       request: summaryRequest(
         checkpoint?.summary ?? null,
-        foldTranscript(branch.slice(cut, end + 1)),
+        foldTranscript(folded, { documents, searches }),
       ),
-      providerId: sideJob.provider._id,
+      providerId: provider._id,
       provider: { apiStyle, baseUrl, apiKeyEncrypted },
-      model: sideJob.model,
+      model: thread.modelId,
       allowlist: plan.settings?.allowlistedHosts ?? [],
     };
   },
@@ -283,6 +306,7 @@ export const save = internalMutation({
     coversUpToId: v.id("messages"),
     providerId: v.id("providers"),
     model: v.string(),
+    promptVersion: v.number(),
     summary: v.optional(v.string()),
     failure: v.optional(v.string()),
     usage: v.optional(usageValidator),
@@ -329,6 +353,7 @@ export const save = internalMutation({
       threadId: thread._id,
       coversUpToId: args.coversUpToId,
       summary: args.summary,
+      promptVersion: args.promptVersion,
       tokens: args.usage?.outputTokens || Math.ceil(args.summary.length / 4),
     });
     await ctx.db.patch("threads", thread._id, { condenseFailure: undefined });

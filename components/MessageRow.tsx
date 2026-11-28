@@ -2,6 +2,8 @@
 
 import {
   IconArrowsExchange,
+  IconBolt,
+  IconChevronRight,
   IconFileText,
   IconMessages,
   IconPencil,
@@ -30,10 +32,11 @@ import { SearchSources } from "@/components/WebSearch";
 import { Button as UiButton, IconButton } from "@/components/ui/button";
 import { Badge, ErrorState } from "@/components/ui/feedback";
 import { Textarea as UiTextarea } from "@/components/ui/fields";
-import { MountOnOpen, Tooltip } from "@/components/ui/overlay";
+import { MountOnOpen, Popover, Tooltip } from "@/components/ui/overlay";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { MODE_MAX_TOKENS, type OutputMode } from "@/convex/lib/outputModes";
+import type { Effort } from "@/convex/lib/effort";
+import { outputCeiling, type OutputMode } from "@/convex/lib/outputModes";
 import { estimateTokens, tokens, usd } from "@/lib/format";
 import { isOptimistic } from "@/lib/optimisticSend";
 import { cn } from "@/lib/utils";
@@ -103,7 +106,7 @@ const MessageRow = memo(function MessageRow({
 export default MessageRow;
 
 // "Retry with" another model. Mounts its picker on first press: a long thread has one per reply.
-function RetryWithMenu({ messageId }: { messageId: Id<"messages"> }) {
+function RetryWithMenu({ messageId, effort }: { messageId: Id<"messages">; effort?: Effort }) {
   const { threadId, mode, threadModel } = useThreadRow();
   const retry = useMutation(api.chat.retry);
   const trigger = (
@@ -121,7 +124,7 @@ function RetryWithMenu({ messageId }: { messageId: Id<"messages"> }) {
       <ModelMenu
         title="Retry with"
         threadId={threadId}
-        maxOutputTokens={MODE_MAX_TOKENS[mode]}
+        maxOutputTokens={outputCeiling(mode, effort)}
         retryOf={messageId}
         defaultOpen
         onPick={(model) =>
@@ -130,6 +133,66 @@ function RetryWithMenu({ messageId }: { messageId: Id<"messages"> }) {
         trigger={trigger}
       />
     </MountOnOpen>
+  );
+}
+
+// "Retry at higher effort": one level up, for this reply alone. Mounts on first press and prices the
+// retry on the thread's own model only while open (the same estimate as "Retry with").
+function RetryHigherEffort({ messageId, effort }: { messageId: Id<"messages">; effort: Effort }) {
+  const { threadId, mode } = useThreadRow();
+  const retry = useMutation(api.chat.retry);
+  const trigger = (
+    <IdleButton
+      variant="ghost"
+      size="sm"
+      iconOnly
+      icon={<IconBolt />}
+      aria-label="Retry at higher effort"
+      title="Retry at higher effort"
+    />
+  );
+  return (
+    <MountOnOpen trigger={trigger}>
+      <Popover title="Retry at higher effort" side="top" defaultOpen trigger={trigger}>
+        <RetryHigherEstimate
+          threadId={threadId}
+          messageId={messageId}
+          effort={effort}
+          onRetry={() => void retry({ messageId, mode, higherEffort: true })}
+        />
+      </Popover>
+    </MountOnOpen>
+  );
+}
+
+function RetryHigherEstimate({
+  threadId,
+  messageId,
+  effort,
+  onRetry,
+}: {
+  threadId: Id<"threads">;
+  messageId: Id<"messages">;
+  effort: Effort;
+  onRetry: () => void;
+}) {
+  const { mode } = useThreadRow();
+  const [openedAt] = useState(() => Date.now());
+  const rows = useQuery(api.inspector.modelEstimates, {
+    threadId,
+    now: openedAt,
+    draftTokens: 0,
+    maxOutputTokens: outputCeiling(mode, effort),
+    retryOf: messageId,
+  });
+  const cost = rows?.find((r) => r.thread)?.costMicroUsd;
+  return (
+    <UiButton variant="outline" size="sm" icon={<IconBolt />} onClick={onRetry}>
+      Retry at {effort} effort
+      <span className="tc-mono text-mono-sm text-foreground-muted">
+        {rows === undefined ? "Pricing…" : cost == null ? "cost unknown" : `~${usd(cost)}`}
+      </span>
+    </UiButton>
   );
 }
 
@@ -302,6 +365,24 @@ function UserMessage({
   );
 }
 
+/**
+ * A reply's thinking summary: open while the model is still thinking, collapsed once the answer
+ * starts (or when the reply is stored), and the owner's own toggle wins from then on.
+ */
+function ThinkingSummary({ text, answering }: { text: string; answering: boolean }) {
+  const [chosen, setChosen] = useState<boolean | null>(null);
+  const open = chosen ?? !answering;
+  return (
+    <div className="tc-thinking-summary">
+      <button type="button" className="tc-thinking-summary-head" aria-expanded={open} onClick={() => setChosen(!open)}>
+        <IconChevronRight size={14} stroke={1.75} className="tc-toolcall-chevron" aria-hidden />
+        Thinking
+      </button>
+      {open && <p className="tc-thinking-summary-body tc-fade-in">{text}</p>}
+    </div>
+  );
+}
+
 function AssistantMessage({ m, highlighted, isLast }: { m: ThreadMessage; highlighted: boolean; isLast: boolean }) {
   const { mode, onContinue } = useThreadRow();
   const retry = useMutation(api.chat.retry);
@@ -312,6 +393,8 @@ function AssistantMessage({ m, highlighted, isLast }: { m: ThreadMessage; highli
   // An optimistic placeholder (ticket 08) has no stream yet, and its id must never reach the server.
   const live = useQuery(api.chat.streamingText, streaming && !isOptimistic(m._id) ? { messageId: m._id } : "skip");
   const text = (streaming ? live : null) ?? m.text;
+  const liveThinking = useQuery(api.chat.streamingThinking, streaming && !isOptimistic(m._id) ? { messageId: m._id } : "skip");
+  const thinking = [m.thinking, streaming ? liveThinking : null].filter(Boolean).join("\n\n");
   return (
     <article
       id={`m-${m._id}`}
@@ -319,7 +402,8 @@ function AssistantMessage({ m, highlighted, isLast }: { m: ThreadMessage; highli
       data-streaming={streaming ? "true" : undefined}
     >
       {streaming && text && <StreamRail />}
-      {streaming && !text && !m.items?.some((i) => i.kind === "tool" && i.status === "running") && <ThinkingIndicator />}
+      {thinking && <ThinkingSummary text={thinking} answering={!!text} />}
+      {streaming && !text && !thinking && !m.items?.some((i) => i.kind === "tool" && i.status === "running") && <ThinkingIndicator />}
       {m.items ? (
         <>
           {m.items.map((item, i) =>
@@ -375,7 +459,13 @@ function AssistantMessage({ m, highlighted, isLast }: { m: ThreadMessage; highli
           {m.status === "stopped" && <Badge>Stopped</Badge>}
           {m.truncated && (
             <Badge tone="warning" dot>
-              {m.hitStepLimit ? "Stopped after 10 steps" : m.approvalExpired ? "Approval timed out" : "Hit the output limit"}
+              {m.hitStepLimit
+                ? "Stopped after 10 steps"
+                : m.approvalExpired
+                  ? "Approval timed out"
+                  : m.truncatedThinking
+                    ? "Cut off while thinking"
+                    : "Hit the output limit"}
             </Badge>
           )}
           {m.pinned && <Badge tone="accent">Pinned</Badge>}
@@ -393,12 +483,32 @@ function AssistantMessage({ m, highlighted, isLast }: { m: ThreadMessage; highli
                 />
               )}
             </Busy>
-            <RetryWithMenu messageId={m._id} />
+            <RetryWithMenu messageId={m._id} effort={m.effort} />
+            {m.retryEffort && <RetryHigherEffort messageId={m._id} effort={m.retryEffort} />}
             <PinButton id={m._id} pinned={m.pinned} locked={m.pinLocked} />
           </MessageActions>
         </div>
       )}
-      {m.truncated && isLast && (
+      {m.truncatedThinking && (
+        <div className="flex flex-wrap items-center gap-2.5">
+          {m.retryLowerEffort && (
+            <UiButton
+              variant="outline"
+              size="sm"
+              icon={<IconRefresh />}
+              onClick={() => void retry({ messageId: m._id, mode, lowerEffort: true })}
+            >
+              Retry at lower effort
+            </UiButton>
+          )}
+          {m.outputMode !== "long" && (
+            <UiButton variant="outline" size="sm" icon={<IconRefresh />} onClick={() => void retry({ messageId: m._id, mode: "long" })}>
+              Retry in long mode
+            </UiButton>
+          )}
+        </div>
+      )}
+      {m.truncated && !m.truncatedThinking && isLast && (
         <div className="flex items-center gap-2.5">
           <UiButton variant="outline" size="sm" icon={<IconPlayerPlay />} onClick={onContinue}>
             Continue

@@ -16,10 +16,12 @@ import { patchThreadState, threadState } from "./threadState";
 import { coveredIds, scheduleCondense } from "./condense";
 import { assertWithinBudget, BUDGET_REACHED, budgetReached } from "./lib/budget";
 import { ancestorIds, insertMessage } from "./lib/ancestors";
+import { dateLine } from "./lib/dateTag";
 import { assembleHistory, latestCheckpoint } from "./lib/context";
 import {
-  MODE_MAX_TOKENS,
+  outputCeiling,
   outputModeValidator,
+  QUICK_BREVITY,
   type OutputMode,
 } from "./lib/outputModes";
 import { supportsPerMessageEffort } from "./lib/anthropic";
@@ -28,13 +30,22 @@ import {
   MAX_IMAGES_PER_MESSAGE,
   type MessageImage,
 } from "./lib/images";
-import { DEFAULT_EFFORT, effortValidator, type Effort } from "./lib/effort";
+import {
+  DEFAULT_EFFORT,
+  defaultEffortFor,
+  effortValidator,
+  higherEffort,
+  lowerEffort,
+  supportsEffort,
+  type Effort,
+} from "./lib/effort";
 import { meterCall } from "./lib/metering";
 import {
   appendStream,
   createStream,
   deleteStream,
   streamText,
+  streamThinking,
 } from "./lib/textStream";
 import { priceFor, sumCost, sumUsage, usageValidator } from "./lib/usage";
 import {
@@ -44,6 +55,7 @@ import {
   MAX_STEPS,
   nextStep,
   expandParts,
+  thinkingSummary,
   toolStatusValidator,
   usedTools,
   type Part,
@@ -247,11 +259,10 @@ async function insertThread(
     systemPromptVersion: CURRENT_SYSTEM_PROMPT_VERSION,
     instructions: settings?.customInstructions,
     startedAt: Date.now(),
-    // Only Anthropic-style threads send effort (spec phase 4).
-    effort:
-      provider.apiStyle === "anthropic"
-        ? (effort ?? DEFAULT_EFFORT)
-        : undefined,
+    // Only models that take an effort store one (spec phase 4, answer quality ticket 13).
+    effort: supportsEffort(provider, modelId)
+      ? (effort ?? settings?.defaultEffort ?? defaultEffortFor(modelId))
+      : undefined,
   });
   return (await ctx.db.get("threads", id))!;
 }
@@ -277,6 +288,7 @@ const messageView = v.object({
     v.literal("error"),
   ),
   text: v.string(),
+  thinking: v.optional(v.string()),
   // Replies that called tools: what happened, in order (the text between calls, each call and its
   // result). While the reply runs, text is only the current step's, still streaming.
   items: v.optional(
@@ -309,7 +321,11 @@ const messageView = v.object({
   usage: v.optional(usageValidator),
   costMicroUsd: v.optional(v.number()),
   truncated: v.optional(v.boolean()),
+  truncatedThinking: v.optional(v.boolean()),
+  outputMode: v.optional(outputModeValidator),
   effort: v.optional(effortValidator),
+  retryEffort: v.optional(effortValidator), // what "Retry at higher effort" would run at
+  retryLowerEffort: v.optional(effortValidator), // what "Retry at lower effort" would run at
   images: v.optional(
     v.array(
       v.object({
@@ -339,6 +355,8 @@ const messageView = v.object({
       results: v.array(v.object({ title: v.string(), url: v.string() })),
       error: v.optional(v.string()),
       costMicroUsd: v.optional(v.number()),
+      queries: v.optional(v.array(v.string())),
+      rewriteCostMicroUsd: v.optional(v.number()),
     }),
   ),
 });
@@ -415,6 +433,8 @@ export const getThread = query({
         // doesn't re-run this query (ADR 0004).
         text: m.content,
         items: usedTools(m.parts) ? toolItems(m, thread, servers) : undefined,
+        // The summary of every finished step; the running step's is in streamingText.
+        thinking: thinkingSummary(m.parts),
         hitStepLimit: m.hitStepLimit,
         approvalExpired: m.approvalExpired,
         error: m.error,
@@ -423,7 +443,25 @@ export const getThread = query({
         usage: m.usage,
         costMicroUsd: m.costMicroUsd,
         truncated: m.truncated,
+        truncatedThinking: m.truncatedThinking,
+        outputMode: m.outputMode,
         effort: m.effort,
+        // What "Retry at higher effort" would run at; absent when it can't (max, or a model
+        // that doesn't take per-message effort).
+        retryEffort:
+          m.role === "assistant" &&
+          m.effort &&
+          !isCheaperReply(m, thread) &&
+          supportsPerMessageEffort(thread.modelId)
+            ? higherEffort(m.effort)
+            : undefined,
+        retryLowerEffort:
+          m.role === "assistant" &&
+          m.effort &&
+          !isCheaperReply(m, thread) &&
+          supportsPerMessageEffort(thread.modelId)
+            ? lowerEffort(m.effort)
+            : undefined,
         images: m.images
           ? await Promise.all(
               m.images.map(async (i) => ({
@@ -592,6 +630,8 @@ async function searchView(ctx: QueryCtx, messageId: Id<"messages">) {
     results: search.results.map(({ title, url }) => ({ title, url })),
     ...(search.error ? { error: search.error } : {}),
     ...(search.costMicroUsd !== undefined ? { costMicroUsd: search.costMicroUsd } : {}),
+    ...(search.queries ? { queries: search.queries } : {}),
+    ...(search.rewriteCostMicroUsd !== undefined ? { rewriteCostMicroUsd: search.rewriteCostMicroUsd } : {}),
   };
 }
 
@@ -605,10 +645,27 @@ async function appendUserMessage(
   replyModel?: ReplyModel, // the model answering it, when not the thread's
   search?: boolean,
   documents?: DocumentRef[],
+  mode?: OutputMode, // quick stores its brevity line on the message
 ) {
   if (effort) await assertPerMessageEffort(ctx, thread);
   if (images?.length)
     await assertImagesAllowed(ctx, thread, images, replyModel);
+  const path = parent ? [...(await ancestorIds(ctx, parent)), parent._id] : [];
+  // The date line goes on the branch's first message and whenever the local day changes from the
+  // latest one stored on the branch; decided here, once, from the clock and the setting as they are now.
+  const settings = await ctx.db
+    .query("settings")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", thread.ownerId))
+    .unique();
+  const today = dateLine(Date.now(), settings?.timeZone);
+  // Walks back from the parent and stops at the first dated message, so a long branch isn't read
+  // whole (Convex caps a mutation's reads; see lib/ancestors). The first message of every local
+  // day carries a date, so the walk is at most one day long.
+  let lastDate: string | undefined;
+  for (const id of path.toReversed()) {
+    lastDate = (await ctx.db.get("messages", id))?.date;
+    if (lastDate) break;
+  }
   const id = await insertMessage(
     ctx,
     {
@@ -622,19 +679,22 @@ async function appendUserMessage(
       images: images?.length ? images : undefined,
       search: search || undefined,
       documents: documents?.length ? documents : undefined,
+      brevity: mode === "quick" ? QUICK_BREVITY : undefined,
+      date: today === lastDate ? undefined : today,
     },
-    parent ? [...(await ancestorIds(ctx, parent)), parent._id] : [],
+    path,
   );
   return (await ctx.db.get("messages", id))!;
 }
 
-// The effort a thread's requests send (spec phase 4): Anthropic-style threads only; threads from
-// before phase 4 run at the default.
+// The effort a request to `modelId` sends (spec phase 4): Anthropic-style models and compatible
+// ones the owner flagged as reasoning; threads from before phase 4 run at the default.
 export const effortFor = (
   thread: Doc<"threads">,
   provider: Doc<"providers"> | null,
+  modelId: string = thread.modelId,
 ) =>
-  provider?.apiStyle === "anthropic"
+  supportsEffort(provider, modelId)
     ? (thread.effort ?? DEFAULT_EFFORT)
     : undefined;
 
@@ -646,8 +706,9 @@ async function effortInForce(
   thread: Doc<"threads">,
   user: Doc<"messages">,
   provider: Doc<"providers"> | null,
+  modelId: string,
 ) {
-  const base = effortFor(thread, provider);
+  const base = effortFor(thread, provider, modelId);
   if (!base) return undefined;
   if (user.effort) return user.effort;
   const ancestors = await Promise.all(
@@ -755,6 +816,8 @@ async function startReply(
   user: Doc<"messages">,
   outputMode?: OutputMode,
   replyModel?: ReplyModel,
+  retryEffort?: Effort, // a retry at higher effort: this reply alone runs at it
+  retry?: boolean, // made by Retry
 ) {
   await assertWithinBudget(ctx, thread.ownerId);
   const { provider, modelId } = await replyProvider(
@@ -775,7 +838,10 @@ async function startReply(
       model: modelId,
       providerId: provider?._id ?? thread.providerId,
       outputMode,
-      effort: await effortInForce(ctx, thread, user, provider),
+      retry: retry || undefined,
+      effort:
+        retryEffort ??
+        (await effortInForce(ctx, thread, user, provider, modelId)),
     },
     [...(await ancestorIds(ctx, user)), user._id],
   );
@@ -893,6 +959,7 @@ async function sendTo(
       model,
       search,
       docs,
+      mode,
     ),
     mode,
     model,
@@ -933,21 +1000,45 @@ export const retry = mutation({
     messageId: v.id("messages"),
     mode: v.optional(outputModeValidator),
     model: v.optional(replyModelValidator), // retry with this model (spec phase 7)
+    higherEffort: v.optional(v.boolean()), // one effort level above this reply's, for the retry alone
+    lowerEffort: v.optional(v.boolean()), // one level below, for the retry alone
   },
   returns: v.null(),
-  handler: async (ctx, { messageId, mode, model }) => {
+  handler: async (
+    ctx,
+    { messageId, mode, model, higherEffort: higher, lowerEffort: lower },
+  ) => {
     const ownerId = await requireOwner(ctx);
     const reply = await ownedMessage(ctx, ownerId, messageId);
     if (reply.role !== "assistant" || !reply.parentId)
       throw new ConvexError("Only replies can be retried");
     const thread = await ownedThread(ctx, ownerId, reply.threadId);
     await assertNotStreaming(ctx, thread);
+    let retryEffort: Effort | undefined;
+    if (higher || lower) {
+      if (model)
+        throw new ConvexError(
+          "Change effort on a reply from the thread's own model",
+        );
+      await assertPerMessageEffort(ctx, thread);
+      retryEffort =
+        reply.effort &&
+        (higher ? higherEffort(reply.effort) : lowerEffort(reply.effort));
+      if (!retryEffort)
+        throw new ConvexError(
+          higher
+            ? "This reply is already at max effort"
+            : "This reply is already at low effort",
+        );
+    }
     await startReply(
       ctx,
       thread,
       (await ctx.db.get("messages", reply.parentId))!,
       mode,
       model,
+      retryEffort,
+      true,
     );
     return null;
   },
@@ -988,6 +1079,7 @@ export const edit = mutation({
         // A searched message searches again for its new text, while search is still set up.
         original.search && (await searchKeySet(ctx, ownerId)),
         original.documents, // like images, the documents stay
+        mode,
       ),
       mode,
     );
@@ -1043,8 +1135,10 @@ export const setThreadEffort = mutation({
     const ownerId = await requireOwner(ctx);
     const thread = await ownedThread(ctx, ownerId, threadId);
     if (
-      (await ctx.db.get("providers", thread.providerId))?.apiStyle !==
-      "anthropic"
+      !supportsEffort(
+        await ctx.db.get("providers", thread.providerId),
+        thread.modelId,
+      )
     ) {
       throw new ConvexError("This provider has no effort setting");
     }
@@ -1267,7 +1361,17 @@ export const generationInput = internalQuery({
       .withIndex("by_ownerId", (q) => q.eq("ownerId", message.ownerId))
       .unique();
     const ancestors = await ancestorIds(ctx, message);
-    const history = await assembleHistory(ctx, message.threadId, ancestors);
+    const history = await assembleHistory(ctx, message.threadId, ancestors, message);
+    // A retry at another effort: its question carries the reply's effort as a per-message change.
+    // Only an explicit retry does; an ordinary reply's effort may come from a folded message.
+    const sent =
+      history.messages.findLast((m) => m.effort)?.effort ??
+      effortFor(thread, provider, model);
+    const retryEffort =
+      message.retry && !oneOff && message.effort && message.effort !== sent
+        ? message.effort
+        : undefined;
+    if (retryEffort) history.messages.at(-1)!.effort = retryEffort;
     return {
       stopRequested: message.stopRequested === true,
       // When this step was queued, for the reply timing log: later steps set stepStartedAt.
@@ -1295,8 +1399,13 @@ export const generationInput = internalQuery({
         thread.toolSet?.length && supportsTools(provider, model)
           ? thread.toolSet.map(toDefinition)
           : undefined,
-      maxTokens: MODE_MAX_TOKENS[message.outputMode ?? "normal"],
-      effort: oneOff ? message.effort : effortFor(thread, provider),
+      maxTokens: outputCeiling(
+        message.outputMode ?? "normal",
+        // The reply's own effort: a per-message change or a retry's level, else the thread's.
+        message.effort ?? effortFor(thread, provider, model),
+        priceFor(model)?.maxOutput,
+      ),
+      effort: oneOff ? message.effort : effortFor(thread, provider, model),
       cacheTtl: requestCacheTtl(settings?.keepaliveEnabled, ancestors.length),
     };
   },
@@ -1314,14 +1423,25 @@ export const streamingText = query({
   },
 });
 
+// A streaming step's thinking summary so far, kept in the same row as its text.
+export const streamingThinking = query({
+  args: { messageId: v.id("messages") },
+  returns: v.string(),
+  handler: async (ctx, { messageId }) => {
+    const ownerId = await requireOwner(ctx);
+    await ownedMessage(ctx, ownerId, messageId);
+    return await streamThinking(ctx, messageId);
+  },
+});
+
 // One flush of a streaming step: appends the text and says whether to stop, in one round trip.
 export const flush = internalMutation({
-  args: { messageId: v.id("messages"), text: v.string() },
+  args: { messageId: v.id("messages"), text: v.string(), thinking: v.optional(v.string()) },
   returns: v.boolean(),
-  handler: async (ctx, { messageId, text }) => {
+  handler: async (ctx, { messageId, text, thinking }) => {
     const message = await ctx.db.get("messages", messageId);
     // No stream row: the step was closed meanwhile (stuck-reply sweep), so the action stops.
-    if (!(await appendStream(ctx, messageId, text))) return true;
+    if (!(await appendStream(ctx, messageId, text, thinking))) return true;
     return message?.stopRequested === true;
   },
 });
@@ -1422,7 +1542,8 @@ export const finalize = internalMutation({
       ...(content ? [{ type: "text" as const, step, text: content }] : []),
       ...calls.map((c) => ({ type: "toolCall" as const, step, ...c })),
     ];
-    const withTools = usedTools(message.parts) || loop;
+    // A reply keeps parts when it called a tool or showed a thinking summary; a plain one has none.
+    const withTools = usedTools(message.parts) || loop || !!thinking?.length;
     const parts = withTools ? [...(message.parts ?? []), ...stepParts] : undefined;
 
     // The step's text moves onto the message (content, or parts when the reply goes on) in this
@@ -1480,10 +1601,13 @@ export const finalize = internalMutation({
           declined: [],
         });
     } else {
+      const text = parts ? joinText(parts) : content;
       await ctx.db.patch("messages", messageId, {
         ...metered,
         status: end.status,
-        content: parts ? joinText(parts) : content,
+        content: text,
+        truncatedThinking:
+          end.truncated && !end.hitStepLimit && !text.trim() ? true : undefined,
         error: end.error,
         truncated: end.truncated,
         hitStepLimit: end.hitStepLimit,

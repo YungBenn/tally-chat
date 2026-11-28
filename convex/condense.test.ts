@@ -3,11 +3,14 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
+import { untagged } from "../test/untagged";
 import { messageDelta, messageStart, messageStop, sse, textDelta } from "../test/sse";
 import { api } from "./_generated/api";
+import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { paybackTurns, planFold } from "./lib/condense";
 import { SUMMARY_PREFIX } from "./lib/context";
+import { SUMMARY_MAX_TOKENS, SUMMARY_PROMPTS } from "./lib/condense";
 import { encryptSecret } from "./lib/vault";
 import { threadState } from "./threadState";
 import schema from "./schema";
@@ -33,13 +36,14 @@ type Block = { type: string; text: string; cache_control?: object };
 type Body = {
   model: string;
   max_tokens: number;
+  output_config?: unknown;
   system: string | Block[];
   messages: { role: string; content: string | Block[] }[];
 };
 const systemText = (b: Body) => (typeof b.system === "string" ? b.system : b.system.map((x) => x.text).join(""));
-const text = (c: string | Block[]) => (typeof c === "string" ? c : c.map((b) => b.text).join(""));
+const text = (c: string | Block[]) => untagged(typeof c === "string" ? c : c.map((b) => b.text).join(""));
 const isSummaryCall = (b: Body) => systemText(b).startsWith("You condense a chat");
-const isTitleCall = (b: Body) => b.max_tokens === 30;
+const isTitleCall = (b: Body) => b.max_tokens === 512;
 
 // A fake Anthropic API whose usage grows with the request (characters / 4), so the inspector's
 // measured layer sizes behave like the real thing. Summary calls answer `summary` (or fail).
@@ -72,6 +76,10 @@ function provider(summary: () => string | "fail" | "truncate", { caching = true 
     },
   };
 }
+
+// A version 2 summary layer with the date of the folded turns after it, whatever the date.
+const summaryWithDate = (summary: string) =>
+  new RegExp(`^${SUMMARY_PREFIX}<summary>\\n${summary}\\n</summary>\\n\\n<current_date>[^<]+</current_date>$`);
 
 const LONG = "x".repeat(400); // ~100 tokens per user message
 
@@ -130,7 +138,12 @@ describe("condensing after a reply", () => {
 
     await s.chat(`Turn 6 ${LONG}`); // 6 turns, keep 2: turns 1 to 4 fold
     const [call] = s.summaryCalls();
-    expect(call.model).toBe("claude-haiku-5-5"); // the side-job model, not the thread's
+    expect(call.model).toBe("claude-sonnet-5-5"); // the thread's own model, not the side-job one
+    expect(call.output_config).toBeUndefined(); // the model's API default effort
+    // No effort field to keep thinking short, so the request leaves room for it above the summary's 6,000.
+    expect(call.max_tokens).toBe(16_000);
+    expect(systemText(call)).toBe(SUMMARY_PROMPTS[2]);
+    expect(SUMMARY_MAX_TOKENS).toBe(6000);
     const request = text(call.messages[0].content);
     expect(request).toContain("User: Turn 1");
     expect(request).toContain("Assistant: Answer 4");
@@ -140,12 +153,22 @@ describe("condensing after a reply", () => {
     const [checkpoint] = await s.checkpoints();
     expect(checkpoint.summary).toBe("Summary one");
     expect(checkpoint.tokens).toBe(40); // the summary's measured output tokens
+    expect(checkpoint.promptVersion).toBe(2);
 
     await s.chat("Turn 7");
     const next = s.replyCalls().at(-1)!;
+    // The only dated message (turn 1) is folded away, so its date rides on the summary.
+    const date = (await s.t.run((ctx) => ctx.db.query("messages").first()))!.date;
+    expect(date).toBeTruthy();
     expect(next.messages[0]).toEqual({
       role: "user",
-      content: [{ type: "text", text: `${SUMMARY_PREFIX}Summary one`, cache_control: { type: "ephemeral", ttl: "5m" } }],
+      content: [
+        {
+          type: "text",
+          text: `${SUMMARY_PREFIX}<summary>\nSummary one\n</summary>\n\n<current_date>${date}</current_date>`,
+          cache_control: { type: "ephemeral", ttl: "5m" },
+        },
+      ],
     });
     // Summary, then turns 5 and 6 verbatim, then the new message.
     expect(next.messages.slice(1).map((m) => text(m.content).slice(0, 6))).toEqual(["Turn 5", "Answer", "Turn 6", "Answer", "Turn 7"]);
@@ -159,10 +182,39 @@ describe("condensing after a reply", () => {
     expect(inspector!.layers.find((l) => l.kind === "checkpoint")!.label).toBe("summary of turns\u00a01\u2060–\u20604");
   });
 
+  test("a plain reply after a checkpoint folded an effortful message is not treated as a retry", async () => {
+    const s = await setup();
+    fake = fakeFetch({ [ANTHROPIC]: provider(() => "Summary one") });
+    await s.setCondense({ condenseEnabled: false });
+    await s.owner.mutation(api.chat.send, { threadId: s.threadId, content: `Turn 1 ${LONG}`, effort: "high" });
+    await s.t.finishAllScheduledFunctions(() => {});
+    for (let i = 2; i <= 5; i++) await s.chat(`Turn ${i} ${LONG}`);
+    await s.setCondense({ condenseEnabled: true });
+    await s.chat(`Turn 6 ${LONG}`); // folds turns 1 to 4, the effort change with them
+    expect(await s.checkpoints()).toHaveLength(1);
+    await s.chat("Turn 7");
+    // Nothing on the new message asks for an effort: the request's bytes stay what they were.
+    expect(JSON.stringify(s.replyCalls().at(-1)!.messages.slice(1))).not.toContain("output_config");
+  });
+
+  test("a version 1 checkpoint keeps its bytes: the summary is sent bare, without tags", async () => {
+    const s = await setup();
+    fake = fakeFetch({ [ANTHROPIC]: provider(() => "unused") });
+    await longThread(s, 5);
+    await s.setCondense({ condenseEnabled: false });
+    await s.chat("Turn 6");
+    const last = await s.t.run((ctx) => ctx.db.query("messages").order("desc").first());
+    await s.t.run((ctx) =>
+      ctx.db.insert("checkpoints", { ownerId: s.ownerId, threadId: s.threadId, coversUpToId: last!._id, summary: "Old summary", tokens: 3 }),
+    );
+    await s.chat("Turn 7");
+    expect(text(s.replyCalls().at(-1)!.messages[0].content)).toBe(`${SUMMARY_PREFIX}Old summary`);
+  });
+
   test("short threads, threads under the threshold and threads with only the kept turns don't condense", async () => {
     const tiny = await setup({ condenseAtTokens: undefined, condenseMinThreadTokens: undefined, condenseKeepTurns: undefined });
     fake = fakeFetch({ [ANTHROPIC]: provider(() => "unused") });
-    for (let i = 1; i <= 4; i++) await tiny.chat(`Turn ${i} ${LONG}`); // defaults: 30k threshold, 10k minimum
+    for (let i = 1; i <= 4; i++) await tiny.chat(`Turn ${i} ${LONG}`); // defaults: 80k threshold, 10k minimum
     expect(tiny.summaryCalls()).toHaveLength(0);
     const status = (await tiny.inspector())!.condense;
     expect(status.state).toBe("waiting");
@@ -193,7 +245,7 @@ describe("condensing after a reply", () => {
 
     await s.chat("Turn 12");
     const next = s.replyCalls().at(-1)!;
-    expect(text(next.messages[0].content)).toBe(`${SUMMARY_PREFIX}Summary 2`);
+    expect(text(next.messages[0].content)).toMatch(summaryWithDate("Summary 2"));
     expect(next.messages.filter((m) => text(m.content).startsWith(SUMMARY_PREFIX))).toHaveLength(1);
   });
 
@@ -245,7 +297,7 @@ describe("condensing after a reply", () => {
     const jobs = await s.t.run((ctx) => ctx.db.query("sideJobs").collect());
     const condense = jobs.filter((j) => j.kind === "condense");
     expect(condense).toHaveLength(1);
-    expect(condense[0]).toMatchObject({ model: "claude-haiku-5-5", usage: { outputTokens: 40 } });
+    expect(condense[0]).toMatchObject({ model: "claude-sonnet-5-5", usage: { outputTokens: 40 } });
     const reply = (await s.owner.query(api.chat.getThread, { threadId: s.threadId }))!.messages.at(-1)!;
     const after = (await s.inspector())!.thread;
     expect(after.costMicroUsd - before.costMicroUsd).toBe((reply.costMicroUsd ?? 0) + condense[0].costMicroUsd!);
@@ -324,7 +376,7 @@ describe("after a checkpoint lands", () => {
     const warm = s.keepaliveCalls().at(-1)!;
     expect(warm.messages[0]).toEqual({
       role: "user",
-      content: [{ type: "text", text: `${SUMMARY_PREFIX}Summary one`, cache_control: { type: "ephemeral", ttl: "5m" } }],
+      content: [{ type: "text", text: expect.stringMatching(summaryWithDate("Summary one")), cache_control: { type: "ephemeral", ttl: "5m" } }],
     });
     // The kept turns, the latest reply marked as the breakpoint the next turn will share, then the nudge.
     expect(warm.messages.slice(1).map((m) => text(m.content).slice(0, 6))).toEqual(["Turn 5", "Answer", "Turn 6", "Answer", "."]);
@@ -480,7 +532,7 @@ describe("the cache veto", () => {
   });
 
   test("lets it through on a provider that doesn't cache", async () => {
-    const s = await setup({ condensePaybackTurns: 1 });
+    const s = await setup({ condensePaybackTurns: 5 }); // the summary is priced on the thread's model
     fake = fakeFetch({ [ANTHROPIC]: provider(() => "Summary one", { caching: false }) });
     await longThread(s, 5);
     await s.chat(`Turn 6 ${LONG}`);
@@ -504,10 +556,82 @@ describe("the cache veto", () => {
   });
 });
 
+describe("the folded transcript", () => {
+  // A 5-turn thread with condensing off; `decorate` edits the stored messages before the fold.
+  async function folded(decorate: (ctx: MutationCtx, users: Doc<"messages">[], replies: Doc<"messages">[], s: Awaited<ReturnType<typeof setup>>) => Promise<void>) {
+    const s = await setup();
+    fake = fakeFetch({ [ANTHROPIC]: provider(() => "Summary one") });
+    await longThread(s, 5);
+    await s.t.run(async (ctx) => {
+      const all = await ctx.db.query("messages").collect();
+      await decorate(ctx, all.filter((m) => m.role === "user"), all.filter((m) => m.role === "assistant"), s);
+    });
+    await s.chat(`Turn 6 ${LONG}`);
+    return text(s.summaryCalls()[0].messages[0].content);
+  }
+
+  test("each folded document is named with its first 500 characters", async () => {
+    const request = await folded(async (ctx, users, _r, s) => {
+      const [u1, u5] = [users[0], users[4]];
+      const id = await ctx.db.insert("documents", { ownerId: s.ownerId, name: "spec.md", text: "d".repeat(500) + "TAIL", tokens: 1 });
+      const late = await ctx.db.insert("documents", { ownerId: s.ownerId, name: "late.md", text: "kept", tokens: 1 });
+      await ctx.db.patch("messages", u1._id, { documents: [{ id, name: "spec.md", tokens: 1 }] });
+      await ctx.db.patch("messages", u5._id, { documents: [{ id: late, name: "late.md", tokens: 1 }] });
+    });
+    expect(request).toContain("spec.md");
+    expect(request).toContain("d".repeat(500));
+    expect(request).not.toContain("TAIL");
+    expect(request).not.toContain("late.md"); // turn 5 is kept verbatim
+  });
+
+  test("each search lists its query and its results' titles and URLs, not their snippets", async () => {
+    const request = await folded(async (ctx, [u1], _r, s) => {
+      await ctx.db.patch("messages", u1._id, { search: true });
+      await ctx.db.insert("searches", {
+        ownerId: s.ownerId, messageId: u1._id, query: "convex pricing 2026",
+        results: [{ title: "Convex Pricing", url: "https://convex.dev/pricing", snippet: "SNIPPET-TEXT" }],
+      });
+    });
+    expect(request).toContain("convex pricing 2026");
+    expect(request).toContain("Convex Pricing");
+    expect(request).toContain("https://convex.dev/pricing");
+    expect(request).not.toContain("SNIPPET-TEXT");
+  });
+
+  test("each tool call shows its name, arguments clipped to 300 and its result clipped to 500, errors marked", async () => {
+    const request = await folded(async (ctx, _u, [r1]) => {
+      await ctx.db.patch("messages", r1._id, {
+        parts: [
+          { type: "toolCall", step: 1, id: "a", name: "read_file", input: JSON.stringify({ path: "p".repeat(400) }) },
+          { type: "toolResult", step: 1, id: "a", text: "r".repeat(600), status: "ok" },
+          { type: "toolCall", step: 2, id: "b", name: "run_sql", input: "{}" },
+          { type: "toolResult", step: 2, id: "b", text: "syntax boom", status: "error" },
+          { type: "text", step: 3, text: "done" },
+        ],
+      });
+    });
+    expect(request).toContain("read_file");
+    expect(request).toContain("p".repeat(280)); // the argument text, cut at 300 including its JSON wrapper
+    expect(request).not.toContain("p".repeat(301));
+    expect(request).toContain("r".repeat(500));
+    expect(request).not.toContain("r".repeat(501));
+    expect(request).toMatch(/run_sql[\s\S]*error[\s\S]*syntax boom/i);
+    expect(request).not.toMatch(/read_file[^\n]*error/i);
+  });
+
+  test("pinned messages stay out, digests included", async () => {
+    const request = await folded(async (ctx, [u1], _r, s) => {
+      const id = await ctx.db.insert("documents", { ownerId: s.ownerId, name: "pinned.md", text: "pinned body", tokens: 1 });
+      await ctx.db.patch("messages", u1._id, { pinned: true, documents: [{ id, name: "pinned.md", tokens: 1 }] });
+    });
+    expect(request).not.toContain("pinned.md");
+  });
+});
+
 describe("condense settings", () => {
   test("the owner turns condensing off and changes the threshold and kept turns, within limits", async () => {
     const s = await setup({ condenseAtTokens: undefined, condenseKeepTurns: undefined, condenseEnabled: undefined });
-    expect((await s.owner.query(api.settings.get, {})).condense).toEqual({ enabled: true, atTokens: 30_000, keepTurns: 6 });
+    expect((await s.owner.query(api.settings.get, {})).condense).toEqual({ enabled: true, atTokens: 80_000, keepTurns: 6 });
 
     await s.owner.mutation(api.settings.setCondense, { enabled: false });
     expect((await s.inspector())!.condense.state).toBe("off");

@@ -18,9 +18,17 @@ export const createStream = (ctx: MutationCtx, messageId: Id<"messages">) =>
 export const streamText = async (ctx: QueryCtx, messageId: Id<"messages">) =>
   (await row(ctx, messageId))?.text ?? null;
 
-export async function appendStream(ctx: MutationCtx, messageId: Id<"messages">, text: string) {
+// The step's thinking summary so far ("" when none).
+export const streamThinking = async (ctx: QueryCtx, messageId: Id<"messages">) =>
+  (await row(ctx, messageId))?.thinking ?? "";
+
+export async function appendStream(ctx: MutationCtx, messageId: Id<"messages">, text: string, thinking = "") {
   const stream = await row(ctx, messageId);
-  if (stream) await ctx.db.patch("streams", stream._id, { text: stream.text + text });
+  if (stream)
+    await ctx.db.patch("streams", stream._id, {
+      text: stream.text + text,
+      ...(thinking ? { thinking: (stream.thinking ?? "") + thinking } : {}),
+    });
   return stream !== null;
 }
 

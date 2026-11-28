@@ -22,7 +22,7 @@ import { toast } from "@/components/ui/toast";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
-  DEFAULT_EFFORT,
+  defaultEffortFor,
   EFFORT_LEVELS,
   type Effort,
 } from "@/convex/lib/effort";
@@ -328,16 +328,30 @@ function DefaultModel() {
 
 function DefaultEffort() {
   const settings = useQuery(api.settings.get);
+  const providers = useQuery(api.providers.list);
   const setDefaultEffort = useMutation(api.settings.setDefaultEffort);
   const [error, run] = useSave();
-  if (!settings) return null;
+  if (!settings || !providers) return null;
+  // The model a new thread starts on: the default model while it's still listed, else the first one.
+  const listed = providers.flatMap((p) =>
+    p.models.filter((m) => !m.hidden).map((m) => ({ providerId: p._id, modelId: m.id })),
+  );
+  const newThreadModel =
+    listed.find(
+      (m) =>
+        m.providerId === settings.defaultModel?.providerId &&
+        m.modelId === settings.defaultModel?.modelId,
+    ) ?? listed[0];
   return (
     <SettingsRow
       title="Default effort"
       control={
         <Select
           aria-label="Default effort"
-          value={settings.defaultEffort ?? DEFAULT_EFFORT}
+          value={
+            settings.defaultEffort ??
+            defaultEffortFor(newThreadModel?.modelId ?? "")
+          }
           error={error ?? undefined}
           onValueChange={(v) =>
             run(setDefaultEffort({ effort: v as Effort }))
@@ -445,7 +459,7 @@ function Condensing() {
         }
       >
         When recent turns grow past the threshold, older turns fold into a
-        summary by your side-job model. A condense that wouldn&apos;t pay for
+        summary by the thread&apos;s own model. A condense that wouldn&apos;t pay for
         itself through the cache waits.
       </SettingsRow>
       <SettingsRow
@@ -461,7 +475,7 @@ function Condensing() {
           />
         }
       >
-        Tokens of recent turns before older ones are condensed.
+        Tokens of recent turns before older ones are condensed. Default 80,000.
       </SettingsRow>
       <SettingsRow
         title="Keep last"
