@@ -79,6 +79,8 @@ describe("sending with custom instructions", () => {
     expect(CURRENT_SYSTEM_PROMPT_VERSION).toBe(4);
     const line = SYSTEM_PROMPTS[4].split("\n").find((l) => l.includes("> [!WARNING]"))!;
     expect(line).toBeTruthy();
+    // A trigger, not "sparingly": models never wrote a callout under the vaguer wording.
+    expect(line).toContain("matters more than the rest");
     const added = SYSTEM_PROMPTS[4].slice(SYSTEM_PROMPTS[4].indexOf(line), SYSTEM_PROMPTS[4].indexOf("</rendering>"));
     expect(SYSTEM_PROMPTS[4].replace(added, "")).toBe(SYSTEM_PROMPTS[3]);
     expect(added).toContain('```stats\n{"items":[{"value":"27 of 32"');

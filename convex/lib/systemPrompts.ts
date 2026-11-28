@@ -27,7 +27,7 @@ export const SYSTEM_PROMPTS: Record<number, string> = {
   // Visual blocks (ticket 01): version 3 plus callouts. Unpublished until feat/visual-blocks merges, so later tickets edit it in place.
   4: V3.replace(
     "\n</rendering>",
-    `\nA blockquote whose first line is [!NOTE], [!TIP], [!IMPORTANT], [!WARNING] or [!CAUTION] renders as a callout with an icon and title, e.g. "> [!WARNING]" then "> text" on the next line. Use one sparingly for what the reader must not miss.
+    `\nA blockquote whose first line is [!NOTE], [!TIP], [!IMPORTANT], [!WARNING] or [!CAUTION] renders as a callout, e.g. "> [!WARNING]" then "> text" on the next line. When one risk, irreversible step or caveat matters more than the rest, put it in a [!WARNING] or [!CAUTION] callout before the details instead of another bullet; at most two per reply.
 ${FENCE}stats
 {"items":[{"value":"27 of 32","label":"PRs merged","note":"84%"}]}
 ${FENCE}
