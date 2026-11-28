@@ -1,5 +1,5 @@
 import { transformAsync } from "@babel/core";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: { tsconfigPaths: true },
@@ -24,6 +24,7 @@ export default defineConfig({
     },
   ],
   test: {
+    exclude: [...configDefaults.exclude, ".claude/**"], // agent worktrees
     environment: "edge-runtime",
     // Convex tests run real scheduled work, which a loaded machine slows past the 5 s default.
     testTimeout: 30_000,

@@ -20,6 +20,7 @@ function remarkCallouts() {
         if (m && para?.type === "paragraph" && text?.type === "text") {
           text.value = text.value.slice(m[0].length);
           if (!text.value) para.children.shift();
+          if (para.children[0]?.type === "break") para.children.shift(); // marker line ended in a hard break
           if (!para.children.length) node.children.shift();
           node.data = { ...node.data, hProperties: { "data-callout": m[1].toLowerCase() } };
         }

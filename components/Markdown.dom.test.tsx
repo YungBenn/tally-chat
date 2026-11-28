@@ -25,3 +25,13 @@ test("a code block in a mounted reply becomes highlighted once Shiki loads", asy
   );
   await act(() => root.unmount());
 }, 60_000);
+
+// Client-rendered styles serialize as `--w: 0%`, so the zero-width fill must be absent, not matched by text.
+test("a bars row with value 0 renders no fill, others keep theirs", async () => {
+  const el = document.createElement("div");
+  const root = createRoot(el);
+  const rows = [{ label: "a", value: 4 }, { label: "b", value: 0 }];
+  await act(() => root.render(<Markdown text={"```bars\n" + JSON.stringify({ rows }) + "\n```"} />));
+  expect([...el.querySelectorAll(".tc-bar-track")].map((t) => t.children.length)).toEqual([1, 0]);
+  await act(() => root.unmount());
+});

@@ -73,6 +73,7 @@ describe("parseVisualBlock split", () => {
   test("zero values are fine while the sum is positive; a zero sum is not", () => {
     expect(parseVisualBlock("split", split([part("A", 0), part("B", 5)]))).not.toBeNull();
     expect(parseVisualBlock("split", split([part("A", 0), part("B", 0)]))).toBeNull();
+    expect(parseVisualBlock("split", split([part("A", 1e308), part("B", 1e308)]))).toBeNull(); // sum overflows
   });
 
   test("a label is valid at 60 characters and invalid at 61", () => {
@@ -146,6 +147,10 @@ describe("isOpenVisualFence", () => {
     ["```stats\n```", false],
     ["```python\nx = 1", false],
     ["Some prose", false],
+    ['[ref]: http://x\n\n```split\n{"parts":[', true],
+    ['[ref]: http://x\n\n```split\n{}\n```\n\ntail', false],
+    ['Intro\n\n```stats\n{}\n```\n\n```bars\n{"rows":[', true],
+    ["```python\n```stats\n", false],
   ])("%j -> %s", (text, open) => {
     expect(isOpenVisualFence(text)).toBe(open);
   });

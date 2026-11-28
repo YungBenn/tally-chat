@@ -46,7 +46,8 @@ const SCHEMAS = {
     const { parts } = data;
     if (!Array.isArray(parts) || parts.length < 2 || parts.length > 5) return null;
     const out = labelled(parts);
-    return out && out.reduce((s, p) => s + p.value, 0) > 0 ? { kind: "split", parts: out } : null;
+    const sum = out?.reduce((s, p) => s + p.value, 0) ?? 0;
+    return out && sum > 0 && Number.isFinite(sum) ? { kind: "split", parts: out } : null;
   },
   bars(data: Obj): BarsBlock | null {
     const { rows } = data;
@@ -70,18 +71,22 @@ export function parseVisualBlock(lang: string, source: string): VisualBlock | nu
   return isObj(data) ? SCHEMAS[lang](data) : null;
 }
 
-const OPENER = /^ {0,3}(`{3,}|~{3,})[ \t]*([\w-]+)/;
+const OPENER = /^ {0,3}(`{3,}|~{3,})[ \t]*([\w-]*)/;
 
 /**
- * True when a top-level markdown block is a visual-kind fence still waiting for its closing line.
- * An unclosed fence runs to the end of the text, so it is the last block of a streaming reply. The
- * body can be valid JSON before the fence closes, so this reads the fence, not the parse.
+ * True when the text ends inside a visual-kind fence still waiting for its closing line. An unclosed
+ * fence runs to the end of the text, so it is at the tail of a streaming reply, however many blocks
+ * precede it. The body can be valid JSON before the fence closes, so this reads the fences, not the parse.
  */
-export function isOpenVisualFence(block: string): boolean {
-  const lines = block.replace(/^\n+|\n+$/g, "").split("\n");
-  const open = OPENER.exec(lines[0]);
-  if (!open || !isVisualKind(open[2])) return false;
-  const last = lines.length > 1 ? lines[lines.length - 1].trimEnd() : "";
-  const closing = /^( {0,3})([`~]+)$/.exec(last)?.[2];
-  return !(closing && closing[0] === open[1][0] && closing.length >= open[1].length);
+export function isOpenVisualFence(text: string): boolean {
+  let open: RegExpExecArray | null = null;
+  for (const line of text.split("\n")) {
+    if (!open) {
+      open = OPENER.exec(line);
+      continue;
+    }
+    const closing = /^( {0,3})([`~]+)$/.exec(line.trimEnd())?.[2];
+    if (closing && closing[0] === open[1][0] && closing.length >= open[1].length) open = null;
+  }
+  return !!open && isVisualKind(open[2]);
 }

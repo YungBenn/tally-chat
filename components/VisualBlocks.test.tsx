@@ -125,7 +125,7 @@ describe("bars block", () => {
   ];
 
   test("lengths scale to the largest value", () => {
-    expect(widths(render(fenceOf("bars", { rows })))).toEqual([100, 50, 0]);
+    expect(widths(render(fenceOf("bars", { rows })))).toEqual([100, 50]); // the zero row has no fill
   });
 
   test("labels and printed values are real text; display replaces the number", () => {
@@ -137,7 +137,7 @@ describe("bars block", () => {
   });
 
   test("all-zero rows render with no division by zero", () => {
-    expect(widths(render(fenceOf("bars", { rows: [{ label: "A", value: 0 }] })))).toEqual([0]);
+    expect(widths(render(fenceOf("bars", { rows: [{ label: "A", value: 0 }] })))).toEqual([]);
   });
 
   test("more than twelve rows is shown as code", () => {

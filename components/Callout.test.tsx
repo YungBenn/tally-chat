@@ -40,6 +40,12 @@ describe("callouts", () => {
     expect(html).not.toContain("data-callout");
   });
 
+  test("a marker line ending in a hard break leaves no leading <br>", () => {
+    const html = render("> [!NOTE]  \n> Mind the gap.");
+    expect(html).toContain('data-callout="note"');
+    expect(html).not.toContain("<br");
+  });
+
   test("a marker that is not alone on its line stays a quote", () => {
     expect(render("> [!NOTE] inline")).toContain("<blockquote");
   });

@@ -258,7 +258,7 @@ function VisualBlockView({ block }: { block: VisualBlock }) {
             <span className="tc-bar-label">{r.label}</span>
             <span className="tc-bar-value">{r.display ?? num(r.value)}</span>
             <span className="tc-bar-track" aria-hidden>
-              <span style={{ "--w": px(max > 0 ? (r.value / max) * 100 : 0) } as React.CSSProperties} />
+              {r.value > 0 && <span style={{ "--w": px((r.value / max) * 100) } as React.CSSProperties} />}
             </span>
           </li>
         ))}
@@ -327,6 +327,7 @@ const codeComponents = {
     isVisualKind(langOf(children)) ? <CodeBlock>{children}</CodeBlock> : components.pre({ children }),
 };
 
+// ponytail: open-fence placeholder covers top-level fences only; extend if models start nesting visual blocks in lists or quotes.
 // One top-level block; memoized so a streaming reply re-renders only the block still growing.
 const Block = memo(function Block({ text, openFence }: { text: string; openFence: "streaming" | "done" | null }) {
   return (
