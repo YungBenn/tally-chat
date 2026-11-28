@@ -44,6 +44,10 @@ _Avoid_: Glow, gradient border, rainbow
 A message that the condenser never folds into a summary.
 _Avoid_: Starred, saved
 
+**Visual block**:
+A fenced block in a reply that the app shows as a stat panel, chart or callout instead of as code. The model writes the data; the app owns the look.
+_Avoid_: Widget, artifact, card, embed
+
 ## Tools
 
 **Tool server**:

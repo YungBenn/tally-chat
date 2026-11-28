@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import { createHash } from "node:crypto";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { setAuthEnv } from "../test/authEnv";
 import { fakeFetch } from "../test/fakeFetch";
@@ -66,6 +67,26 @@ describe("sending with custom instructions", () => {
     for (const v of [1, 2]) expect(systemPrompt(v, "Be brief")).toBe(`${SYSTEM_PROMPTS[v]}\n\nThe user's custom instructions:\n\nBe brief`);
     expect(SYSTEM_PROMPTS[3]).toContain("\\( ... \\)");
     expect(SYSTEM_PROMPTS[3]).toContain("A ```mermaid block renders");
+  });
+
+  test("published prompts 1-3 keep their bytes; version 4 is version 3 plus callouts and visual blocks", () => {
+    const sha = (v: number) => createHash("sha256").update(SYSTEM_PROMPTS[v]).digest("hex");
+    expect([1, 2, 3].map(sha)).toEqual([
+      "4eeff3005400ddc46bdcb7eb3622215d5572e6e560d65515491556d6660ee03a",
+      "e5a3c8f205a09fa190bc64c31ad68ea3cfeebbf6225f5c01f46dfb75e9e7d705",
+      "4bcd51f99c470d4927074546475ce1c95618404760b8f5d631be3b398c6759a0",
+    ]);
+    expect(CURRENT_SYSTEM_PROMPT_VERSION).toBe(4);
+    const line = SYSTEM_PROMPTS[4].split("\n").find((l) => l.includes("> [!WARNING]"))!;
+    expect(line).toBeTruthy();
+    // A trigger, not "sparingly": models never wrote a callout under the vaguer wording.
+    expect(line).toContain("matters more than the rest");
+    const added = SYSTEM_PROMPTS[4].slice(SYSTEM_PROMPTS[4].indexOf(line), SYSTEM_PROMPTS[4].indexOf("</rendering>"));
+    expect(SYSTEM_PROMPTS[4].replace(added, "")).toBe(SYSTEM_PROMPTS[3]);
+    expect(added).toContain('```stats\n{"items":[{"value":"27 of 32"');
+    expect(added).toContain('```split\n{"parts":[');
+    expect(added).toContain('```bars\n{"rows":[');
+    expect(added.length / 4).toBeLessThan(250);
   });
 
   test("a new thread sends the instructions set when it was created, and later edits leave it alone", async () => {

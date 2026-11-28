@@ -414,10 +414,10 @@ function AssistantMessage({ m, highlighted, isLast }: { m: ThreadMessage; highli
             ),
           )}
           {/* While it runs, text is the step still streaming; after, the items hold all of it. */}
-          {streaming && text && <Markdown text={text} />}
+          {streaming && text && <Markdown text={text} streaming />}
         </>
       ) : (
-        text && <Markdown text={text} />
+        text && <Markdown text={text} streaming={streaming} />
       )}
       {m.status === "error" && (
         <ErrorState

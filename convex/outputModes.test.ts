@@ -13,7 +13,7 @@ import {
 } from "../test/sse";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { SYSTEM_PROMPTS } from "./lib/systemPrompts";
+import { CURRENT_SYSTEM_PROMPT_VERSION, SYSTEM_PROMPTS } from "./lib/systemPrompts";
 import { encryptSecret } from "./lib/vault";
 import schema from "./schema";
 
@@ -387,7 +387,7 @@ describe("output ceilings by effort", () => {
 });
 
 describe("the concise system prompt", () => {
-  test("new threads use version 3; threads started on versions 1 and 2 keep their own bytes", async () => {
+  test("new threads use the current version; threads started on versions 1 and 2 keep their own bytes", async () => {
     const s = await setup();
     await s.owner.mutation(api.chat.send, {
       threadId: s.anthropicThread,
@@ -414,7 +414,7 @@ describe("the concise system prompt", () => {
     const [newer, old, middle] = s
       .replies()
       .map((b) => (b.system as { text: string }[])[0].text);
-    expect(newer).toBe(SYSTEM_PROMPTS[3]);
+    expect(newer).toBe(SYSTEM_PROMPTS[CURRENT_SYSTEM_PROMPT_VERSION]);
     expect(old).toBe(SYSTEM_PROMPTS[1]);
     expect(middle).toBe(SYSTEM_PROMPTS[2]);
   });
