@@ -94,8 +94,8 @@ None.
 
 ## Tickets
 
-1. Callouts from GitHub alert syntax.
-2. `lib/visualBlocks.ts` and the `stats` block.
-3. The `split` and `bars` blocks.
-4. System prompt version 4.
-5. End-to-end check on a real model.
+Each ticket adds its own lines to system prompt version 4, which stays unpublished until the branch merges, and ends with its own check on a real model.
+
+1. Callouts from GitHub alert syntax, creating version 4.
+2. The `stats` visual block, with the shared validation, open-fence placeholder and code-block fallback.
+3. The `split` and `bars` visual blocks, and an end-to-end pass over all of them.
