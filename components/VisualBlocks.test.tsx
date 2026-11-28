@@ -75,3 +75,79 @@ describe("stats block", () => {
     expect(html).not.toContain("tc-visual-ph");
   });
 });
+
+const fenceOf = (lang: string, body: unknown) => "```" + lang + "\n" + JSON.stringify(body) + "\n```";
+const widths = (html: string) => [...html.matchAll(/--w:([\d.]+)%/g)].map((m) => Number(m[1]));
+
+describe("split block", () => {
+  const parts = [
+    { label: "Opus", value: 60 },
+    { label: "Sonnet", value: 30 },
+    { label: "Haiku", value: 10 },
+  ];
+
+  test("segment widths are the shares, in chart colour order", () => {
+    const html = render(fenceOf("split", { parts }));
+    expect(widths(html)).toEqual([60, 30, 10]);
+    expect([...html.matchAll(/--c:var\(--chart-(\d)\)/g)].map((m) => m[1])).toEqual(["1", "2", "3", "1", "2", "3"]);
+    expect(html).not.toContain("tc-code");
+  });
+
+  test("the legend has real text: label, value and percentage", () => {
+    const html = render(fenceOf("split", { parts }));
+    expect(html).toContain("Opus");
+    expect(html).toContain(">60<");
+    expect(html).toContain("60%");
+    expect(html).toContain("10%");
+  });
+
+  test("a tiny share is labelled <1% and the other part is not rounded up to 100%", () => {
+    const html = render(fenceOf("split", { parts: [{ label: "A", value: 1 }, { label: "B", value: 1000 }] }));
+    expect(html).toContain("&lt;1%");
+    expect(html).toContain(">99%<");
+  });
+
+  test("a zero-sum split is shown as code", () => {
+    const html = render(fenceOf("split", { parts: [{ label: "A", value: 0 }, { label: "B", value: 0 }] }));
+    expect(html).toContain("tc-code");
+  });
+
+  test("an open split fence streams as a placeholder", () => {
+    expect(render('```split\n{"parts":[{"label":"A"', true)).toContain("tc-visual-ph");
+  });
+});
+
+describe("bars block", () => {
+  const rows = [
+    { label: "Alpha", value: 50 },
+    { label: "Beta", value: 25, display: "a quarter" },
+    { label: "Gamma", value: 0 },
+  ];
+
+  test("lengths scale to the largest value", () => {
+    expect(widths(render(fenceOf("bars", { rows })))).toEqual([100, 50, 0]);
+  });
+
+  test("labels and printed values are real text; display replaces the number", () => {
+    const html = render(fenceOf("bars", { rows }));
+    expect(html).toContain("Alpha");
+    expect(html).toContain(">50<");
+    expect(html).toContain("a quarter");
+    expect(html).not.toContain(">25<");
+  });
+
+  test("all-zero rows render with no division by zero", () => {
+    expect(widths(render(fenceOf("bars", { rows: [{ label: "A", value: 0 }] })))).toEqual([0]);
+  });
+
+  test("more than twelve rows is shown as code", () => {
+    const html = render(fenceOf("bars", { rows: Array.from({ length: 13 }, (_, i) => ({ label: `r${i}`, value: i })) }));
+    expect(html).toContain("tc-code");
+  });
+
+  test("an open bars fence streams as a placeholder; a finished one shows code", () => {
+    const open = '```bars\n{"rows":[{"label":"A","value":1}]}';
+    expect(render(open, true)).toContain("tc-visual-ph");
+    expect(render(open, false)).toContain("tc-code");
+  });
+});

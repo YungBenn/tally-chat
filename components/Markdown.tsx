@@ -222,7 +222,49 @@ const langOf = (children: React.ReactNode) => {
 };
 
 /** A visual block (ADR 0005) in the app's own design. Real text throughout, so it selects and reads aloud. */
+const num = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+const px = (n: number) => `${Math.round(n * 100) / 100}%`;
+
 function VisualBlockView({ block }: { block: VisualBlock }) {
+  if (block.kind === "split") {
+    const total = block.parts.reduce((s, p) => s + p.value, 0);
+    const share = block.parts.map((p) => (p.value / total) * 100);
+    // A share under 1% reads "<1%"; a rounded share never claims 100% while another part has some.
+    const pct = (v: number) => (v === 100 ? "100%" : v > 0 && v < 1 ? "<1%" : `${Math.min(99, Math.round(v))}%`);
+    const colour = (i: number) => ({ "--c": `var(--chart-${i + 1})` }) as React.CSSProperties;
+    return (
+      <div className="tc-split">
+        <div className="tc-split-bar" aria-hidden>
+          {block.parts.map((_, i) => share[i] > 0 && <span key={i} style={{ ...colour(i), "--w": px(share[i]) } as React.CSSProperties} />)}
+        </div>
+        <ul className="tc-split-legend">
+          {block.parts.map((p, i) => (
+            <li key={i} style={colour(i)}>
+              <span className="tc-split-label">{p.label}</span>
+              <span className="tc-split-value">{num(p.value)}</span>
+              <span className="tc-split-pct">{pct(share[i])}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+  if (block.kind === "bars") {
+    const max = Math.max(...block.rows.map((r) => r.value));
+    return (
+      <ul className="tc-bars">
+        {block.rows.map((r, i) => (
+          <li key={i}>
+            <span className="tc-bar-label">{r.label}</span>
+            <span className="tc-bar-value">{r.display ?? num(r.value)}</span>
+            <span className="tc-bar-track" aria-hidden>
+              <span style={{ "--w": px(max > 0 ? (r.value / max) * 100 : 0) } as React.CSSProperties} />
+            </span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
   return (
     <dl className="tc-stats">
       {block.items.map((it, i) => (

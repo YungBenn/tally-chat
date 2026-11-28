@@ -3,11 +3,30 @@
 // one entry to SCHEMAS here and one component there.
 
 export type StatsBlock = { kind: "stats"; items: { value: string; label: string; note?: string }[] };
-export type VisualBlock = StatsBlock;
+export type SplitBlock = { kind: "split"; parts: { label: string; value: number }[] };
+export type BarsBlock = { kind: "bars"; rows: { label: string; value: number; display?: string }[] };
+export type VisualBlock = StatsBlock | SplitBlock | BarsBlock;
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
 const text = (v: unknown, max: number): v is string => typeof v === "string" && v.length > 0 && v.length <= max;
+
+// Shared by split and bars: {label, value >= 0, display?}, rebuilt so unknown keys are dropped.
+function labelled(items: unknown[], withDisplay: true): { label: string; value: number; display?: string }[] | null;
+function labelled(items: unknown[]): { label: string; value: number }[] | null;
+function labelled(items: unknown[], withDisplay = false) {
+  const out: { label: string; value: number; display?: string }[] = [];
+  for (const it of items) {
+    if (!isObj(it) || !text(it.label, 60) || typeof it.value !== "number" || !Number.isFinite(it.value) || it.value < 0) return null;
+    const row: (typeof out)[number] = { label: it.label, value: it.value };
+    if (withDisplay && it.display !== undefined) {
+      if (!text(it.display, 16)) return null;
+      row.display = it.display;
+    }
+    out.push(row);
+  }
+  return out;
+}
 
 // Each schema returns the typed block or null; unknown keys are dropped by rebuilding the object.
 const SCHEMAS = {
@@ -22,6 +41,18 @@ const SCHEMAS = {
       else return null;
     }
     return { kind: "stats", items: out };
+  },
+  split(data: Obj): SplitBlock | null {
+    const { parts } = data;
+    if (!Array.isArray(parts) || parts.length < 2 || parts.length > 5) return null;
+    const out = labelled(parts);
+    return out && out.reduce((s, p) => s + p.value, 0) > 0 ? { kind: "split", parts: out } : null;
+  },
+  bars(data: Obj): BarsBlock | null {
+    const { rows } = data;
+    if (!Array.isArray(rows) || rows.length < 1 || rows.length > 12) return null;
+    const out = labelled(rows, true);
+    return out ? { kind: "bars", rows: out } : null;
   },
 } satisfies Record<string, (data: Obj) => VisualBlock | null>;
 

@@ -52,8 +52,87 @@ describe("parseVisualBlock stats", () => {
   });
 });
 
+const part = (label: string, value: unknown) => ({ label, value });
+const split = (parts: unknown) => JSON.stringify({ parts });
+const bars = (rows: unknown) => JSON.stringify({ rows });
+const many = (n: number, make: (i: number) => object) => Array.from({ length: n }, (_, i) => make(i));
+
+describe("parseVisualBlock split", () => {
+  test("a valid block is returned typed; unknown keys are dropped", () => {
+    expect(parseVisualBlock("split", JSON.stringify({ x: 1, parts: [{ ...part("A", 3), color: "red" }, part("B", 1)] }))).toEqual({
+      kind: "split",
+      parts: [part("A", 3), part("B", 1)],
+    });
+  });
+
+  test("two to five parts are valid; one or six are not", () => {
+    const n = (k: number) => split(many(k, (i) => part(`p${i}`, 1)));
+    expect([1, 2, 5, 6].map((k) => parseVisualBlock("split", n(k)) !== null)).toEqual([false, true, true, false]);
+  });
+
+  test("zero values are fine while the sum is positive; a zero sum is not", () => {
+    expect(parseVisualBlock("split", split([part("A", 0), part("B", 5)]))).not.toBeNull();
+    expect(parseVisualBlock("split", split([part("A", 0), part("B", 0)]))).toBeNull();
+  });
+
+  test("a label is valid at 60 characters and invalid at 61", () => {
+    expect(parseVisualBlock("split", split([part("x".repeat(60), 1), part("B", 1)]))).not.toBeNull();
+    expect(parseVisualBlock("split", split([part("x".repeat(61), 1), part("B", 1)]))).toBeNull();
+  });
+
+  test.each([
+    ["a negative value", split([part("A", -1), part("B", 5)])],
+    ["a string value", split([part("A", "3"), part("B", 5)])],
+    ["a null value", split([part("A", null), part("B", 5)])],
+    ["a missing label", split([{ value: 1 }, part("B", 5)])],
+    ["an empty label", split([part("", 1), part("B", 5)])],
+    ["parts not an array", '{"parts":1}'],
+    ["a null part", split([null, part("B", 1)])],
+    ["invalid JSON", "{parts"],
+  ])("%s is null", (_, source) => {
+    expect(parseVisualBlock("split", source)).toBeNull();
+  });
+});
+
+describe("parseVisualBlock bars", () => {
+  test("a valid block is returned typed, with an optional display", () => {
+    expect(parseVisualBlock("bars", bars([{ ...part("A", 42), display: "42%" }, part("B", 0)]))).toEqual({
+      kind: "bars",
+      rows: [{ label: "A", value: 42, display: "42%" }, { label: "B", value: 0 }],
+    });
+  });
+
+  test("one to twelve rows are valid; zero or thirteen are not", () => {
+    const n = (k: number) => bars(many(k, (i) => part(`r${i}`, i)));
+    expect([0, 1, 12, 13].map((k) => parseVisualBlock("bars", n(k)) !== null)).toEqual([false, true, true, false]);
+  });
+
+  test("display is valid at 16 characters and invalid at 17", () => {
+    expect(parseVisualBlock("bars", bars([{ ...part("A", 1), display: "x".repeat(16) }]))).not.toBeNull();
+    expect(parseVisualBlock("bars", bars([{ ...part("A", 1), display: "x".repeat(17) }]))).toBeNull();
+  });
+
+  test("all-zero values are allowed", () => {
+    expect(parseVisualBlock("bars", bars([part("A", 0), part("B", 0)]))).not.toBeNull();
+  });
+
+  test.each([
+    ["a negative value", bars([part("A", -1)])],
+    ["a non-finite value", '{"rows":[{"label":"A","value":1e999}]}'],
+    ["a string value", bars([part("A", "1")])],
+    ["an empty display", bars([{ ...part("A", 1), display: "" }])],
+    ["a non-string display", bars([{ ...part("A", 1), display: 4 }])],
+    ["a missing label", bars([{ value: 1 }])],
+    ["rows not an array", '{"rows":{}}'],
+  ])("%s is null", (_, source) => {
+    expect(parseVisualBlock("bars", source)).toBeNull();
+  });
+});
+
 describe("isOpenVisualFence", () => {
   test.each([
+    ['```split\n{"parts":[', true],
+    ['```bars\n{"rows":[]}\n```', false],
     ["```stats", true],
     ["```stats\n", true],
     ['```stats\n{"items":[{"value":"1","label":"a"}]}', true],

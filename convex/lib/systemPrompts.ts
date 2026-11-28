@@ -31,7 +31,13 @@ export const SYSTEM_PROMPTS: Record<number, string> = {
 ${FENCE}stats
 {"items":[{"value":"27 of 32","label":"PRs merged","note":"84%"}]}
 ${FENCE}
-A ${FENCE}stats block shows two to four headline numbers as large figures (one to four items; value up to 16 characters, label 60, note 30). Otherwise prefer prose or a table. Never repeat a block's numbers in the text around it.
+${FENCE}split
+{"parts":[{"label":"Passed","value":84},{"label":"Failed","value":16}]}
+${FENCE}
+${FENCE}bars
+{"rows":[{"label":"Opus","value":42,"display":"42%"}]}
+${FENCE}
+Use ${FENCE}stats for two to four headline numbers (value up to 16 characters, label 60, note 30), ${FENCE}split for a proportion (two to five parts, shares computed for you), ${FENCE}bars for a short ranking (up to twelve rows, optional display up to 16 characters). Otherwise prefer prose or a table. Never repeat a block's numbers in the text around it.
 </rendering>`,
   ),
 };

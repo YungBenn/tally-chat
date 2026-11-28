@@ -179,7 +179,7 @@ describe("the inspector's context layers", () => {
                 ? {
                     usage: {
                       inputTokens: 5,
-                      cacheReadTokens: 900,
+                      cacheReadTokens: 2000,
                       cacheWriteTokens5m: 100,
                       cacheWriteTokens1h: 0,
                       outputTokens: 40,
@@ -212,7 +212,7 @@ describe("the inspector's context layers", () => {
     expect(layers[2]).toEqual({
       kind: "turns",
       label: "turn 3",
-      tokens: 5 + 900 + 100 + 40 - SYSTEM - 301,
+      tokens: 5 + 2000 + 100 + 40 - SYSTEM - 301,
       estimated: false,
     });
   });

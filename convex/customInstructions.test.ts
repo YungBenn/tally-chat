@@ -82,6 +82,9 @@ describe("sending with custom instructions", () => {
     const added = SYSTEM_PROMPTS[4].slice(SYSTEM_PROMPTS[4].indexOf(line), SYSTEM_PROMPTS[4].indexOf("</rendering>"));
     expect(SYSTEM_PROMPTS[4].replace(added, "")).toBe(SYSTEM_PROMPTS[3]);
     expect(added).toContain('```stats\n{"items":[{"value":"27 of 32"');
+    expect(added).toContain('```split\n{"parts":[');
+    expect(added).toContain('```bars\n{"rows":[');
+    expect(added.length / 4).toBeLessThan(250);
   });
 
   test("a new thread sends the instructions set when it was created, and later edits leave it alone", async () => {
